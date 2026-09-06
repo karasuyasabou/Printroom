@@ -1,0 +1,28 @@
+# macOS and editors
+.DS_Store
+*.swp
+*.swo
+
+# Private, large reference originals; keep the manifest instead
+/TEST/
+
+# Derived or temporary outputs
+/scratch/
+/output/
+/build/
+/DerivedData/
+.build/
+.swiftpm/
+xcuserdata/
+*.xcuserstate
+*.xcarchive
+*.dSYM/
+
+# Runtime roll state must not become repository fixtures by accident
+.printroom.json
+.printroom-cache/
+
+# Local environment
+.env
+.env.*
+!.env.example

@@ -1,0 +1,8 @@
+# Normalize documentation only. Preserve original asset bytes.
+*.md text eol=lf
+*.json text eol=lf
+*.icc -text -diff
+*.icm -text -diff
+*.cube -text
+*.tif -text -diff
+*.tiff -text -diff
