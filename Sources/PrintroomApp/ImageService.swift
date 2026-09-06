@@ -1,80 +1,208 @@
 import Foundation
 import PrintroomCore
 
+/// Keeps only bounded, unadjusted preview buffers. Full-resolution reads are transient;
+/// preview, thumbnail and viewport callers use separate actors so utility work does
+/// not queue ahead of interactive work. Cancellation propagates from the caller into
+/// the strip decoder, and canceled requests never enter the cache.
 actor ImageService {
-  private var cachedURL: URL?
-  private var cachedImage: LinearImage?
-  private var cachedModification: Date?
-  private var cachedSize: Int?
+  struct CacheStatistics: Sendable {
+    let entries: Int
+    let bytes: Int
+    let limitBytes: Int
+    let hits: Int
+    let misses: Int
+  }
+  private struct SourceIdentity: Equatable {
+    let url: URL
+    let modification: Date?
+    let size: Int64
+    let inode: UInt64
+  }
+  private struct Entry {
+    let identity: SourceIdentity
+    let dimension: Int
+    let pixels: PixelBuffer
+    let width: Int
+    let height: Int
+    let profileName: String
+    var access: UInt64
+    var bytes: Int { pixels.pixels.count * MemoryLayout<SIMD4<Float>>.stride }
+  }
+  private var entries: [Entry] = []
+  private var access: UInt64 = 0
+  private var hits = 0
+  private var misses = 0
+  private let cacheLimitBytes: Int
+  private let cacheLimitEntries: Int
+
+  init(cacheLimitBytes: Int = 64 * 1024 * 1024, cacheLimitEntries: Int = 12) {
+    self.cacheLimitBytes = max(0, cacheLimitBytes)
+    self.cacheLimitEntries = max(0, cacheLimitEntries)
+  }
+
+  /// Compatibility/reference path only. No full-resolution image remains cached.
   func load(_ url: URL) throws -> LinearImage {
     try Task.checkCancellation()
-    // URL.resourceValues may return its own cached metadata after a same-path replacement.
-    let metadata = try FileManager.default.attributesOfItem(atPath: url.path)
-    let modification = metadata[.modificationDate] as? Date
-    let size = (metadata[.size] as? NSNumber)?.intValue
-    if cachedURL == url, cachedModification == modification, cachedSize == size, let cachedImage {
-      return cachedImage
-    }
-    cachedImage = nil
-    cachedURL = nil
-    let image = try TIFFCodec.read(url: url)
+    let image = try autoreleasepool { try TIFFCodec.read(url: url) }
     try Task.checkCancellation()
-    cachedURL = url
-    cachedImage = image
-    cachedModification = modification
-    cachedSize = size
     return image
   }
+
   func clear() {
-    cachedImage = nil
-    cachedURL = nil
+    entries.removeAll(keepingCapacity: false)
+    hits = 0
+    misses = 0
   }
+
+  func invalidate(_ url: URL) {
+    let normalized = url.standardizedFileURL
+    entries.removeAll { $0.identity.url == normalized }
+  }
+
+  func cacheStatistics() -> CacheStatistics {
+    CacheStatistics(
+      entries: entries.count, bytes: entries.reduce(0) { $0 + $1.bytes },
+      limitBytes: cacheLimitBytes, hits: hits, misses: misses)
+  }
+
+  /// Width/height stay in TIFF-orientation-corrected source coordinates. User
+  /// orientation is applied after the pipeline, independently of the input cache.
   func preview(_ url: URL) throws -> (PixelBuffer, Int, Int, String) {
-    let image = try load(url)
-    return (image.preview(maxDimension: 1600), image.width, image.height, image.embeddedProfileName)
+    let entry = try previewEntry(url, maxDimension: 1600)
+    return (entry.pixels, entry.width, entry.height, entry.profileName)
   }
+
+  func thumbnail(_ url: URL, maxDimension: Int = 240) throws -> PixelBuffer {
+    try previewEntry(url, maxDimension: maxDimension).pixels
+  }
+
+  /// A native-resolution tile in source coordinates. Regions are transient and
+  /// cannot evict the small input previews needed for continuous adjustment.
+  func region(_ url: URL, rect: PixelRect) throws -> PixelBuffer {
+    try Task.checkCancellation()
+    guard rect.width > 0, rect.height > 0,
+      rect.width <= 8_388_608 / rect.height
+    else { throw PrintroomError.invalid("1:1 检查区域超过 8 百万像素，请缩小检查视口") }
+    let identity = try sourceIdentity(url)
+    let image = try autoreleasepool { try TIFFCodec.readRegion(url: url, rect: rect) }
+    try Task.checkCancellation()
+    guard identity == (try sourceIdentity(url)) else {
+      throw PrintroomError.invalid("读取期间源 TIFF 已改变，请重新打开照片")
+    }
+    return try pixelBuffer(image)
+  }
+
   func sample(_ url: URL, rect: PixelRect, matrix: PrintDensityMatrix, frameID: UUID) throws -> (
     FilmCalibration, CalibrationDiagnostics
   ) {
-    let image = try load(url)
-    return (
-      try Pipeline.calibrate(image: image, rect: rect, matrix: matrix, sourceFrameID: frameID),
-      try Pipeline.calibrationDiagnostics(image: image, rect: rect)
-    )
+    try Task.checkCancellation()
+    let identity = try sourceIdentity(url)
+    let metadata = try autoreleasepool { try TIFFCodec.metadata(url: url) }
+    let image = try autoreleasepool { try TIFFCodec.readRegion(url: url, rect: rect) }
+    let local = PixelRect(x: 0, y: 0, width: image.width, height: image.height)
+    try Task.checkCancellation()
+    var calibration = try Pipeline.calibrate(
+      image: image, rect: local, matrix: matrix, sourceFrameID: frameID)
+    calibration.selection = rect
+    calibration.sourceWidth = metadata.width
+    calibration.sourceHeight = metadata.height
+    let diagnostics = try Pipeline.calibrationDiagnostics(image: image, rect: local)
+    try Task.checkCancellation()
+    guard identity == (try sourceIdentity(url)) else {
+      throw PrintroomError.invalid("采样期间源 TIFF 已改变，请重新采样")
+    }
+    return (calibration, diagnostics)
   }
+
   func pixel(_ url: URL, x: Int, y: Int) throws -> SIMD3<Float> {
-    let image = try load(url)
-    return image.pixel(x: max(0, min(image.width - 1, x)), y: max(0, min(image.height - 1, y)))
+    try Task.checkCancellation()
+    let identity = try sourceIdentity(url)
+    let metadata = try autoreleasepool { try TIFFCodec.metadata(url: url) }
+    let rect = PixelRect(
+      x: max(0, min(metadata.width - 1, x)), y: max(0, min(metadata.height - 1, y)),
+      width: 1, height: 1)
+    let image = try autoreleasepool { try TIFFCodec.readRegion(url: url, rect: rect) }
+    try Task.checkCancellation()
+    guard identity == (try sourceIdentity(url)) else {
+      throw PrintroomError.invalid("读取期间源 TIFF 已改变，请重新取样")
+    }
+    return image.pixel(x: 0, y: 0)
   }
+
+  private func previewEntry(_ url: URL, maxDimension: Int) throws -> Entry {
+    try Task.checkCancellation()
+    guard (1...4096).contains(maxDimension) else {
+      throw PrintroomError.invalid("预览长边必须在 1–4096 像素之间")
+    }
+    let identity = try sourceIdentity(url)
+    access &+= 1
+    entries.removeAll { $0.identity.url == identity.url && $0.identity != identity }
+    if let index = entries.firstIndex(where: {
+      $0.identity == identity && $0.dimension == maxDimension
+    }) {
+      hits += 1
+      entries[index].access = access
+      return entries[index]
+    }
+    misses += 1
+    let metadata = try autoreleasepool { try TIFFCodec.metadata(url: url) }
+    let image = try autoreleasepool { try TIFFCodec.readPreview(url: url, maxDimension: maxDimension) }
+    let pixels = try pixelBuffer(image)
+    try Task.checkCancellation()
+    guard identity == (try sourceIdentity(url)) else {
+      throw PrintroomError.invalid("读取期间源 TIFF 已改变，请重新打开照片")
+    }
+    let entry = Entry(
+      identity: identity, dimension: maxDimension, pixels: pixels,
+      width: metadata.width, height: metadata.height,
+      profileName: metadata.embeddedProfileName, access: access)
+    if cacheLimitEntries > 0, entry.bytes <= cacheLimitBytes {
+      while !entries.isEmpty,
+        entries.count >= cacheLimitEntries
+          || entries.reduce(0, { $0 + $1.bytes }) + entry.bytes > cacheLimitBytes
+      {
+        let oldest = entries.indices.min { entries[$0].access < entries[$1].access }!
+        entries.remove(at: oldest)
+      }
+      entries.append(entry)
+    }
+    return entry
+  }
+
+  private func sourceIdentity(_ url: URL) throws -> SourceIdentity {
+    // resourceValues can retain stale attributes after same-path replacement.
+    let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+    return SourceIdentity(
+      url: url.standardizedFileURL, modification: attributes[.modificationDate] as? Date,
+      size: (attributes[.size] as? NSNumber)?.int64Value ?? -1,
+      inode: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0)
+  }
+
+  private func pixelBuffer(_ image: LinearImage) throws -> PixelBuffer {
+    var pixels = [SIMD4<Float>]()
+    pixels.reserveCapacity(image.width * image.height)
+    for y in 0..<image.height {
+      try Task.checkCancellation()
+      for x in 0..<image.width { pixels.append(SIMD4(image.pixel(x: x, y: y), 1)) }
+    }
+    return PixelBuffer(width: image.width, height: image.height, pixels: pixels)
+  }
+
+  /// Legacy callers share the same immutable request, color conversion and
+  /// publishing implementation as the batch queue.
   func export(
     source: URL, destination: URL, calibration: FilmCalibration, adjustments: FrameAdjustments,
     assets: AppAssets, progress: @Sendable @escaping (Double) -> Void
-  ) throws {
-    guard
-      source.standardizedFileURL.resolvingSymlinksInPath()
-        != destination.standardizedFileURL.resolvingSymlinksInPath()
-    else { throw PrintroomError.invalid("导出不能覆盖原始 TIFF") }
-    let image = try load(source)
-    try TIFFCodec.write(
-      url: destination, width: image.width, height: image.height, profile: assets.profile
-    ) { range in
-      try Task.checkCancellation()
-      var pixels = [SIMD4<Float>]()
-      pixels.reserveCapacity(image.width * range.count)
-      for y in range {
-        for x in 0..<image.width { pixels.append(SIMD4(image.pixel(x: x, y: y), 1)) }
-      }
-      let out = try assets.gpu.render(
-        PixelBuffer(width: image.width, height: range.count, pixels: pixels),
-        calibration: calibration, adjustments: adjustments, lut: assets.lut)
-      var samples = [UInt16]()
-      samples.reserveCapacity(out.pixels.count * 3)
-      for p in out.pixels {
-        for c in 0..<3 { samples.append(UInt16(floor(min(1, max(0, p[c])) * 65535 + 0.5))) }
-      }
-      progress(Double(range.upperBound) / Double(image.height))
-      return samples
+  ) async throws {
+    let request = try ExportRequest(
+      source: source, destination: destination, calibration: calibration, adjustments: adjustments)
+    let result = try await ExportEngine().run(request, lut: assets.lut, p3Profile: assets.profile) {
+      progress($0.fraction)
     }
-    progress(1)
+    if result.wasCancelled { throw CancellationError() }
+    guard result.completedCount == 1 else {
+      throw PrintroomError.invalid(result.results.first?.error ?? "导出未完成")
+    }
   }
 }

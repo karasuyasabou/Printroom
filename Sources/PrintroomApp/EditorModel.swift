@@ -11,6 +11,13 @@ import UniformTypeIdentifiers
   @Published var selection = SelectionState()
   @Published var snapshot: ParameterSnapshot?
   @Published var previewImage: CGImage?
+  @Published var histogram: HistogramStatistics?
+  @Published var histogramChannel = -1
+  @Published var isHistogramUpdating = false
+  @Published var detailImage: CGImage?
+  @Published var detailRect: PixelRect?
+  @Published var isDetailLoading = false
+  @Published var nativeZoomToken = 0
   @Published var thumbnails: [UUID: CGImage] = [:]
   @Published var stage: PipelineStage = .final { didSet { render() } }
   @Published var sampling = false
@@ -20,6 +27,11 @@ import UniformTypeIdentifiers
   @Published var isRendering = false
   @Published var isExporting = false
   @Published var exportProgress = 0.0
+  @Published var exportDetail = ""
+  @Published var exportSummary: ExportSummary?
+  @Published var showExportSummary = false
+  private let exportEngine = ExportEngine()
+  private var exportGeneration = UUID()
   @Published var dirty = false
   @Published var saveFailure = false
   @Published var sourceWidth = 0
@@ -30,10 +42,21 @@ import UniformTypeIdentifiers
   @Published var undoRevision = 0
   let undoManager = UndoManager()
   let imageService = ImageService()
+  private let previewRenderer = PreviewRenderService()
+  private let detailRenderer = PreviewRenderService()
+  private let thumbnailRenderer = PreviewRenderService()
   private let thumbnailService = ImageService()
   var assets: AppAssets?
   private var previewInput: PixelBuffer?
+  private var sampleTask: Task<Void, Never>?
+  private var sampleRevision = 0
+  private var pixelTask: Task<Void, Never>?
+  private var pixelRevision = 0
   private var loadTask: Task<Void, Never>?
+  private var histogramTask: Task<Void, Never>?
+  private var detailTask: Task<Void, Never>?
+  private var detailRevision = 0
+  private var requestedDetailRect: PixelRect?
   private var renderTask: Task<Void, Never>?
   private var thumbnailTask: Task<Void, Never>?
   private var exportTask: Task<Void, Never>?
@@ -42,14 +65,17 @@ import UniformTypeIdentifiers
   private var renderRevision = 0
   private var expectedModification: Date?
   private var gestureBefore: RollProject?
-  private var thumbnailInputs: [UUID: PixelBuffer] = [:]
   private var thumbnailGeneration = UUID()
   var activeFrame: FrameRecord? { project?.frames.first { $0.id == selection.activeFrameID } }
   var adjustments: FrameAdjustments { activeFrame?.adjustments ?? .init() }
-  var canApply: Bool { snapshot != nil && !selection.selectedFrameIDs.isEmpty && !isExporting }
+  var canApply: Bool { snapshot != nil && !selection.selectedFrameIDs.isEmpty }
   var canUndo: Bool { undoManager.canUndo }
   var canRedo: Bool { undoManager.canRedo }
   var hasImage: Bool { previewImage != nil && activeFrame != nil }
+  var orientation: FrameOrientation { activeFrame?.orientation ?? .identity }
+  var displayWidth: Int { orientation.outputSize(sourceWidth: sourceWidth, sourceHeight: sourceHeight).width }
+  var displayHeight: Int { orientation.outputSize(sourceWidth: sourceWidth, sourceHeight: sourceHeight).height }
+  var exportSettings: ProjectExportSettings { project?.exportSettings ?? .init() }
   var matrix: PrintDensityMatrix { project?.calibration.matrix ?? .identity }
 
   init() {
@@ -83,7 +109,6 @@ import UniformTypeIdentifiers
       let roll = try ProjectStore.open(folder: targetFolder, preferredFile: preferred)
       if folder != targetFolder { snapshot = nil }
       thumbnails = [:]
-      thumbnailInputs = [:]
       baseStatistics = ""
       loadTask?.cancel()
       renderTask?.cancel()
@@ -113,7 +138,7 @@ import UniformTypeIdentifiers
     } catch { errorMessage = error.localizedDescription }
   }
   func select(_ id: UUID, command: Bool = false, shift: Bool = false) {
-    guard let project, !isExporting else { return }
+    guard let project else { return }
     let old = selection.activeFrameID
     selection.click(
       id, ordered: project.frames.filter { !$0.isMissing }.map(\.id), command: command, shift: shift
@@ -130,11 +155,20 @@ import UniformTypeIdentifiers
     if before != selection.activeFrameID { loadActive() }
   }
   func loadActive() {
+    cancelSampling()
+    pixelTask?.cancel()
+    pixelRevision += 1
+    isRendering = false
+    embeddedProfile = ""
     loadTask?.cancel()
     renderTask?.cancel()
     loadRevision += 1
     renderRevision += 1
     let revision = loadRevision
+    histogramTask?.cancel()
+    histogram = nil
+    isHistogramUpdating = false
+    invalidateDetail()
     previewImage = nil
     previewInput = nil
     sourceWidth = 0
@@ -167,24 +201,28 @@ import UniformTypeIdentifiers
   }
   func render() {
     renderTask?.cancel()
+    histogramTask?.cancel()
+    histogram = nil
+    isHistogramUpdating = false
+    invalidateDetail()
     renderRevision += 1
     guard let input = previewInput, let project, let frame = activeFrame, let assets else { return }
     let revision = renderRevision
     let selectedStage = stage
     let calibration = project.calibration
     let adjustments = frame.adjustments
+    let orientation = frame.orientation
     isRendering = true
     renderTask = Task {
       do {
-        let output = try await Task.detached(priority: .userInitiated) {
-          try assets.gpu.render(
-            input, calibration: calibration, adjustments: adjustments, lut: assets.lut,
-            stage: selectedStage)
-        }.value
-        guard !Task.isCancelled, revision == renderRevision else { return }
-        previewImage = try DisplayImage.make(
-          output, profile: assets.profile, diagnostic: selectedStage != .final)
+        // Coalesce continuous input before allocating a GPU job; cancelled work cannot queue indefinitely.
+        try await Task.sleep(for: .milliseconds(25))
+        let result = try await previewRenderer.render(input, calibration: calibration,
+          adjustments: adjustments, assets: assets, stage: selectedStage, orientation: orientation)
+        guard !Task.isCancelled, revision == renderRevision, activeFrame?.id == frame.id else { return }
+        previewImage = result.image
         isRendering = false
+        updateHistogram(result.pixels, stage: selectedStage, revision: revision, frameID: frame.id)
       } catch {
         if !Task.isCancelled && revision == renderRevision {
           isRendering = false
@@ -192,6 +230,92 @@ import UniformTypeIdentifiers
         }
       }
     }
+  }
+  private func updateHistogram(_ buffer: PixelBuffer, stage: PipelineStage, revision: Int, frameID: UUID) {
+    isHistogramUpdating = true
+    histogramTask = Task {
+      do {
+        let worker = Task.detached(priority: .utility) {
+          try HistogramStatistics.compute(buffer, stage: stage, isPreview: true, cancelled: { Task.isCancelled })
+        }
+        let result = try await withTaskCancellationHandler {
+          try await worker.value
+        } onCancel: { worker.cancel() }
+        guard !Task.isCancelled, revision == renderRevision, activeFrame?.id == frameID else { return }
+        histogram = result
+        isHistogramUpdating = false
+      } catch {
+        if !Task.isCancelled && revision == renderRevision { isHistogramUpdating = false }
+      }
+    }
+  }
+  func changeOrientation(_ operation: OrientationOperation) {
+    guard var next = project, let index = next.frames.firstIndex(where: { $0.id == selection.activeFrameID }) else { return }
+    let old = next
+    next.frames[index].orientation = next.frames[index].orientation.applying(operation)
+    guard next.frames != old.frames else { return }
+    registerUndo(old: old, name: "调整方向")
+    cancelSampling()
+    previewImage = nil
+    project = next
+    dirty = true
+    render()
+    refreshThumbnails()
+    scheduleSave(immediate: true)
+  }
+  func inspectNativeResolution() { nativeZoomToken += 1 }
+  func invalidateDetail() {
+    detailTask?.cancel()
+    detailRevision += 1
+    requestedDetailRect = nil
+    detailImage = nil
+    detailRect = nil
+    isDetailLoading = false
+  }
+  func requestDetail(_ rect: PixelRect?) {
+    guard let rect else {
+      if requestedDetailRect != nil { invalidateDetail() }
+      return
+    }
+    guard rect != requestedDetailRect, !isRendering, !isLoading,
+      let frame = activeFrame, let project, let folder, let assets,
+      rect.width > 0, rect.height > 0 else { return }
+    detailTask?.cancel()
+    detailRevision += 1
+    let revision = detailRevision
+    let renderID = renderRevision
+    requestedDetailRect = rect
+    detailImage = nil
+    detailRect = nil
+    isDetailLoading = true
+    let width = sourceWidth, height = sourceHeight, stage = stage
+    detailTask = Task {
+      do {
+        try await Task.sleep(for: .milliseconds(80))
+        let sourceRect = try frame.orientation.inverseRect(rect, sourceWidth: width, sourceHeight: height)
+        let input = try await imageService.region(folder.appendingPathComponent(frame.filename), rect: sourceRect)
+        try Task.checkCancellation()
+        let result = try await detailRenderer.render(input, calibration: project.calibration,
+          adjustments: frame.adjustments, assets: assets, stage: stage, orientation: frame.orientation)
+        guard !Task.isCancelled, revision == detailRevision, renderID == renderRevision, activeFrame?.id == frame.id else { return }
+        detailImage = result.image
+        detailRect = rect
+        isDetailLoading = false
+      } catch {
+        if !Task.isCancelled && revision == detailRevision {
+          isDetailLoading = false
+          status = "原始像素区域读取失败：\(error.localizedDescription)"
+        }
+      }
+    }
+  }
+  func sampleDisplayedBase(_ rect: PixelRect) {
+    do { sampleBase(try orientation.inverseRect(rect, sourceWidth: sourceWidth, sourceHeight: sourceHeight)) }
+    catch { errorMessage = error.localizedDescription }
+  }
+  func readDisplayedPixel(x: Int, y: Int) {
+    let point = orientation.inversePixel(x: x, y: y, sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+    readPixel(x: point.x, y: point.y)
   }
   func beginAdjustment() { if gestureBefore == nil { gestureBefore = project } }
   func endAdjustment() {
@@ -204,7 +328,7 @@ import UniformTypeIdentifiers
   }
   func edit(_ mutate: (inout FrameAdjustments) -> Void) {
     guard var next = project,
-      let index = next.frames.firstIndex(where: { $0.id == selection.activeFrameID }), !isExporting
+      let index = next.frames.firstIndex(where: { $0.id == selection.activeFrameID })
     else { return }
     let old = next
     mutate(&next.frames[index].adjustments)
@@ -231,9 +355,19 @@ import UniformTypeIdentifiers
   private func restore(_ value: RollProject, name: String) {
     guard let old = project else { return }
     registerUndo(old: old, name: name)
+    cancelSampling()
+    if old.frames.first(where: { $0.id == selection.activeFrameID })?.orientation != value.frames.first(where: { $0.id == selection.activeFrameID })?.orientation { previewImage = nil }
     project = value
+    let available = value.frames.filter { !$0.isMissing }.map(\.id)
+    if let id = selection.activeFrameID, !available.contains(id) {
+      selection = SelectionState()
+      if let first = available.first { selection.click(first, ordered: available) }
+    }
+    selection.selectedFrameIDs.formIntersection(Set(available))
+    self.project?.lastActiveFrameID = selection.activeFrameID
     dirty = true
-    render()
+    if old.frames.map({ $0.filename }) != value.frames.map({ $0.filename }) { loadActive() }
+    else { render() }
     refreshThumbnails()
     scheduleSave(immediate: true)
     undoRevision += 1
@@ -280,6 +414,7 @@ import UniformTypeIdentifiers
   func setMatrix(_ matrix: PrintDensityMatrix) {
     guard var next = project, let old = project, next.calibration.matrix != matrix else { return }
     do {
+      cancelSampling()
       next.calibration = try Pipeline.recalibrate(next.calibration, matrix: matrix)
       registerUndo(old: old, name: "切换密度矩阵")
       project = next
@@ -289,18 +424,24 @@ import UniformTypeIdentifiers
       scheduleSave(immediate: true)
     } catch { errorMessage = error.localizedDescription }
   }
+  private func cancelSampling() {
+    sampleTask?.cancel()
+    sampleRevision += 1
+  }
   func sampleBase(_ rect: PixelRect) {
     guard let folder, let frame = activeFrame, let project else { return }
+    cancelSampling()
+    let revision = sampleRevision
     let id = frame.id
     let matrix = project.calibration.matrix
     let rollID = project.id
     sampling = false
     status = "正在采样原始像素…"
-    Task {
+    sampleTask = Task {
       do {
         let result = try await imageService.sample(
           folder.appendingPathComponent(frame.filename), rect: rect, matrix: matrix, frameID: id)
-        guard var next = self.project, next.id == rollID else { return }
+        guard !Task.isCancelled, revision == sampleRevision, var next = self.project, next.id == rollID else { return }
         // If the matrix changed during sampling, use the current choice.
         next.calibration = try Pipeline.recalibrate(result.0, matrix: next.calibration.matrix)
         next.calibrationNeedsReview = false
@@ -315,29 +456,38 @@ import UniformTypeIdentifiers
         refreshThumbnails()
         scheduleSave(immediate: true)
       } catch {
-        errorMessage = error.localizedDescription
-        status = "片基采样未完成"
+        if !Task.isCancelled && revision == sampleRevision {
+          errorMessage = error.localizedDescription
+          status = "片基采样未完成"
+        }
       }
     }
   }
   func readPixel(x: Int, y: Int) {
     guard let folder, let frame = activeFrame, let project, let assets else { return }
+    pixelTask?.cancel()
+    pixelRevision += 1
+    let pixelID = pixelRevision
     let selectedStage = stage
-    Task {
+    let revision = renderRevision
+    pixelTask = Task {
       do {
         let p = try await imageService.pixel(
           folder.appendingPathComponent(frame.filename), x: x, y: y)
         let v = try Pipeline.process(
           p, calibration: project.calibration, adjustments: frame.adjustments, lut: assets.lut,
           stage: selectedStage)
-        guard activeFrame?.id == frame.id, stage == selectedStage else { return }
+        guard !Task.isCancelled, pixelID == pixelRevision, activeFrame?.id == frame.id, stage == selectedStage, revision == renderRevision else { return }
         let values = String(format: "R %.5f  G %.5f  B %.5f", v.x, v.y, v.z)
         sampleReadout = "(\(x), \(y)) · \(selectedStage.label)  \(values)"
         if [.d0, .d1, .d2, .d3].contains(selectedStage) {
           sampleReadout += String(
             format: " · CV %.2f / %.2f / %.2f", v.x * 1024, v.y * 1024, v.z * 1024)
         }
-      } catch { errorMessage = error.localizedDescription }
+      } catch {
+        if !Task.isCancelled, pixelID == pixelRevision, activeFrame?.id == frame.id,
+          stage == selectedStage, revision == renderRevision { errorMessage = error.localizedDescription }
+      }
     }
   }
   func scheduleSave(immediate: Bool = false) {
@@ -410,8 +560,10 @@ import UniformTypeIdentifiers
     for i in next.frames.indices {
       if let source = backup.frames.first(where: { $0.id == next.frames[i].id }) {
         next.frames[i].adjustments = source.adjustments
+        next.frames[i].orientation = source.orientation
       }
     }
+    next.exportSettings = backup.exportSettings
     next.calibration = backup.calibration
     if let source = backup.frames.first(where: { $0.id == backup.calibration.sourceFrameID }),
       let current = next.frames.first(where: { $0.id == source.id })
@@ -422,6 +574,8 @@ import UniformTypeIdentifiers
     }
     let saved = try ProjectStore.save(
       next, folder: folder, expectedModification: next.loadedModificationDate)
+    cancelSampling()
+    previewImage = nil
     registerUndo(old: previous, name: "恢复设置副本")
     project = next
     expectedModification = saved
@@ -433,123 +587,178 @@ import UniformTypeIdentifiers
     status = "已恢复本卷设置副本"
   }
   func exportPanel() {
-    guard let frame = activeFrame, let folder, let project, let assets, !isExporting else { return }
+    guard let frame = activeFrame, let folder, !isExporting else { return }
     let panel = NSSavePanel()
     panel.allowedContentTypes = [.tiff]
-    panel.nameFieldStringValue =
-      URL(fileURLWithPath: frame.filename).deletingPathExtension().lastPathComponent
-      + "_Printroom.tiff"
+    panel.nameFieldStringValue = URL(fileURLWithPath: frame.filename).deletingPathExtension().lastPathComponent + "_Printroom.tiff"
     panel.directoryURL = folder.appendingPathComponent("Printroom Exports", isDirectory: true)
-    panel.title = "导出当前照片 · 16-bit TIFF · P3 D65 Gamma 2.6"
-    guard panel.runModal() == .OK, let requested = panel.url else { return }
-    let source = folder.appendingPathComponent(frame.filename)
-    guard
-      source.resolvingSymlinksInPath().standardizedFileURL
-        != requested.resolvingSymlinksInPath().standardizedFileURL
-    else {
-      errorMessage = "不能覆盖原始 TIFF"
-      return
-    }
-    var destination = requested
-    var suffix = 1
-    while FileManager.default.fileExists(atPath: destination.path) {
-      destination = requested.deletingLastPathComponent().appendingPathComponent(
-        requested.deletingPathExtension().lastPathComponent + "_\(suffix).tiff")
-      suffix += 1
-    }
+    panel.title = "导出当前照片 · 16-bit TIFF · \(exportSettings.profile.label)"
+    guard panel.runModal() == .OK, let destination = panel.url else { return }
+    startExport(targetIDs: [frame.id], directory: destination.deletingLastPathComponent(), explicitDestination: destination)
+  }
+  func batchExportPanel(allFrames: Bool) {
+    guard let project, !isExporting else { return }
+    let targets = allFrames ? Set(project.frames.map(\.id)) : selection.selectedFrameIDs
+    guard !targets.isEmpty else { return }
+    let panel = NSOpenPanel()
+    panel.title = "导出\(allFrames ? "整卷" : "选中照片") · \(targets.count) 张 · 选择输出文件夹"
+    panel.canChooseFiles = false
+    panel.canChooseDirectories = true
+    panel.canCreateDirectories = true
+    panel.allowsMultipleSelection = false
+    panel.directoryURL = folder?.appendingPathComponent("Printroom Exports", isDirectory: true)
+    guard panel.runModal() == .OK, let directory = panel.url else { return }
+    startExport(targetIDs: targets, directory: directory)
+  }
+  func startExport(targetIDs: Set<UUID>, directory: URL, explicitDestination: URL? = nil) {
+    guard let project, let assets, !isExporting else { return }
     do {
-      try FileManager.default.createDirectory(
-        at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-    } catch {
-      errorMessage = error.localizedDescription
-      return
-    }
-    isExporting = true
-    exportProgress = 0
-    status = "正在导出 \(frame.filename)…"
-    let finalURL = destination
-    exportTask = Task {
-      do {
-        try await imageService.export(
-          source: source, destination: finalURL, calibration: project.calibration,
-          adjustments: frame.adjustments, assets: assets
-        ) { value in Task { @MainActor [weak self] in self?.exportProgress = value } }
-        status = "已导出：\(finalURL.lastPathComponent)（16-bit，已嵌入 ICC）"
-      } catch is CancellationError { status = "导出已取消" } catch {
-        errorMessage = error.localizedDescription
-        status = "导出未完成"
+      // Captures targets, source identities, calibration, frame edits, orientation, and output settings now.
+      let request = try ExportRequest(project: project, targetIDs: targetIDs,
+        destinationDirectory: directory, explicitDestination: explicitDestination)
+      exportGeneration = UUID()
+      let generation = exportGeneration
+      isExporting = true
+      exportProgress = 0
+      exportDetail = "准备导出 \(targetIDs.count) 张"
+      exportSummary = nil
+      showExportSummary = false
+      status = "导出已开始；可以继续调色与切图"
+      exportTask = Task {
+        do {
+          let summary = try await exportEngine.run(request, lut: assets.lut, p3Profile: assets.profile) { progress in
+            Task { @MainActor [weak self] in
+              guard let self, self.exportGeneration == generation, self.isExporting else { return }
+              self.exportProgress = progress.fraction
+              self.exportDetail = "\(progress.processedCount)/\(progress.totalCount) · \(progress.currentName ?? "")"
+            }
+          }
+          exportSummary = summary
+          status = "\(summary.wasCancelled ? "导出已取消" : "导出完成") · 成功 \(summary.completedCount) · 失败 \(summary.failedCount)"
+          showExportSummary = true
+        } catch {
+          errorMessage = error.localizedDescription
+          status = "导出未完成"
+        }
+        isExporting = false
       }
-      isExporting = false
+    } catch { errorMessage = error.localizedDescription }
+  }
+  func cancelExport() { exportTask?.cancel(); exportDetail = "正在取消；保留已完成文件…" }
+  func clearThumbnailCache() {
+    guard let folder else { return }
+    thumbnailTask?.cancel()
+    thumbnailGeneration = UUID()
+    thumbnails = [:]
+    let cache = DiskThumbnailCache(directory: folder.appendingPathComponent(".printroom-cache"))
+    Task {
+      do {
+        await thumbnailService.clear()
+        let result = try await cache.clear()
+        status = "已清理 \(result.removedFiles) 个缩略图缓存；重新生成当前卷"
+        refreshThumbnails()
+      } catch { errorMessage = error.localizedDescription }
     }
   }
-  func cancelExport() { exportTask?.cancel() }
   private func refreshThumbnails() {
     thumbnailTask?.cancel()
     thumbnailGeneration = UUID()
     guard let project, let folder, let assets else { return }
     let generation = thumbnailGeneration
     let frames = project.frames.filter { !$0.isMissing }
-    let cache = folder.appendingPathComponent(".printroom-cache", isDirectory: true)
+    let cache = DiskThumbnailCache(directory: folder.appendingPathComponent(".printroom-cache", isDirectory: true))
     thumbnailTask = Task {
+      _ = try? await cache.maintain()
       for frame in frames {
         guard !Task.isCancelled, generation == thumbnailGeneration else { return }
         do {
+          let sourceURL = folder.appendingPathComponent(frame.filename)
+          let attributes = try FileManager.default.attributesOfItem(atPath: sourceURL.path)
           let encoder = JSONEncoder()
           encoder.outputFormatting = .sortedKeys
           let keyData = try encoder.encode(
             ThumbnailKey(
-              filename: frame.filename, modified: frame.sourceModified, size: frame.sourceSize,
+              filename: frame.filename,
+              modified: (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0,
+              size: (attributes[.size] as? NSNumber)?.int64Value ?? 0,
+              inode: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0,
               calibration: project.calibration, adjustments: frame.adjustments,
+              orientation: frame.orientation,
               algorithm: algorithmVersion, icc: ProjectAssetIdentity.expectedICCSHA256,
-              lut: ProjectAssetIdentity.expectedLUTSHA256, dimension: 240))
+              lut: ProjectAssetIdentity.expectedLUTSHA256, dimension: 240,
+              presentationVersion: DisplayImage.presentationVersion))
           let key = SHA256.hash(data: keyData).map { String(format: "%02x", $0) }.joined()
-          let file = cache.appendingPathComponent(key + ".png")
-          if let source = CGImageSourceCreateWithURL(file as CFURL, nil),
-            let cg = CGImageSourceCreateImageAtIndex(source, 0, nil)
-          {
+          if let cg = try? await cache.image(for: key) {
+            guard !Task.isCancelled, generation == thumbnailGeneration else { return }
             thumbnails[frame.id] = cg
             continue
           }
-          let input: PixelBuffer
-          if let cached = thumbnailInputs[frame.id] {
-            input = cached
-          } else {
-            let raw = try await thumbnailService.load(folder.appendingPathComponent(frame.filename))
-            input = raw.preview(maxDimension: 240)
-            await thumbnailService.clear()
-            guard !Task.isCancelled, generation == thumbnailGeneration else { return }
-            thumbnailInputs[frame.id] = input
-          }
-          let output = try await Task.detached(priority: .utility) {
-            try assets.gpu.render(
-              input, calibration: project.calibration, adjustments: frame.adjustments,
-              lut: assets.lut)
-          }.value
+          let input = try await thumbnailService.thumbnail(sourceURL)
+          let output = try await thumbnailRenderer.render(input,
+            calibration: project.calibration, adjustments: frame.adjustments,
+            assets: assets, orientation: frame.orientation)
           guard !Task.isCancelled, generation == thumbnailGeneration else { return }
-          let cg = try DisplayImage.make(output, profile: assets.profile)
-          thumbnails[frame.id] = cg
-          // Cache is expendable; failures do not prevent editing or project save.
-          try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
-          if let dest = CGImageDestinationCreateWithURL(
-            file as CFURL, UTType.png.identifier as CFString, 1, nil)
-          {
-            CGImageDestinationAddImage(dest, cg, nil)
-            _ = CGImageDestinationFinalize(dest)
-          }
-        } catch { if !Task.isCancelled { status = "缩略图不可用：\(frame.filename)" } }
+          thumbnails[frame.id] = output.image
+          // Expendable disk cache failures never prevent editing or project save.
+          try? await cache.store(output.image, for: key)
+        } catch {
+          if !Task.isCancelled && generation == thumbnailGeneration { status = "缩略图不可用：\(frame.filename)" }
+        }
       }
     }
+  }
+  func relocatePanel(_ frameID: UUID) {
+    guard let frame = project?.frames.first(where: { $0.id == frameID }), frame.isMissing else { return }
+    let panel = NSOpenPanel()
+    panel.title = "重新定位 \(frame.filename) · 选择本卷中的 TIFF"
+    panel.allowedContentTypes = [.tiff]
+    panel.directoryURL = folder
+    panel.allowsMultipleSelection = false
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    relocate(frameID, to: url)
+  }
+  func relocate(_ frameID: UUID, to url: URL) {
+    guard let project, let folder else { return }
+    do {
+      let next = try ProjectStore.relocate(project, frameID: frameID, to: url, folder: folder)
+      registerUndo(old: project, name: "重新定位照片")
+      self.project = next
+      dirty = true
+      // Reconcile selection by stable ID after merging a newly discovered placeholder.
+      selection = SelectionState()
+      selection.click(frameID, ordered: next.frames.filter { !$0.isMissing }.map(\.id))
+      self.project?.lastActiveFrameID = frameID
+      loadActive()
+      refreshThumbnails()
+      scheduleSave(immediate: true)
+      status = "已重新定位；保留照片 ID、调色与方向"
+    } catch { errorMessage = error.localizedDescription }
+  }
+  func setOutputProfile(_ profile: OutputColorProfile) {
+    guard project != nil, exportSettings.profile != profile else { return }
+    project?.exportSettings.profile = profile
+    dirty = true
+    scheduleSave(immediate: true)
+  }
+  func setOutputCompression(_ compression: TIFFCompression) {
+    guard project != nil, exportSettings.compression != compression else { return }
+    project?.exportSettings.compression = compression
+    dirty = true
+    scheduleSave(immediate: true)
   }
   private struct ThumbnailKey: Codable {
     let filename: String
     let modified: Double
     let size: Int64
+    let inode: UInt64
     let calibration: FilmCalibration
     let adjustments: FrameAdjustments
+    let orientation: FrameOrientation
     let algorithm: String
     let icc: String
     let lut: String
     let dimension: Int
+    let presentationVersion: String
   }
   func handleTimingKey(_ key: String) {
     guard activeFrame != nil else { return }

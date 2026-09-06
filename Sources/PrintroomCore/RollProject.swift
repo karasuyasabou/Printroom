@@ -1,11 +1,14 @@
 import Foundation
 
 private let projectAlgorithmVersion = algorithmVersion
+private let migratingSchemaOne = CodingUserInfoKey(rawValue: "printroom.migratingSchemaOne")!
 
 public struct FrameRecord: Identifiable, Codable, Equatable, Sendable {
   public var id: UUID
   public var filename: String
   public var adjustments: FrameAdjustments
+  /// User edit applied after TIFF orientation normalization; independent of Timing/Contrast.
+  public var orientation: FrameOrientation
   public var isMissing: Bool
   public var sourceSize: Int64
   /// Source modification time, in seconds since 1970. Used with size for cache invalidation.
@@ -13,14 +16,40 @@ public struct FrameRecord: Identifiable, Codable, Equatable, Sendable {
 
   public init(
     id: UUID = UUID(), filename: String, adjustments: FrameAdjustments = .init(),
-    isMissing: Bool = false, sourceSize: Int64 = 0, sourceModified: Double = 0
+    isMissing: Bool = false, sourceSize: Int64 = 0, sourceModified: Double = 0,
+    orientation: FrameOrientation = .identity
   ) {
     self.id = id
     self.filename = filename
     self.adjustments = adjustments
+    self.orientation = orientation
     self.isMissing = isMissing
     self.sourceSize = sourceSize
     self.sourceModified = sourceModified
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case id, filename, adjustments, orientation, isMissing, sourceSize, sourceModified
+  }
+
+  public init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    id = try values.decode(UUID.self, forKey: .id)
+    filename = try values.decode(String.self, forKey: .filename)
+    adjustments = try values.decode(FrameAdjustments.self, forKey: .adjustments)
+    isMissing = try values.decode(Bool.self, forKey: .isMissing)
+    sourceSize = try values.decode(Int64.self, forKey: .sourceSize)
+    sourceModified = try values.decode(Double.self, forKey: .sourceModified)
+    if decoder.userInfo[migratingSchemaOne] as? Bool == true {
+      // Schema 1 never had a user transform. Reject a conflicting extension rather than
+      // accidentally applying it twice or silently changing the old default image.
+      if values.contains(.orientation) {
+        throw ProjectStoreError.invalidProject("schema 1 含有未定义的方向设置")
+      }
+      orientation = .identity
+    } else {
+      orientation = try values.decode(FrameOrientation.self, forKey: .orientation)
+    }
   }
 }
 
@@ -47,17 +76,47 @@ public struct ProjectInputInterpretation: Codable, Equatable, Sendable {
   public init() {}
 }
 
-/// The supported export contract for this schema. Additional output profiles require migration.
+/// Output colorspace/compression are frozen with each export request.
 public struct ProjectExportSettings: Codable, Equatable, Sendable {
+  public var profile: OutputColorProfile = .p3 {
+    didSet { profileSHA256 = profile.profileSHA256 }
+  }
+  public var compression: TIFFCompression = .none
   public var profileSHA256 = ProjectAssetIdentity.expectedICCSHA256
   public var bitsPerSample = 16
   public var embedsICC = true
   public var dithering = false
-  public init() {}
+  public init(profile: OutputColorProfile = .p3, compression: TIFFCompression = .none) {
+    self.profile = profile
+    self.compression = compression
+    profileSHA256 = profile.profileSHA256
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case profile, compression, profileSHA256, bitsPerSample, embedsICC, dithering
+  }
+
+  public init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    if decoder.userInfo[migratingSchemaOne] as? Bool == true {
+      guard !values.contains(.profile), !values.contains(.compression) else {
+        throw ProjectStoreError.invalidProject("schema 1 含有未定义的输出设置")
+      }
+      profile = .p3
+      compression = .none
+    } else {
+      profile = try values.decode(OutputColorProfile.self, forKey: .profile)
+      compression = try values.decode(TIFFCompression.self, forKey: .compression)
+    }
+    profileSHA256 = try values.decode(String.self, forKey: .profileSHA256)
+    bitsPerSample = try values.decode(Int.self, forKey: .bitsPerSample)
+    embedsICC = try values.decode(Bool.self, forKey: .embedsICC)
+    dithering = try values.decode(Bool.self, forKey: .dithering)
+  }
 }
 
 public struct RollProject: Codable, Sendable {
-  public static let currentSchemaVersion = 1
+  public static let currentSchemaVersion = 2
 
   public var schemaVersion = currentSchemaVersion
   public var algorithmVersion = projectAlgorithmVersion
@@ -75,7 +134,7 @@ public struct RollProject: Codable, Sendable {
 
   // Session-only location permits a final target availability check immediately before applying.
   // Never encode an absolute path: moving an entire roll must preserve its identity and settings.
-  fileprivate var sourceFolderURL: URL?
+  var sourceFolderURL: URL?
   /// Captured in the same coordinated read as the decoded project; never persisted.
   public var loadedModificationDate: Date?
 
@@ -230,6 +289,58 @@ public enum ProjectStore {
 
   public static func decodeSnapshot(_ data: Data) throws -> RollProject { try decode(data) }
 
+  /// Explicitly reconnect a missing/renamed photograph to a readable TIFF in the same roll.
+  /// Stable identity, adjustments and direction remain attached to the old record. Discovery may
+  /// already have added the new filename; it is absorbed only if it has no edits/calibration role.
+  /// This is a value transaction: the UI may register the whole before/after pair for Undo/Redo.
+  public static func relocate(
+    _ project: RollProject, frameID: UUID, to sourceURL: URL, folder: URL
+  ) throws -> RollProject {
+    try validate(project)
+    let folder = try validatedFolder(folder)
+    guard project.sourceFolderURL == nil || project.sourceFolderURL == folder else {
+      throw ProjectStoreError.invalidProject("重新定位必须在当前卷内进行")
+    }
+    guard sourceURL.isFileURL,
+      sourceURL.standardizedFileURL.deletingLastPathComponent().resolvingSymlinksInPath() == folder,
+      let index = project.frames.firstIndex(where: { $0.id == frameID })
+    else { throw ProjectStoreError.invalidProject("重新定位目标必须是当前卷内的 TIFF") }
+    try validateFilename(sourceURL.lastPathComponent)
+    guard let source = sourceRecord(url: sourceURL, folder: folder) else {
+      throw ProjectStoreError.unavailableFrame(sourceURL.lastPathComponent)
+    }
+    // Explicit reconnection must target a supported TIFF, not merely a readable file
+    // with a TIFF extension. Discovery remains lightweight and reports bad sources separately.
+    _ = try TIFFCodec.metadata(url: sourceURL)
+    var updated = project
+    let previous = project.frames[index]
+    if previous.filename != source.filename,
+      sourceRecord(url: folder.appendingPathComponent(previous.filename), folder: folder) != nil
+    {
+      throw ProjectStoreError.invalidProject("原照片仍然可读取，不能将其设置重新关联到另一照片")
+    }
+    if let collision = project.frames.first(where: { $0.filename == source.filename && $0.id != frameID }) {
+      guard collision.adjustments == FrameAdjustments(), collision.orientation == .identity,
+        project.calibration.sourceFrameID != collision.id
+      else {
+        throw ProjectStoreError.invalidProject("目标照片已有调色、方向或片基来源设置，不能合并")
+      }
+      updated.frames.removeAll { $0.id == collision.id }
+      if updated.lastActiveFrameID == collision.id { updated.lastActiveFrameID = frameID }
+    }
+    var reconnected = previous
+    reconnected.filename = source.filename
+    reconnected.sourceSize = source.sourceSize
+    reconnected.sourceModified = source.sourceModified
+    reconnected.isMissing = false
+    updated.frames[updated.frames.firstIndex(where: { $0.id == frameID })!] = reconnected
+    updated.frames.sort { naturalLess($0.filename, $1.filename) }
+    updated.sourceFolderURL = folder
+    if project.calibration.sourceFrameID == frameID { updated.calibrationNeedsReview = true }
+    try validate(updated)
+    return updated
+  }
+
   private static func decode(_ data: Data) throws -> RollProject {
     struct Header: Decodable {
       var schemaVersion: Int
@@ -238,13 +349,15 @@ public enum ProjectStore {
     do {
       let decoder = JSONDecoder()
       let header = try decoder.decode(Header.self, from: data)
-      guard header.schemaVersion == RollProject.currentSchemaVersion else {
+      guard [1, RollProject.currentSchemaVersion].contains(header.schemaVersion) else {
         throw ProjectStoreError.unsupportedSchema(header.schemaVersion)
       }
       guard header.algorithmVersion == projectAlgorithmVersion else {
         throw ProjectStoreError.incompatibleAlgorithm(header.algorithmVersion)
       }
-      let project = try decoder.decode(RollProject.self, from: data)
+      decoder.userInfo[migratingSchemaOne] = header.schemaVersion == 1
+      var project = try decoder.decode(RollProject.self, from: data)
+      project.schemaVersion = RollProject.currentSchemaVersion
       try validate(project)
       return project
     } catch let error as ProjectStoreError {
@@ -265,7 +378,9 @@ public enum ProjectStore {
       throw ProjectStoreError.invalidProject("LUT 或 ICC 资产路径/指纹不兼容")
     }
     guard project.inputInterpretation == ProjectInputInterpretation(),
-      project.exportSettings == ProjectExportSettings()
+      project.exportSettings.profileSHA256 == project.exportSettings.profile.profileSHA256,
+      project.exportSettings.bitsPerSample == 16, project.exportSettings.embedsICC,
+      !project.exportSettings.dithering
     else {
       throw ProjectStoreError.invalidProject("不兼容的输入解释或导出设置")
     }

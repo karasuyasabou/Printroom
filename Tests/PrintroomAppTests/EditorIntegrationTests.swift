@@ -180,19 +180,75 @@ struct EditorIntegrationTests {
     model.undo()
     #expect((model.adjustments.timing.master) == (1))
   }
-  @Test func testFloatPreviewCarriesSourceICCWithoutExtraGamma() async throws {
+  @Test func testSDRPreviewCarriesSourceICCWithoutExtraGamma() async throws {
     let assets = try AppAssets()
     let input = PixelBuffer(
       width: 2, height: 1, pixels: [SIMD4(0.18, 0.5, 0.8, 1), SIMD4(1, 0, 0.25, 1)])
     let image = try DisplayImage.make(input, profile: assets.profile)
-    #expect((image.bitsPerComponent) == (32))
+    #expect(image.bitsPerComponent == 16 && image.bitsPerPixel == 64)
+    #expect(image.bytesPerRow == input.width * 8)
+    #expect(image.alphaInfo == .noneSkipLast)
+    #expect(!image.bitmapInfo.contains(.floatComponents))
+    #expect(image.bitmapInfo.intersection(.byteOrderMask) == .byteOrder16Little)
     #expect((image.colorSpace?.copyICCData() as Data?) == (assets.profile))
     let data = try unwrap(image.dataProvider?.data) as Data
-    let values = data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
-    #expect(abs((values[0]) - (0.18)) <= 1e-7)
-    #expect(abs((values[1]) - (0.5)) <= 1e-7)
+    let values = data.withUnsafeBytes { $0.bindMemory(to: UInt16.self).map(UInt16.init(littleEndian:)) }
+    #expect(values == [11796, 32768, 52428, 65535, 65535, 0, 16384, 65535])
+    for (i, pixel) in input.pixels.enumerated() {
+      for channel in 0..<3 {
+        #expect(abs(Double(values[i * 4 + channel]) / 65535 - Double(pixel[channel])) <= 0.5 / 65535)
+      }
+    }
+    #expect(input.pixels == [SIMD4(0.18, 0.5, 0.8, 1), SIMD4(1, 0, 0.25, 1)])
     let diagnostic = try DisplayImage.make(input, profile: assets.profile, diagnostic: true)
     #expect((diagnostic.colorSpace?.name) == (CGColorSpace.sRGB))
+  }
+  @Test func testSDRDiagnosticClipsOnlyDisplayAndRejectsInvalidBuffers() throws {
+    let input = PixelBuffer(width: 1, height: 1, pixels: [SIMD4(-0.25, 0.5, 2, 1)])
+    let image = try DisplayImage.make(input, profile: nil, diagnostic: true)
+    let data = try unwrap(image.dataProvider?.data) as Data
+    let values = data.withUnsafeBytes { $0.bindMemory(to: UInt16.self).map(UInt16.init(littleEndian:)) }
+    #expect(values == [0, 32768, 65535, 65535])
+    #expect(input.pixels == [SIMD4(-0.25, 0.5, 2, 1)])
+    for value: Float in [.nan, .infinity, -.infinity] {
+      let invalid = PixelBuffer(width: 1, height: 1, pixels: [SIMD4(value, 0, 0, 1)])
+      #expect(throws: PrintroomError.self) { try DisplayImage.make(invalid, profile: nil) }
+    }
+    let invalid = PixelBuffer(width: 2, height: 1, pixels: input.pixels)
+    #expect(throws: PrintroomError.self) { try DisplayImage.make(invalid, profile: nil) }
+  }
+  @Test func testLargeSDRPreviewDrawsWhiteAndGrayInSRGB() throws {
+    let assets = try AppAssets()
+    let colors: [SIMD4<Float>] = [
+      SIMD4(0.98044, 0.932183, 0.999996, 1), SIMD4(1, 1, 1, 1),
+      SIMD4(0.5, 0.5, 0.5, 1), SIMD4(0, 0, 0, 1),
+    ]
+    let input = PixelBuffer(
+      width: 1600, height: 1066,
+      pixels: (0..<(1600 * 1066)).map { colors[($0 % 1600) / 400] })
+    let image = try DisplayImage.make(input, profile: assets.profile)
+    let context = try unwrap(CGContext(
+      data: nil, width: 696, height: 464, bitsPerComponent: 8, bytesPerRow: 696 * 4,
+      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    NSGraphicsContext.saveGraphicsState()
+    defer { NSGraphicsContext.restoreGraphicsState() }
+    let graphics = NSGraphicsContext(cgContext: context, flipped: false)
+    NSGraphicsContext.current = graphics
+    graphics.imageInterpolation = .high
+    NSImage(cgImage: image, size: NSSize(width: 1600, height: 1066)).draw(
+      in: NSRect(x: 0, y: 0, width: 696, height: 464), from: .zero,
+      operation: .copy, fraction: 1, respectFlipped: true, hints: nil)
+    let pixels = try unwrap(context.data).bindMemory(to: UInt8.self, capacity: 696 * 464 * 4)
+    // P3 gamma 2.6 -> sRGB, including the exact LUT endpoint from the white-border report.
+    let expected = [[252, 235, 255], [255, 255, 255], [113, 113, 113], [0, 0, 0]]
+    for (i, x) in [87, 261, 435, 609].enumerated() {
+      for channel in 0..<3 {
+        #expect(abs(Int(pixels[(232 * 696 + x) * 4 + channel]) - expected[i][channel]) <= 1)
+      }
+    }
+    // This is offscreen color-conversion coverage. Real-window regression evidence is
+    // recorded separately; an offscreen context alone did not reveal the Float32 defect.
   }
   @Test func testServiceExportsActualPipelineAndICC() async throws {
     let assets = try AppAssets()

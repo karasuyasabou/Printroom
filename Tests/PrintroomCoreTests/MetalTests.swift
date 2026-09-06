@@ -20,6 +20,8 @@ final class MetalTests: XCTestCase {
       width: 4, height: 4,
       samples: Array(repeating: [UInt16(13107), 26214, 39321], count: 16).flatMap { $0 })
     var maximum: Float = 0
+    var stageMaximum = [Float](repeating: 0, count: 7)
+    var stageMaximumRMS = [Double](repeating: 0, count: 7)
     for matrix in PrintDensityMatrix.allCases {
       let calibration = try Pipeline.calibrate(
         image: image, rect: PixelRect(x: 0, y: 0, width: 4, height: 4), matrix: matrix,
@@ -43,16 +45,21 @@ final class MetalTests: XCTestCase {
             for c in 0..<3 {
               let diff = abs(cpu.pixels[i][c] - actual.pixels[i][c])
               maximum = max(maximum, diff)
+              stageMaximum[stage.rawValue] = max(stageMaximum[stage.rawValue], diff)
               let bound: Float = stage == .final ? 2e-4 : 2e-5 + 2e-5 * abs(cpu.pixels[i][c])
               XCTAssertLessThanOrEqual(diff, bound, "\(matrix) \(stage) sample \(i) channel \(c)")
               sum += Double(diff) * Double(diff)
             }
           }
+          stageMaximumRMS[stage.rawValue] = max(stageMaximumRMS[stage.rawValue], sqrt(sum / Double(pixels.count * 3)))
           if stage == .final {
             XCTAssertLessThanOrEqual(sqrt(sum / Double(pixels.count * 3)), 2e-5)
           }
         }
       }
+    }
+    for stage in PipelineStage.allCases {
+      print("Metal stage \(stage.label): max=\(stageMaximum[stage.rawValue]) worst-run RMS=\(stageMaximumRMS[stage.rawValue])")
     }
     print(
       "Metal agreement: \(gpu.deviceName), \(pixels.count) pixels × 2 matrices × 3 adjustments × 7 stages; max error \(maximum)"

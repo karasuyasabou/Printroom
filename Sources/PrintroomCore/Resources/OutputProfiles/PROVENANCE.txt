@@ -1,0 +1,20 @@
+Fixed local output profile resources, copied without modification on 2026-09-07
+from /System/Library/ColorSync/Profiles on macOS 26.6.2.
+
+sRGB.icc         <- sRGB Profile.icc
+AdobeRGB1998.icc  <- AdobeRGB1998.icc
+ProPhotoRGB.icc is generated for Printroom as ICC v4.3 matrix/TRC RGB:
+- D50 PCS white XYZ = (0.9642, 1, 0.8249).
+- ROMM / ProPhoto primaries xy: R=(0.7347,0.2653), G=(0.1596,0.8404),
+  B=(0.0366,0.0001). Colorants are solved against the D50 white.
+- Encoded-to-linear TRC: E^1.8 for E >= 1/32; E/16 below 1/32.
+- Parametric function 3: g=1.8, a=1, b=0, c=1/16, d=1/32.
+- Profile ID is the ICC-prescribed MD5 with flags, intent and ID zeroed.
+The system ROMM RGB profile was investigated and rejected: its parameter d is
+1/512, inconsistent with the encoded-domain threshold. An independent dark-gray
+analytic test caught the incorrect inverse response. No original input profile
+was modified. Tests verify D50 colorants and the transfer toe independently.
+
+Profile SHA-256 values are pinned in OutputColorProfile.profileSHA256. Original
+embedded copyright and profile descriptions are retained. These are additional
+local application resources, not replacements for the immutable ICC/ source.

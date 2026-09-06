@@ -3,28 +3,43 @@ import CryptoKit
 import PrintroomCore
 
 struct DisplayImage {
+  // Independent of the image algorithm: old thumbnail representations must not be reused.
+  static let presentationVersion = "sdr-uint16-v1"
+
   static func make(_ buffer: PixelBuffer, profile: Data?, diagnostic: Bool = false) throws
     -> CGImage
   {
+    let (count, countOverflow) = buffer.width.multipliedReportingOverflow(by: buffer.height)
+    let (bytesPerRow, rowOverflow) = buffer.width.multipliedReportingOverflow(by: 8)
+    guard buffer.width > 0, buffer.height > 0, !countOverflow, !rowOverflow,
+      count == buffer.pixels.count
+    else { throw PrintroomError.invalid("预览像素尺寸不匹配") }
     let space: CGColorSpace
     if let profile, !diagnostic, let iccSpace = CGColorSpace(iccData: profile as CFData) {
       space = iccSpace
     } else {
       space = CGColorSpace(name: CGColorSpace.sRGB)!
     }
-    let pixels =
-      diagnostic
-      ? buffer.pixels.map {
-        SIMD4<Float>(min(1, max(0, $0.x)), min(1, max(0, $0.y)), min(1, max(0, $0.z)), 1)
-      } : buffer.pixels
+    // Float32 CGImages darken the actual photo in the current window rendering path.
+    // Quantize only the SDR presentation copy; LUT output is already gamma encoded.
+    // Pipeline buffers, original-pixel readouts, and export never consume this copy.
+    let pixels: [SIMD4<UInt16>] = try buffer.pixels.map { pixel in
+      guard pixel.x.isFinite, pixel.y.isFinite, pixel.z.isFinite else {
+        throw PrintroomError.invalid("预览包含非有限 RGB 数值")
+      }
+      func quantize(_ value: Float) -> UInt16 {
+        UInt16(floor(Double(min(1, max(0, value))) * 65535 + 0.5)).littleEndian
+      }
+      return SIMD4(quantize(pixel.x), quantize(pixel.y), quantize(pixel.z), UInt16.max)
+    }
     let data = pixels.withUnsafeBytes { Data($0) }
     guard let provider = CGDataProvider(data: data as CFData),
       let image = CGImage(
-        width: buffer.width, height: buffer.height, bitsPerComponent: 32, bitsPerPixel: 128,
-        bytesPerRow: buffer.width * 16, space: space,
+        width: buffer.width, height: buffer.height, bitsPerComponent: 16, bitsPerPixel: 64,
+        bytesPerRow: bytesPerRow, space: space,
         bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue).union(
-          .byteOrder32Little
-        ).union(.floatComponents), provider: provider, decode: nil, shouldInterpolate: true,
+          .byteOrder16Little
+        ), provider: provider, decode: nil, shouldInterpolate: true,
         intent: .relativeColorimetric)
     else { throw PrintroomError.invalid("无法建立带 ICC 的预览图像") }
     return image

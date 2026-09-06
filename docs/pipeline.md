@@ -138,4 +138,38 @@ M3 增加 Adobe RGB、sRGB、ProPhoto RGB 的实际 ICC 转换。默认相对色
 
 量化工程默认：先完成输出 profile 转换，检查有限值，再 `floor(clamp(value,0,1)*65535 + 0.5)`。16-bit 整数归一化用 65535，与密度的 1024 不是同一问题。导出不可覆盖源 TIFF，冲突生成递增后缀；写入临时文件成功后再原子移动到目标。
 
-0.1.0 显示落地：Metal 输出 Float32 RGBA 数组，构造 32-bit 浮点 CGImage，Final 附带原始 ICC，NSImage 在 macOS 显示上下文绘制时完成显示器适配。数值测试已确认 CGImage 原通道数值及 ICC 不变；未执行硬件色度测量。预览长边 1600，采样及导出使用原始像素；诊断画面仍按上述 sRGB 策略显示。片基零值/饱和比例已显示，逐帧 epsilon 替换数与 LUT 域外计数的完整诊断 UI 尚未加入。
+### 0.1.0 预览显示修正
+
+Metal 继续输出 Float32 RGBA 数组；仅供显示的副本按本节的有限值检查与 16-bit 量化规则转换为 UInt16 RGBA，alpha 固定为不透明，再构造整数 CGImage。Final 附带原始 `ICC/DCIP3_D65.icc`，NSImage 在 macOS 显示上下文绘制时完成显示器适配。这里的量化不执行新的 transfer 编码，不增加 Gamma，也不把原始 ICC 直接替换成系统 Display P3 标签。诊断画面使用同样的整数展示格式，仍按上述 sRGB 诊断策略显示。
+
+此副本只用于主预览及缩略图展示：CPU/Metal 算法、中间阶段数组、取样读数、片基计算与导出链路保持不变。算法标识继续为 `printroom-density-v1`，项目 schema 不变；展示策略独立版本化并纳入可再生缓存身份，见 [architecture.md](architecture.md)。
+
+本机隔离诊断已复现：同一实际照片白框的内部 Final 约为 `(0.98044, 0.932183, 1.00000)`，原 Float32 大图窗口截图约为 `(184, 173, 189)`；改用 UInt16 展示副本后约为 `(248, 235, 255)`，与同 ICC 参考色块的 `(248, 235, 255)` 一致。将 Float32 图像改为直接 CGContext 绘制仍出现压暗，因此仅替换绘图 API 不能解决这次问题。这些对照将问题定位到本机实际大图的显示路径，不能据此认定所有浮点图像均有缺陷；底层是否涉及 HDR/色调映射尚未证实。截图通道值属于该机器的显示结果，不是所有显示器都应具有的固定 RGB，也不替代硬件色度测量。
+
+正式修正版的构建、数值和文件回归结果以 [acceptance-0.1.0.md](acceptance-0.1.0.md) 中实际执行记录为准；原先仅验证显示前像素与 ICC 的测试不足以证明最终窗口正确。预览长边 1600，采样及导出使用原始像素；片基零值/饱和比例已显示，逐帧 epsilon 替换数与 LUT 域外计数的完整诊断 UI 尚未加入。
+
+## 10. 0.2.0 用户方向与原始坐标
+
+`algorithmVersion` 仍为 `printroom-density-v1`。用户方向是独立、帧级的 D4 整数变换，不改变以上公式。顺序为：读取 TIFF 存储样本 → 校正原始 TIFF orientation → 得到规范原始像素坐标 → 执行逐点密度/LUT 管线 → 用户追加方向。逐点运算与整数排列可交换，导出为减少临时内存使用反向坐标读取，结果必须相同。
+
+帧方向用八状态 `FrameOrientation` 表示，操作按点击时间顺序在当前显示坐标系左复合；当前画面的水平/垂直翻转不能退化为总在扫描仪原坐标轴翻转。重置回 identity，只移除用户方向，不撤销 TIFF 元数据本身的方向校正。
+
+取样点先由完整图像显示矩形反映射到用户方向后的全尺寸坐标，再经 D4 逆映射到 TIFF 已校正的原始像素。ROI 采用整数半开边界，完整反映射后保存原始坐标；缩放、平移、1:1 区域和用户方向不改变采样数值。奇数次 90° 旋转交换导出宽高；输出实际排列像素，并写 TIFF orientation=1。
+
+## 11. 0.2.0 输出转换与编码
+
+本节取代 §9 的“后续 M3”输出范围描述。四种输出为 P3-D65 Gamma 2.6（默认）、sRGB、Adobe RGB (1998)、ProPhoto RGB（标准 ROMM / ProPhoto RGB，正确暗部线性段）。P3 使用原始 `ICC/DCIP3_D65.icc`；另外三份固定 profile 独立打包于 `Sources/PrintroomCore/Resources/OutputProfiles`，来源与字节哈希见该目录 `PROVENANCE.txt`。不修改原始 ICC 目录。
+
+Final 数值已经 Gamma 2.6 编码。相同 P3 不进行 ICC 往返或额外 transfer；其他 profile 解析固定 ICC 的 matrix/TRC，按源 TRC 解码 → D50 PCS colorants 矩阵 → 目标 TRC 反函数执行相对色度转换，黑点补偿关闭；Double 计算后回到 Float32，最终量化一次。源为原始 P3 profile，目标为真实选定 profile。ProPhoto 为 D50，TRC 编码域 E≥1/32 时解码为 E^1.8，否则为 E/16；D50 色适应已经包含在 ICC colorants 中，不能重复套 chad。
+
+本机 ColorSync Float32 CMM 与 CoreGraphics 的暗部纯 Gamma 处理实测偏离 ICC 解析值，故不用于生产输出 CMM：P3 中性 0.02 → ProPhoto 应约 0.000612，而系统路径返回约 0.02。系统 ROMM profile 的参数断点也不合标准编码域；新增 ProPhoto profile 按标准生成。上述理由及精确来源见 `Sources/PrintroomCore/Resources/OutputProfiles/PROVENANCE.txt`，测试以独立矩阵/标准 TRC 解析值为主，正常域额外比较系统参考。
+
+转换后按 §9 量化。全部输出 3×16-bit RGB、嵌入目标 ICC、无 alpha、无抖动、orientation=1。支持无压缩（TIFF tag 259=1）与 zlib Deflate（259=8），每块独立无损压缩；原始行块保持有界。单张和批量共享 `ExportEngine`、`OutputColorConverter` 与 TIFF writer。
+
+## 12. 0.2.0 直方图
+
+统计 `PixelBuffer` 的整张照片，默认长边 1600 的最近邻预览，明确显示“预览直方图 · 整张”，不是显示器截图、可见区域或 1:1 tile。Final 使用 ICC 显示转换前的 P3-D65 Gamma 2.6 编码值；L0/L1 使用线性透射率，D0–D3 使用归一化密度 N，显示 CV/1024 单位。
+
+每通道 256 bins，区间 [0,1]，索引 `min(255, floor(value*256))`。有限 <0 / >1 值单独计数，不塞进端点 bin；NaN/Inf 单独计数，不入 bins。恰为 0 或 1 的值既属于端点 bin，也单独计数。≤0 / ≥1 百分比以该照片预览像素数作每通道分母，表示当前统计域黑白端边界；不意味着对中间密度执行裁切。所有统计只读、不修改算法值。
+
+RGB 叠加与单通道共享同一统计结果。异步计算携带帧 ID、渲染修订和阶段，切图/调参时清空旧统计、取消旧任务，只有当前请求能显示；1:1 局部加载不替换整图统计。

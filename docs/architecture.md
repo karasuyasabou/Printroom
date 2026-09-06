@@ -1,22 +1,22 @@
 # 架构与项目数据
 
-状态：0.1.0 已使用 Swift Package 实现核心与 SwiftUI 应用；构建脚本生成原生 `.app`，没有 `.xcodeproj`。公式见 [pipeline.md](pipeline.md)，交互见 [interaction.md](interaction.md)。以下为设计契约，文末列出本版实际映射与边界。
+状态：0.2.0；使用 Swift Package 实现核心与 SwiftUI 应用；构建脚本生成原生 `.app`，没有 `.xcodeproj`。公式见 [pipeline.md](pipeline.md)，交互见 [interaction.md](interaction.md)。以下为设计契约，文末列出本版实际映射与边界。
 
 ## 模块边界
 
 | 模块 | 责任与边界 |
 | --- | --- |
 | PrintroomApp / EditorView | SwiftUI 生命周期、预览/面板/Filmstrip；不直接实现公式或读写 TIFF |
-| ProjectDocument / ProjectStore | RollProject、FrameRecord、版本迁移、原子保存、文件协调 |
-| PipelineCore / PipelineReference | 无 UI、无显示转换的 Float32 CPU 核心，阶段纯函数、参数校验、数值诊断；拟用本地 Swift Package |
-| MetalRenderer | 与 CPU 相同阶段和 LUT 插值，纹理/缓冲区管理、取消和最新预览提交 |
-| TIFFImporter | 解码原始 UInt16 RGB、metadata/orientation；禁止隐式 ICC 转换 |
-| ColorManagement | 原始 profile 记录、最终输出与显示器转换、导出 profile 解析 |
-| TIFFExporter | 输出 profile 转换后的样本量化、16-bit 写入、ICC 嵌入、无覆盖发布 |
-| ThumbnailCache | 可再生的最终外观缩略图、缓存身份、过期与清理 |
+| RollProject / ProjectStore | RollProject、FrameRecord、版本迁移、原子保存、文件协调 |
+| Pipeline | 无 UI、无显示转换的 Float32 CPU 核心，阶段纯函数、参数校验、数值诊断；本地 Swift Package |
+| MetalPipeline | 与 CPU 相同阶段和 LUT 插值，纹理/缓冲区管理、取消和最新预览提交 |
+| TIFFCodec 原始读取 | 解码原始 UInt16 RGB、metadata/orientation；禁止隐式 ICC 转换 |
+| OutputColorConverter / DisplayImage | 原始 profile 记录、最终输出与显示器转换、导出 profile 解析 |
+| ExportEngine / TIFFCodec 输出 | 输出 profile 转换后的样本量化、16-bit 写入、ICC 嵌入、无覆盖发布 |
+| ImageService / DiskThumbnailCache | 可再生的最终外观缩略图、缓存身份、过期与清理 |
 | Diagnostics | 阶段值/域外计数/计时/错误，不能将原图上传或记录整幅像素日志 |
 
-UI 只通过模型命令修改参数；渲染接收不可变 `RenderRequest`。CPU 参考独立于 Metal，作为算法对照，不能为通过测试而直接调用 GPU 代码。框架选择暂定 ImageIO/ColorSync，但必须实测能保持原始 TIFF 样本；若不能，再选择可控的解码实现并记录原因。
+UI 只通过模型命令修改参数；渲染接收捕获后的不可变参数值，导出使用 `ExportRequest` 快照。CPU 参考独立于 Metal，作为算法对照，不能为通过测试而直接调用 GPU 代码。输入采用可控的 TIFF 条带解码以保持样本值；ImageIO仅用于可再生PNG缓存与独立输出回读，显示器适配由系统完成，四输出ICC由已验证matrix/TRC转换器处理。
 
 ## 卷项目结构
 
@@ -36,7 +36,7 @@ Roll/
 
 ## 持久模型契约
 
-`schemaVersion=1`，`algorithmVersion="printroom-density-v1"`。项目至少含：
+`schemaVersion=2`，`algorithmVersion="printroom-density-v1"`；schema 1 显式迁移，见文末。项目至少含：
 
 | 字段组 | 数据与约束 |
 | --- | --- |
@@ -44,7 +44,7 @@ Roll/
 | assets | LUT 与工作 ICC 的相对引用、SHA-256；矩阵标识由算法注册表解释 |
 | inputInterpretation | primaries=P3-D65、transfer=linear、policy=assignPreserveSamples |
 | calibration | 状态、来源 frameID、整数选区/坐标空间/尺寸、baseRGB、gainRGB、filmBaseOffsetCV、printDensityMatrix |
-| frames | frameID→FrameRecord 映射，记录相对路径、源文件指纹、Timing、Contrast；不使用数组下标作为 ID |
+| frames | frameID→FrameRecord 映射，记录相对路径、源文件指纹、Timing、Contrast、独立 orientation；不使用数组下标作为 ID |
 | ordering | frameID 顺序列表和排序模式；新文件插入自然位置，不改变已存在 ID |
 | exportSettings | profile 身份、16-bit TIFF、ICC 开关、抖动、命名规则；本地目录授权单独管理 |
 | viewState | 可选 lastActiveFrameID；不保存多选、撤销历史或复制快照 |
@@ -78,21 +78,39 @@ JSON 数值必须有限；整数 Timing 不接受小数。记录 `schemaVersion`
 
 参考单帧 7008×4672；RGB Float32 约 393 MB（375 MiB），RGBA Float32 约 524 MB（500 MiB）。不得同时常驻全部 10 张的全分辨率阶段图。默认按需加载当前帧、低分辨率异步预览、有限 LRU 缓存；片基采样读取原始像素；全尺寸导出分块处理。全尺寸 CPU 参考可慢，但数值行为必须一致。
 
-缩略图缓存身份包括源指纹、算法版本、卷校准与矩阵、帧参数、LUT/ICC 哈希、尺寸与显示策略。缓存存储带明确 profile 的最终外观缩略图，不缓存依赖某台显示器 profile 的最终设备值。显示器变化重新显示转换；缓存可丢弃重建。
+缩略图缓存身份包括源指纹、算法版本、卷校准与矩阵、帧参数、LUT/ICC 哈希、尺寸与显示策略。展示策略以独立 `presentationVersion` 纳入缓存键；本次 Float32 CGImage 改为 UInt16 展示副本必须使旧缓存失效，无需更改项目 schema 或算法版本。缓存存储带明确 profile 的最终外观缩略图，不缓存依赖某台显示器 profile 的最终设备值。显示器变化重新显示转换；缓存可丢弃重建。
 
 ## 工具链与构建落地
 
-工程使用 macOS 14+、arm64、Swift 6、系统框架与本地 Swift Package，已创建 app/test targets 和可重复脚本。Swift 并发隔离、Metal 数值路径、原始样本保真与输出回读已在当前机器测试；旧系统兼容、更多显示设备与独立多 profile 导出转换仍在后续范围。
+工程使用 macOS 14+、arm64、Swift 6、系统框架与本地 Swift Package，已创建 app/test targets 和可重复脚本。Swift 并发隔离、Metal 数值路径、原始样本保真与输出回读已在当前机器测试；旧系统兼容、更多显示设备与多 profile 导出见下方 0.2.0；旧系统/设备仍待验收。
 
-## 0.1.0 实际落地
+## 0.1.0 历史实现（后续变化见下方 0.2.0）
 
 - `Sources/PrintroomCore`：Contracts、CPU Pipeline、MetalPipeline、TIFFCodec、RollProject/ProjectStore/SelectionState/ParameterSnapshot。
 - `Sources/PrintroomApp`：EditorModel、SwiftUI EditorView、AppKit PreviewCanvas、ImageService actor、DisplayImage/AppAssets、App 生命周期。
 - 核心用 XCTest，异步 UI 模型集成使用 Swift Testing；命令在 README 与 `scripts/test.sh`，打包入口为 `scripts/build-app.sh`。
-- TIFF 解码采用自有 classic TIFF 条带解析及系统 zlib，绕过隐式 ICC 转换。GPU 通过 Float32 buffer 运行完整管线，CGImage 携带 ICC 交给系统显示；全尺寸导出复用 GPU 算法并由编码器分块请求样本。
+- TIFF 解码采用自有 classic TIFF 条带解析及系统 zlib，绕过隐式 ICC 转换。GPU 通过 Float32 buffer 运行完整管线，DisplayImage 仅将展示副本转为 UInt16 RGBA CGImage 并携带原始 ICC 交给系统显示，量化与诊断解释遵守 [pipeline.md](pipeline.md#9-预览导出与中间阶段诊断)；全尺寸导出复用 GPU 算法并由编码器分块请求样本。
 - 项目已编码 inputInterpretation、assets、exportSettings、calibration、calibrationNeedsReview、frames 与 lastActiveFrameID，数组元素使用稳定 UUID。排序为确定的自然文件名顺序，暂无手动排序 UI。
 - 打开项目的修改时间令牌在与 JSON 相同的文件协调读操作内捕获，保存检查此令牌，避免读完再取新令牌导致覆盖他人修改。
-- 源缓存使用新鲜文件系统属性比较尺寸/修改时间；重开卷清空内存缩略图源，磁盘缓存键包含文件、参数、算法、ICC/LUT 和尺寸身份。暂不做周期磁盘缓存清理。
+- 源缓存使用新鲜文件系统属性比较尺寸/修改时间；重开卷清空内存缩略图源，磁盘缓存键包含文件、参数、算法、ICC/LUT、尺寸与独立展示策略版本身份。暂不做周期磁盘缓存清理。
 - 保存冲突可另存经版本化的本卷 JSON 设置副本，再通过 File 菜单恢复；也可明确放弃未保存修改后重新载入。设置副本禁止直接覆盖当前项目，恢复需匹配卷 ID 并再次执行冲突检查。
 - 缺失条目保留设置、原名重现可恢复；未实现改名后的手动重连界面。项目文件之外的独立恢复副本不改变原始 TIFF。
 - 本版是本地 ad-hoc 签名应用，没有 App Sandbox/商店签名配置。macOS 14 部署目标未进行旧系统实机验收。
+
+## 0.2.0 模型与迁移（当前契约）
+
+本节更新上文 0.1.0 实现边界。`schemaVersion=2`；算法版本继续 `printroom-density-v1`。`FrameRecord.orientation` 是独立于 `FrameAdjustments` 的八状态 D4 枚举；`ProjectExportSettings` 增加 profile 和 compression，同时持久化 profileSHA256。Timing/Contrast 参数快照格式不变。
+
+解码先读 schema/algorithm 头，再只对 schema 1 补 identity、P3、无压缩并设置 schema 2。迁移保留全部已有 ID、输入策略、校准、帧调色和视图状态；schema 2 缺失新增必需字段仍报损坏，不借默认值吞掉文件错误。首次正常保存写 schema 2。0.1.0 不支持新结构，会拒绝读取；新旧应用使用独立 bundle identifier，避免窗口状态和偏好冲突。恢复 JSON 设置副本同时恢复方向与输出设置。
+
+`ProjectStore.relocate` 在同卷内绑定新文件名并验证可读 TIFF，保留 UUID 和全部帧设置。新发现的默认、无方向且非片基来源占位帧可合并；已编辑目标不能被覆盖。来源变化更新指纹、使片基状态需要复核，不丢失旧校准。
+
+## 0.2.0 并发、资源与缓存
+
+`ImageService` 通过 TIFF metadata/readPreview/readRegion 在 UInt16 条带层直接提取预览或必要 ROI，输入不经 ImageIO/ICC 转换。低分辨率源缓存为有限 LRU（64 MiB、12 项），身份包含路径、大小、mtime 和文件系统身份；兼容 load() 不常驻全图。原始区域最多 8,388,608 像素，普通 Retina 窗口 1:1 可用；超大窗口区域明确报错，未自动降采样。读取压缩TIFF仍须完整解压相交条带；非常大的单条带可能增加临时内存及取消延迟。
+
+主预览、缩略图、1:1 有独立后台渲染 actor；主预览与1:1共享当前源读取服务，缩略图读取独立；GPU 仍 Float32，已提交的 Metal 工作完成后丢弃过期结果。连续调参合并短时间内请求，避免无界排队；DisplayImage 的 UInt16 展示副本也后台制作。直方图可取消，发布时验证当前帧/阶段/渲染修订。
+
+磁盘 `DiskThumbnailCache` 存储嵌入工作 ICC 的 PNG，键包含源指纹、方向、调色、校准、阶段策略、LUT/ICC、算法与展示版本。默认 512 MiB / 30 天未访问；刷新/写入时清理（不运行周期定时器），仅删除本缓存目录的已知哈希 PNG 与超过一天的已知临时文件，不跟随 symlink，不删除陌生文件。UI 可手动清理，后续重建。
+
+`ExportRequest` 为不可变值：固定 ordered 帧、源路径/大小/mtime、校准、Timing/Contrast、方向、profile/compression，以及全卷受保护原路径。独立 `ExportEngine` actor 逐帧串行导出，当前帧原始 UInt16 全图 + 有界 Float32 行块；图像和文件输出与主预览 lane 分离。所有出口共享真实 ICC 转换与量化，取消在读条带、处理块和发布前检查。写入同目录临时文件，再原子 `RENAME_EXCL` 发布；同名或发布竞争不得覆盖已存在文件。

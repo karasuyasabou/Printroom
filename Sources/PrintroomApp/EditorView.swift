@@ -14,24 +14,33 @@ struct EditorView: View {
       HStack(spacing: 0) {
         VStack(spacing: 0) {
           previewToolbar
-          ZStack {
-            PreviewCanvas(model: model, resetToken: resetToken)
-            if model.project == nil { emptyState }
-            if model.isLoading {
-              ProgressView("正在读取原始 TIFF…").padding(18).background(
-                .regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+          GeometryReader { viewport in
+            ZStack {
+              PreviewCanvas(model: model, resetToken: resetToken)
+                .frame(width: viewport.size.width, height: viewport.size.height)
+              if model.project == nil { emptyState }
+              if model.isLoading {
+                ProgressView("正在读取原始 TIFF…").padding(18).background(
+                  .regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+              }
+              if model.sampling {
+                VStack {
+                  Label("拖动框选未曝光片基 · 使用原始像素中位数", systemImage: "viewfinder").padding(10).background(
+                    .regularMaterial, in: Capsule())
+                  Spacer()
+                }.padding().allowsHitTesting(false)
+              }
             }
-            if model.sampling {
-              VStack {
-                Label("拖动框选未曝光片基 · 使用原始像素中位数", systemImage: "viewfinder").padding(10).background(
-                  .regularMaterial, in: Capsule())
-                Spacer()
-              }.padding().allowsHitTesting(false)
-            }
+            .frame(width: viewport.size.width, height: viewport.size.height)
+            .clipped()
+            .contentShape(Rectangle())
           }
+          .clipped()
           HStack {
             Text(model.sampleReadout).font(.system(size: 10, design: .monospaced)).lineLimit(2)
             Spacer()
+            if model.isDetailLoading { Text("读取 1:1 区域…").font(.caption2) }
+            else if model.detailImage != nil { Text("原始像素 1:1").font(.caption2) }
             if model.isRendering { ProgressView().controlSize(.mini) }
           }.foregroundStyle(.secondary).padding(.horizontal, 12).frame(height: 35)
         }
@@ -48,6 +57,7 @@ struct EditorView: View {
         Text(model.status).font(.caption).lineLimit(1)
         Spacer()
         if model.isExporting {
+          Text(model.exportDetail).font(.caption2).lineLimit(1)
           ProgressView(value: model.exportProgress).frame(width: 110)
           Text(model.exportProgress, format: .percent.precision(.fractionLength(0))).font(.caption)
           Button("取消") { model.cancelExport() }
@@ -73,6 +83,7 @@ struct EditorView: View {
     } message: {
       Text(model.errorMessage ?? "")
     }
+    .sheet(isPresented: $model.showExportSummary) { ExportSummaryView(model: model) }
     .onOpenURL { model.open($0) }
   }
   private var topBar: some View {
@@ -99,11 +110,14 @@ struct EditorView: View {
       }.disabled(model.activeFrame == nil)
       Button("应用到 \(model.selection.selectedFrameIDs.count) 张") { model.applyParameters() }
         .disabled(!model.canApply)
-      Button {
-        model.exportPanel()
+      Menu {
+        Button("导出当前照片…") { model.exportPanel() }.disabled(!model.hasImage)
+        Button("导出选中 \(model.selection.selectedFrameIDs.count) 张…") { model.batchExportPanel(allFrames: false) }
+          .disabled(model.selection.selectedFrameIDs.isEmpty)
+        Button("导出整卷…") { model.batchExportPanel(allFrames: true) }
       } label: {
-        Label("导出当前照片", systemImage: "square.and.arrow.up")
-      }.buttonStyle(.borderedProminent).disabled(!model.hasImage || model.isExporting)
+        Label("导出 TIFF", systemImage: "square.and.arrow.up")
+      }.menuStyle(.borderlessButton).fixedSize().disabled(model.project == nil || model.isExporting)
     }.padding(.horizontal, 18).frame(height: 65)
   }
   private var previewToolbar: some View {
@@ -112,13 +126,22 @@ struct EditorView: View {
         .system(size: 12, weight: .medium, design: .monospaced)
       ).lineLimit(1)
       if model.sourceWidth > 0 {
-        Text("\(model.sourceWidth) × \(model.sourceHeight)").font(.caption2).foregroundStyle(
+        Text("\(model.displayWidth) × \(model.displayHeight)").font(.caption2).foregroundStyle(
           .tertiary)
       }
       Spacer()
+      Menu("方向") {
+        Button("顺时针 90°") { model.changeOrientation(.rotateClockwise) }
+        Button("逆时针 90°") { model.changeOrientation(.rotateCounterclockwise) }
+        Divider()
+        Button("水平翻转 · 当前画面") { model.changeOrientation(.flipHorizontal) }
+        Button("垂直翻转 · 当前画面") { model.changeOrientation(.flipVertical) }
+        Button("重置方向") { model.changeOrientation(.reset) }
+      }.menuStyle(.borderlessButton).foregroundStyle(.primary).fixedSize().disabled(!model.hasImage)
       Picker("阶段", selection: $model.stage) {
         ForEach(PipelineStage.allCases, id: \.self) { Text($0.label).tag($0) }
       }.labelsHidden().frame(width: 95)
+      Button("1:1") { model.inspectNativeResolution() }.controlSize(.small).disabled(!model.hasImage)
       Button("适应窗口") { resetToken += 1 }.controlSize(.small)
     }.padding(.horizontal, 12).frame(height: 38)
   }
@@ -171,6 +194,8 @@ struct EditorView: View {
           }
         }
         Divider()
+        HistogramView(model: model)
+        Divider()
         VStack(alignment: .leading, spacing: 10) {
           heading("02", "TIMING · 当前照片")
           Text(model.activeFrame.map { "正在编辑：\($0.filename)" } ?? "未选择照片").font(.caption2)
@@ -182,7 +207,7 @@ struct EditorView: View {
           Text("Q/E  R−/+    A/D  G−/+    Z/C  B−/+\nW / S  Master +1 CV").font(
             .system(size: 9, design: .monospaced)
           ).foregroundStyle(.tertiary)
-        }.disabled(model.activeFrame == nil || model.isExporting)
+        }.disabled(model.activeFrame == nil)
         Divider()
         VStack(alignment: .leading, spacing: 10) {
           heading("03", "RGB CONTRAST")
@@ -196,16 +221,26 @@ struct EditorView: View {
             Text("470 CV · 固定")
           }.font(.caption).foregroundStyle(.secondary)
           Button("重置当前照片参数") { model.resetAdjustments() }.font(.caption)
-        }.disabled(model.activeFrame == nil || model.isExporting)
+        }.disabled(model.activeFrame == nil)
         Divider()
         VStack(alignment: .leading, spacing: 7) {
           heading("04", "PIPELINE / OUTPUT")
           Text(
             "输入解释：P3-D65 Linear\n嵌入：\(model.embeddedProfile.isEmpty ? "—":model.embeddedProfile)\n保留原始通道数值，未转换"
           ).font(.system(size: 10)).foregroundStyle(.secondary)
-          Text("Kodak 2383 D65 · 33³\n16-bit TIFF · P3 D65 Gamma 2.6\n嵌入 ICC · 无抖动").font(
-            .system(size: 10)
-          ).foregroundStyle(.secondary)
+          Text("Kodak 2383 D65 · 33³").font(.caption2).foregroundStyle(.secondary)
+          Picker("输出 ICC", selection: Binding(get: { model.exportSettings.profile }, set: { model.setOutputProfile($0) })) {
+            ForEach(OutputColorProfile.allCases, id: \.self) { Text($0.label).tag($0) }
+          }
+          Picker("压缩", selection: Binding(get: { model.exportSettings.compression }, set: { model.setOutputCompression($0) })) {
+            Text("无压缩").tag(TIFFCompression.none)
+            Text("Deflate · 无损").tag(TIFFCompression.deflate)
+          }
+          Text("16-bit RGB TIFF · 嵌入 ICC · 无抖动\n导出任务使用开始时的照片与设置快照").font(.system(size: 10)).foregroundStyle(.secondary)
+          Button("清理本卷缩略图缓存") { model.clearThumbnailCache() }.font(.caption2)
+          if model.exportSummary != nil {
+            Button("查看上次导出结果") { model.showExportSummary = true }.font(.caption2)
+          }
           if model.stage != .final {
             Text("当前为数值诊断画面；导出始终使用 Final。").font(.caption2).foregroundStyle(accent)
           }
@@ -294,11 +329,18 @@ struct EditorView: View {
           LazyHStack(spacing: 8) {
             ForEach(Array((model.project?.frames ?? []).enumerated()), id: \.element.id) {
               index, frame in
-              thumbnail(frame, index: index).id(frame.id).onTapGesture {
-                filmstripFocused = true
-                let flags = NSEvent.modifierFlags
-                model.select(
-                  frame.id, command: flags.contains(.command), shift: flags.contains(.shift))
+              if frame.isMissing {
+                thumbnail(frame, index: index).id(frame.id).contextMenu {
+                  Button("重新定位此照片…") { model.relocatePanel(frame.id) }
+                }
+              } else {
+                Button {
+                  filmstripFocused = true
+                  let flags = NSEvent.modifierFlags
+                  model.select(frame.id, command: flags.contains(.command), shift: flags.contains(.shift))
+                } label: {
+                  thumbnail(frame, index: index).contentShape(Rectangle())
+                }.buttonStyle(.plain).id(frame.id)
               }
             }
           }.padding(.vertical, 2)
@@ -333,7 +375,7 @@ struct EditorView: View {
             Text(String(format: "%02d", index + 1)).font(.system(size: 9, design: .monospaced))
               .padding(3).background(.black.opacity(0.65))
             Spacer()
-            if frame.adjustments != FrameAdjustments() {
+            if frame.adjustments != FrameAdjustments() || frame.orientation != .identity {
               Circle().fill(accent).frame(width: 5, height: 5).padding(5)
             }
           }

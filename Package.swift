@@ -9,7 +9,7 @@ let package = Package(
     .executable(name: "Printroom", targets: ["PrintroomApp"]),
   ],
   targets: [
-    .target(name: "PrintroomCore"),
+    .target(name: "PrintroomCore", resources: [.process("Resources")]),
     .executableTarget(name: "PrintroomApp", dependencies: ["PrintroomCore"]),
     .testTarget(name: "PrintroomCoreTests", dependencies: ["PrintroomCore"]),
     .testTarget(name: "PrintroomAppTests", dependencies: ["PrintroomApp", "PrintroomCore"]),

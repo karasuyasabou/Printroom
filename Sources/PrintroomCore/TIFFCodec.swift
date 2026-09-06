@@ -2,6 +2,20 @@ import Darwin
 import Foundation
 import zlib
 
+public struct TIFFMetadata: Sendable {
+  public let width: Int, height: Int
+  public let embeddedProfileName: String
+}
+
+public enum TIFFWriteError: LocalizedError, Equatable {
+  case destinationExists(String)
+  public var errorDescription: String? {
+    switch self {
+    case .destinationExists(let name): "目标已存在，禁止覆盖 TIFF：\(name)"
+    }
+  }
+}
+
 /// Raw sample I/O: ICC metadata never participates in decoding or encoding.
 /// Supports classic, stripped RGB UInt16 TIFF (uncompressed or Deflate).
 public enum TIFFCodec {
@@ -12,12 +26,35 @@ public enum TIFFCodec {
     return try reader.readImage()
   }
 
+  public static func metadata(url: URL) throws -> TIFFMetadata {
+    let reader = try TIFFReader(url: url)
+    defer { try? reader.handle.close() }
+    return try reader.metadata()
+  }
+
+  /// Nearest original samples using the same positions as LinearImage.preview,
+  /// decoded a strip at a time without retaining full-resolution UInt16 arrays.
+  public static func readPreview(url: URL, maxDimension: Int) throws -> LinearImage {
+    guard maxDimension > 0 else { throw invalid("预览尺寸必须大于零。") }
+    let reader = try TIFFReader(url: url)
+    defer { try? reader.handle.close() }
+    return try reader.readImage(maxDimension: maxDimension)
+  }
+
+  /// The rectangle uses TIFF-orientation-corrected coordinates; user direction
+  /// changes are separate. Unneeded strips are not decoded.
+  public static func readRegion(url: URL, rect: PixelRect) throws -> LinearImage {
+    let reader = try TIFFReader(url: url)
+    defer { try? reader.handle.close() }
+    return try reader.readImage(region: rect)
+  }
+
   /// Requests bounded, contiguous, top-to-bottom RGB rows. The caller owns
   /// quantization and cancellation; any thrown error aborts and removes the temp.
-  /// M1 explicitly uses compression=1 (uncompressed), in place of the planned
-  /// Deflate default. No alpha, no color conversion, exact supplied ICC bytes.
+  /// No alpha, no color conversion, exact supplied ICC bytes. Deflate has one
+  /// independent zlib stream per strip; metadata is finalized before publication.
   public static func write(
-    url: URL, width: Int, height: Int, profile: Data,
+    url: URL, width: Int, height: Int, profile: Data, compression: TIFFCompression = .none,
     rows: (Range<Int>) throws -> [UInt16]
   ) throws {
     guard url.isFileURL, width > 0, height > 0,
@@ -34,12 +71,12 @@ public enum TIFFCodec {
     try requireAbsent(url)
     let rowsPerStrip = max(1, min(32, 2_097_152 / Int(rowBytes)))
     let stripCount = (height - 1) / rowsPerStrip + 1
-    let byteCounts = (0..<stripCount).map {
+    var byteCounts = (0..<stripCount).map {
       UInt32(min(rowsPerStrip, height - $0 * rowsPerStrip) * Int(rowBytes))
     }
     var entries: [TIFFWriteEntry] = [
       .long(256, UInt32(width)), .long(257, UInt32(height)),
-      .shorts(258, [16, 16, 16]), .shorts(259, [1]),
+      .shorts(258, [16, 16, 16]), .shorts(259, [compression == .none ? 1 : 8]),
       .shorts(262, [2]), .longs(273, [UInt32](repeating: 0, count: stripCount)),
       .shorts(274, [1]), .shorts(277, [3]), .long(278, UInt32(rowsPerStrip)),
       .longs(279, byteCounts), .shorts(284, [1]), .shorts(339, [1, 1, 1]),
@@ -50,12 +87,7 @@ public enum TIFFCodec {
     guard end <= UInt64(UInt32.max) else {
       throw invalid("输出超过 classic TIFF 的 4 GiB 限制。")
     }
-    var offset = UInt32(metadataSize)
-    let offsets = byteCounts.map { count in
-      defer { offset += count }
-      return offset
-    }
-    entries[5] = .longs(273, offsets)
+    var offsets = [UInt32](repeating: 0, count: stripCount)
     let header = try makeHeader(entries)
     let temporary = url.deletingLastPathComponent()
       .appendingPathComponent(".printroom-\(UUID().uuidString).tiff.tmp")
@@ -69,21 +101,38 @@ public enum TIFFCodec {
       try? FileManager.default.removeItem(at: temporary)
     }
     try handle.write(contentsOf: header)
-    for start in stride(from: 0, to: height, by: rowsPerStrip) {
-      let range = start..<min(height, start + rowsPerStrip)
-      var samples = try rows(range)
-      guard samples.count == range.count * width * 3 else {
-        throw invalid("TIFF 行回调返回的 RGB 样本数量不正确。")
+    for (strip, start) in stride(from: 0, to: height, by: rowsPerStrip).enumerated() {
+      try autoreleasepool {
+        try Task.checkCancellation()
+        let range = start..<min(height, start + rowsPerStrip)
+        var samples = try rows(range)
+        guard samples.count == range.count * width * 3 else {
+          throw invalid("TIFF 行回调返回的 RGB 样本数量不正确。")
+        }
+        // Native Apple Silicon is little endian; keep the file contract
+        // explicit for any future big-endian host too.
+        if UInt16(littleEndian: 1) != 1 {
+          for i in samples.indices { samples[i] = samples[i].littleEndian }
+        }
+        let bytes = samples.withUnsafeBytes { Data($0) }
+        let encoded = compression == .none ? bytes : try deflateStrip(bytes)
+        let offset = try handle.offset()
+        guard offset + UInt64(encoded.count) <= UInt64(UInt32.max) else {
+          throw invalid("输出超过 classic TIFF 的 4 GiB 限制。")
+        }
+        offsets[strip] = UInt32(offset)
+        byteCounts[strip] = UInt32(encoded.count)
+        try handle.write(contentsOf: encoded)
       }
-      // Native Apple Silicon is little endian; keep the file contract
-      // explicit for any future big-endian host too.
-      if UInt16(littleEndian: 1) != 1 {
-        for i in samples.indices { samples[i] = samples[i].littleEndian }
-      }
-      try samples.withUnsafeBytes { try handle.write(contentsOf: $0) }
     }
+    entries[5] = .longs(273, offsets)
+    entries[9] = .longs(279, byteCounts)
+    try handle.seek(toOffset: 0)
+    try handle.write(contentsOf: makeHeader(entries))
+    try Task.checkCancellation()
     try handle.synchronize()
     try handle.close()
+    try Task.checkCancellation()
     // RENAME_EXCL is an atomic no-replace operation, including a destination
     // created by another process after the initial check (or a dangling link).
     let result = temporary.withUnsafeFileSystemRepresentation { source in
@@ -91,14 +140,32 @@ public enum TIFFCodec {
         renamex_np(source!, destination!, UInt32(RENAME_EXCL))
       }
     }
-    guard result == 0 else { throw fileError("无法发布 TIFF（目标可能已存在）", code: errno) }
+    guard result == 0 else {
+      if errno == EEXIST { throw TIFFWriteError.destinationExists(url.lastPathComponent) }
+      throw fileError("无法发布 TIFF（目标可能已存在）", code: errno)
+    }
   }
 
   private static func requireAbsent(_ url: URL) throws {
     var status = stat()
     let result = url.withUnsafeFileSystemRepresentation { lstat($0!, &status) }
-    if result == 0 { throw invalid("目标已存在，禁止覆盖 TIFF：\(url.lastPathComponent)") }
+    if result == 0 { throw TIFFWriteError.destinationExists(url.lastPathComponent) }
     if errno != ENOENT { throw fileError("无法检查 TIFF 目标", code: errno) }
+  }
+
+  private static func deflateStrip(_ bytes: Data) throws -> Data {
+    var count = compressBound(uLong(bytes.count))
+    var output = Data(count: Int(count))
+    let status = output.withUnsafeMutableBytes { target in
+      bytes.withUnsafeBytes { source in
+        compress2(
+          target.bindMemory(to: Bytef.self).baseAddress!, &count,
+          source.bindMemory(to: Bytef.self).baseAddress!, uLong(bytes.count), 6)
+      }
+    }
+    guard status == Z_OK else { throw invalid("TIFF Deflate 压缩失败 (zlib \(status))。") }
+    output.count = Int(count)
+    return output
   }
 
   private static func makeHeader(_ entries: [TIFFWriteEntry]) throws -> Data {
@@ -220,7 +287,7 @@ private final class TIFFReader {
     }
   }
 
-  func readImage() throws -> LinearImage {
+  private func layout() throws -> Layout {
     let width = try scalar(256)
     let height = try scalar(257)
     guard width > 0, height > 0,
@@ -266,69 +333,155 @@ private final class TIFFReader {
         throw invalid("TIFF strip 范围或样本字节数无效。")
       }
     }
+    return Layout(
+      width: width, height: height, compression: compression,
+      predictor: predictor, orientation: orientation, rowsPerStrip: rowsPerStrip,
+      offsets: offsets, counts: counts)
+  }
+
+  private struct Layout {
+    let width: Int, height: Int, compression: Int, predictor: Int, orientation: Int
+    let rowsPerStrip: Int, offsets: [Int], counts: [Int]
+    var outputWidth: Int { orientation >= 5 ? height : width }
+    var outputHeight: Int { orientation >= 5 ? width : height }
+    func source(x: Int, y: Int) -> (x: Int, y: Int) {
+      switch orientation {
+      case 2: (width - 1 - x, y)
+      case 3: (width - 1 - x, height - 1 - y)
+      case 4: (x, height - 1 - y)
+      case 5: (y, x)
+      case 6: (y, height - 1 - x)
+      case 7: (width - 1 - y, height - 1 - x)
+      case 8: (width - 1 - y, x)
+      default: (x, y)
+      }
+    }
+  }
+
+  func metadata() throws -> TIFFMetadata {
+    let info = try layout()
+    return TIFFMetadata(
+      width: info.outputWidth, height: info.outputHeight,
+      embeddedProfileName: try embeddedProfileName())
+  }
+
+  func readImage(region: PixelRect? = nil, maxDimension: Int? = nil) throws -> LinearImage {
+    try Task.checkCancellation()
+    let info = try layout()
+    let region = region ?? PixelRect(x: 0, y: 0, width: info.outputWidth, height: info.outputHeight)
+    guard region.x >= 0, region.y >= 0, region.width > 0, region.height > 0,
+      region.width <= info.outputWidth, region.height <= info.outputHeight,
+      region.x <= info.outputWidth - region.width, region.y <= info.outputHeight - region.height
+    else { throw invalid("TIFF 读取选区超出原图边界。") }
+    let scale = min(
+      1,
+      Double(maxDimension ?? max(region.width, region.height))
+        / Double(max(region.width, region.height)))
+    let outputWidth = max(1, Int(Double(region.width) * scale))
+    let outputHeight = max(1, Int(Double(region.height) * scale))
     let profileName = try embeddedProfileName()
-    let outputWidth = orientation >= 5 ? height : width
-    let outputHeight = orientation >= 5 ? width : height
-    var samples = [UInt16](repeating: 0, count: width * height * 3)
+    // A strip intersects either output rows (orientations 1–4) or columns (5–8).
+    // Index it before decoding so a small 1:1 viewport never decodes unrelated strips.
+    let transposed = info.orientation >= 5
+    var stripIndices = [[Int]](repeating: [], count: info.offsets.count)
+    for index in 0..<(transposed ? outputWidth : outputHeight) {
+      let x = region.x + (transposed ? index * region.width / outputWidth : 0)
+      let y = region.y + (transposed ? 0 : index * region.height / outputHeight)
+      let raw = info.source(x: x, y: y)
+      stripIndices[raw.y / info.rowsPerStrip].append(index)
+    }
+    var samples = [UInt16](repeating: 0, count: outputWidth * outputHeight * 3)
     try samples.withUnsafeMutableBufferPointer { output in
-      for strip in 0..<stripCount {
-        let firstRow = strip * rowsPerStrip
-        let rowCount = min(rowsPerStrip, height - firstRow)
-        let expected = rowCount * width * 6
-        var bytes = try readBytes(at: UInt64(offsets[strip]), count: counts[strip])
-        if compression != 1 { bytes = try inflateStrip(bytes, expected: expected) }
-        if orientation == 1 && predictor == 1 && little {
-          // No CoreGraphics, ICC transform, transfer decode or rounding.
-          _ = bytes.copyBytes(
-            to: UnsafeMutableRawBufferPointer(
-              start: output.baseAddress!.advanced(by: firstRow * width * 3), count: expected))
-          continue
-        }
-        bytes.withUnsafeBytes { raw in
-          for localY in 0..<rowCount {
-            let y = firstRow + localY
-            var previous = SIMD3<UInt16>(repeating: 0)
-            for x in 0..<width {
-              let destination: (Int, Int)
-              switch orientation {
-              case 2: destination = (width - 1 - x, y)
-              case 3: destination = (width - 1 - x, height - 1 - y)
-              case 4: destination = (x, height - 1 - y)
-              case 5: destination = (y, x)
-              case 6: destination = (height - 1 - y, x)
-              case 7: destination = (height - 1 - y, width - 1 - x)
-              case 8: destination = (y, width - 1 - x)
-              default: destination = (x, y)
+      for strip in info.offsets.indices where !stripIndices[strip].isEmpty {
+        try autoreleasepool {
+          try Task.checkCancellation()
+          let firstRow = strip * info.rowsPerStrip
+          let rowCount = min(info.rowsPerStrip, info.height - firstRow)
+          let expected = rowCount * info.width * 6
+          var bytes = try readBytes(at: UInt64(info.offsets[strip]), count: info.counts[strip])
+          if info.compression != 1 { bytes = try inflateStrip(bytes, expected: expected) }
+          if info.orientation == 1, info.predictor == 1, little,
+            region.x == 0, region.y == 0, outputWidth == info.width,
+            outputHeight == info.height
+          {
+            _ = bytes.copyBytes(
+              to: UnsafeMutableRawBufferPointer(
+                start: output.baseAddress!.advanced(by: firstRow * info.width * 3), count: expected)
+            )
+            return
+          }
+          // Horizontal prediction is reconstructed in the original raw row order,
+          // before selecting/resizing/orienting pixels; UInt16 overflow is specified.
+          if info.predictor == 2 {
+            bytes.withUnsafeMutableBytes { raw in
+              for row in 0..<rowCount {
+                var previous = SIMD3<UInt16>(repeating: 0)
+                for x in 0..<info.width {
+                  for channel in 0..<3 {
+                    let offset = (row * info.width + x) * 6 + channel * 2
+                    let stored = raw.loadUnaligned(fromByteOffset: offset, as: UInt16.self)
+                    let value =
+                      (little ? UInt16(littleEndian: stored) : UInt16(bigEndian: stored))
+                      &+ previous[channel]
+                    previous[channel] = value
+                    raw.storeBytes(
+                      of: little ? value.littleEndian : value.bigEndian,
+                      toByteOffset: offset, as: UInt16.self)
+                  }
+                }
               }
-              let target = (destination.1 * outputWidth + destination.0) * 3
-              let source = (localY * width + x) * 6
-              for channel in 0..<3 {
-                let value = raw.loadUnaligned(fromByteOffset: source + channel * 2, as: UInt16.self)
-                var sample = little ? UInt16(littleEndian: value) : UInt16(bigEndian: value)
-                if predictor == 2 { sample = sample &+ previous[channel] }
-                previous[channel] = sample
-                output[target + channel] = sample
+            }
+          }
+          bytes.withUnsafeBytes { raw in
+            for index in stripIndices[strip] {
+              for other in 0..<(transposed ? outputHeight : outputWidth) {
+                let x = transposed ? index : other
+                let y = transposed ? other : index
+                let normalizedX = region.x + x * region.width / outputWidth
+                let normalizedY = region.y + y * region.height / outputHeight
+                let source = info.source(x: normalizedX, y: normalizedY)
+                let offset = ((source.y - firstRow) * info.width + source.x) * 6
+                let target = (y * outputWidth + x) * 3
+                for channel in 0..<3 {
+                  let value = raw.loadUnaligned(
+                    fromByteOffset: offset + channel * 2, as: UInt16.self)
+                  output[target + channel] =
+                    little ? UInt16(littleEndian: value) : UInt16(bigEndian: value)
+                }
               }
             }
           }
         }
       }
     }
+    try Task.checkCancellation()
     return LinearImage(
-      width: outputWidth, height: outputHeight, samples: samples, embeddedProfileName: profileName)
+      width: outputWidth, height: outputHeight, samples: samples,
+      embeddedProfileName: profileName)
   }
 
   private func readBytes(at offset: UInt64, count: Int) throws -> Data {
     guard count >= 0, offset <= fileSize, UInt64(count) <= fileSize - offset else {
       throw invalid("TIFF 数据超出文件边界。")
     }
-    try handle.seek(toOffset: offset)
-    var result = Data()
-    while result.count < count {
-      guard let part = try handle.read(upToCount: count - result.count), !part.isEmpty else {
-        throw invalid("TIFF 文件意外截断。")
+    // pread fills Swift-owned storage directly. FileHandle.read creates
+    // autoreleased NSData objects that otherwise accumulate on long-lived actor
+    // executors while loading a roll or exporting it.
+    var result = Data(count: count)
+    try result.withUnsafeMutableBytes { buffer in
+      var completed = 0
+      while completed < count {
+        try Task.checkCancellation()
+        let n = Darwin.pread(
+          handle.fileDescriptor, buffer.baseAddress!.advanced(by: completed),
+          count - completed, off_t(offset) + off_t(completed))
+        if n < 0 && errno == EINTR { continue }
+        guard n > 0 else {
+          if n < 0 { throw fileError("无法读取 TIFF", code: errno) }
+          throw invalid("TIFF 文件意外截断。")
+        }
+        completed += n
       }
-      result.append(part)
     }
     return result
   }

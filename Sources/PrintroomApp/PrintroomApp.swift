@@ -13,8 +13,17 @@ import SwiftUI
         let output = try assets.gpu.render(
           buffer, calibration: FilmCalibration(), adjustments: FrameAdjustments(), lut: assets.lut)
         guard output.pixels[0].x.isFinite else { throw PrintroomError.invalid("GPU 冒烟检查失败") }
+        let preview = try DisplayImage.make(output, profile: assets.profile)
+        guard preview.bitsPerComponent == 16, !preview.bitmapInfo.contains(.floatComponents),
+          preview.colorSpace?.copyICCData() as Data? == assets.profile
+        else { throw PrintroomError.invalid("SDR 预览格式或 ICC 校验失败") }
+        for profile in OutputColorProfile.allCases {
+          let converter = try OutputColorConverter(p3Profile: assets.profile, output: profile)
+          let converted = try converter.quantized(output)
+          guard converted.count == 3 else { throw PrintroomError.invalid("输出 profile 冒烟检查失败") }
+        }
         print(
-          "Printroom 0.1.0: bundled ICC/LUT hashes verified; Metal \(assets.gpu.deviceName) rendered successfully"
+          "Printroom 0.2.0: bundled ICC/LUT and four output profiles verified; Metal \(assets.gpu.deviceName) rendered successfully; \(DisplayImage.presentationVersion) preview verified"
         )
         exit(0)
       } catch {
@@ -24,7 +33,7 @@ import SwiftUI
     }
   }
   var body: some Scene {
-    Window("Printroom", id: "editor") {
+    Window("Printroom 0.2.0", id: "editor") {
       EditorView(model: model).onAppear { delegate.model = model }
     }.defaultSize(width: 1360, height: 900)
       .commands {
@@ -42,11 +51,25 @@ import SwiftUI
             "e", modifiers: [.command, .shift]
           ).disabled(!model.hasImage || model.isExporting)
         }
+        CommandMenu("批量输出") {
+          Button("导出所选照片…") { model.batchExportPanel(allFrames: false) }.disabled(model.selection.selectedFrameIDs.isEmpty || model.isExporting)
+          Button("导出整卷…") { model.batchExportPanel(allFrames: true) }.disabled(model.project == nil || model.isExporting)
+          Button("取消导出") { model.cancelExport() }.disabled(!model.isExporting)
+        }
         CommandGroup(replacing: .undoRedo) {
           Button("撤销") { model.undo() }.keyboardShortcut("z").disabled(
-            !model.canUndo || model.isExporting)
+            !model.canUndo)
           Button("重做") { model.redo() }.keyboardShortcut("z", modifiers: [.command, .shift])
-            .disabled(!model.canRedo || model.isExporting)
+            .disabled(!model.canRedo)
+        }
+        CommandMenu("方向") {
+          Button("顺时针 90°") { model.changeOrientation(.rotateClockwise) }.disabled(!model.hasImage)
+          Button("逆时针 90°") { model.changeOrientation(.rotateCounterclockwise) }.disabled(!model.hasImage)
+          Button("水平翻转") { model.changeOrientation(.flipHorizontal) }.disabled(!model.hasImage)
+          Button("垂直翻转") { model.changeOrientation(.flipVertical) }.disabled(!model.hasImage)
+          Button("重置方向") { model.changeOrientation(.reset) }.disabled(!model.hasImage)
+          Divider()
+          Button("原始分辨率 1:1") { model.inspectNativeResolution() }.keyboardShortcut("1").disabled(!model.hasImage)
         }
         CommandMenu("调色") {
           Button("复制参数") { model.copyParameters() }.keyboardShortcut(
