@@ -58,7 +58,7 @@
 | Q / E | Red −1 / +1 CV |
 | A / D | Green −1 / +1 CV |
 | Z / C | Blue −1 / +1 CV |
-| W / S | Master −1 / +1 CV |
+| W / S | Master +1 / +1 CV |
 
 仅编辑器或 Timing 面板处于编辑焦点、无文本输入焦点、无弹窗，且没有 Command/Control/Option 修饰时生效。Filmstrip 焦点不触发 Timing；⌘A、⌘C、⌘Z 和输入法不被截获。到达控件范围时停止，键盘重复可继续逐步调整。
 

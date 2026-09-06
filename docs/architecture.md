@@ -1,6 +1,6 @@
 # 架构与项目数据
 
-状态：工程设计默认，尚未创建 Swift 文件或 Xcode 工程。公式见 [pipeline.md](pipeline.md)，交互见 [interaction.md](interaction.md)。
+状态：0.1.0 已使用 Swift Package 实现核心与 SwiftUI 应用；构建脚本生成原生 `.app`，没有 `.xcodeproj`。公式见 [pipeline.md](pipeline.md)，交互见 [interaction.md](interaction.md)。以下为设计契约，文末列出本版实际映射与边界。
 
 ## 模块边界
 
@@ -82,4 +82,17 @@ JSON 数值必须有限；整数 Timing 不接受小数。记录 `schemaVersion`
 
 ## 工具链与构建落地
 
-工程默认 macOS 14+、arm64、Swift 6，初始使用系统框架与本地 Swift Package。M1 再创建 app target、测试 target 和可重复命令。Swift 6 并发隔离、ColorSync 输出路径、Metal 纹理格式和解码保真属于实现验证任务；当前不存在已跑通的构建系统。
+工程使用 macOS 14+、arm64、Swift 6、系统框架与本地 Swift Package，已创建 app/test targets 和可重复脚本。Swift 并发隔离、Metal 数值路径、原始样本保真与输出回读已在当前机器测试；旧系统兼容、更多显示设备与独立多 profile 导出转换仍在后续范围。
+
+## 0.1.0 实际落地
+
+- `Sources/PrintroomCore`：Contracts、CPU Pipeline、MetalPipeline、TIFFCodec、RollProject/ProjectStore/SelectionState/ParameterSnapshot。
+- `Sources/PrintroomApp`：EditorModel、SwiftUI EditorView、AppKit PreviewCanvas、ImageService actor、DisplayImage/AppAssets、App 生命周期。
+- 核心用 XCTest，异步 UI 模型集成使用 Swift Testing；命令在 README 与 `scripts/test.sh`，打包入口为 `scripts/build-app.sh`。
+- TIFF 解码采用自有 classic TIFF 条带解析及系统 zlib，绕过隐式 ICC 转换。GPU 通过 Float32 buffer 运行完整管线，CGImage 携带 ICC 交给系统显示；全尺寸导出复用 GPU 算法并由编码器分块请求样本。
+- 项目已编码 inputInterpretation、assets、exportSettings、calibration、calibrationNeedsReview、frames 与 lastActiveFrameID，数组元素使用稳定 UUID。排序为确定的自然文件名顺序，暂无手动排序 UI。
+- 打开项目的修改时间令牌在与 JSON 相同的文件协调读操作内捕获，保存检查此令牌，避免读完再取新令牌导致覆盖他人修改。
+- 源缓存使用新鲜文件系统属性比较尺寸/修改时间；重开卷清空内存缩略图源，磁盘缓存键包含文件、参数、算法、ICC/LUT 和尺寸身份。暂不做周期磁盘缓存清理。
+- 保存冲突可另存经版本化的本卷 JSON 设置副本，再通过 File 菜单恢复；也可明确放弃未保存修改后重新载入。设置副本禁止直接覆盖当前项目，恢复需匹配卷 ID 并再次执行冲突检查。
+- 缺失条目保留设置、原名重现可恢复；未实现改名后的手动重连界面。项目文件之外的独立恢复副本不改变原始 TIFF。
+- 本版是本地 ad-hoc 签名应用，没有 App Sandbox/商店签名配置。macOS 14 部署目标未进行旧系统实机验收。

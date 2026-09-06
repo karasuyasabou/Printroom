@@ -1,6 +1,6 @@
 # 算法与色彩管线
 
-本文是公式、单位和常量的规范来源。除标注为“工程默认/待验证”的项，以下核心公式、矩阵、pivot、参数范围均来自用户说明及后续确认。算法初始标识：`printroom-density-v1`；这是拟实现契约，不代表已运行验证。
+本文是公式、单位和常量的规范来源。除标注为“工程默认/待验证”的项，以下核心公式、矩阵、pivot、参数范围均来自用户说明及后续确认。算法标识：`printroom-density-v1`；0.1.0 已实现 CPU/Metal 与 TIFF 闭环，实际验证记录见 `acceptance-0.1.0.md`。算法契约与 LUT 作者的物理标定证据仍须区分。
 
 ## 1. 阶段与表示
 
@@ -132,8 +132,10 @@ Final 由正确的源 profile 转换到显示器 profile；显示链路只进行
 
 中间阶段工程默认：L0/L1 显示 `clamp(value,0,1)` 的诊断伪色 RGB；D0–D3 显示 `clamp(normalizedDensity,0,1)` 的诊断伪色 RGB，统一作为 sRGB 编码诊断画面送显示器。标记“数值诊断”；采样读数始终来自未裁切、未编码的内部值，密度同时显示 CV。诊断显示不参与任何后续计算。首版提供 RGB 取样读数，直方图可后续加入。
 
-默认导出：Final→P3-D65 Gamma 2.6→16-bit RGB TIFF，嵌入原始 ICC；相同 profile 不转换数值。工程默认无损 ZIP/Deflate 压缩、无 alpha、orientation=1、抖动关闭；如编码器不支持所选压缩，明确失败或实现并记录无压缩模式，不隐式降位深。
+默认导出：Final→P3-D65 Gamma 2.6→16-bit RGB TIFF，嵌入原始 ICC；相同 profile 不转换数值。**0.1.0 实际选择无压缩 classic TIFF（compression=1）**，无 alpha、orientation=1、抖动关闭。直接写入有界条带，并以不替换已有目标的原子重命名发布；7008 像素宽时每块 32 行，编码器同时限制原始行块不超过约 2 MiB。初始文档中的 ZIP/Deflate 输出建议留到后续，不隐式降位深。超过 classic TIFF 4 GiB 限制明确拒绝。
 
 M3 增加 Adobe RGB、sRGB、ProPhoto RGB 的实际 ICC 转换。默认相对色度意图、黑点补偿关闭；ICC 标识与哈希必须持久化。ProPhoto 使用正确 D50 profile 和色适应，不仅改标签。嵌入 ICC 默认为开，M1 必须支持；关闭嵌入的高级选项在 M3 增加。抖动初始保持关闭，未来增加时只发生在最终量化之前，并明确可重复的实现。
 
 量化工程默认：先完成输出 profile 转换，检查有限值，再 `floor(clamp(value,0,1)*65535 + 0.5)`。16-bit 整数归一化用 65535，与密度的 1024 不是同一问题。导出不可覆盖源 TIFF，冲突生成递增后缀；写入临时文件成功后再原子移动到目标。
+
+0.1.0 显示落地：Metal 输出 Float32 RGBA 数组，构造 32-bit 浮点 CGImage，Final 附带原始 ICC，NSImage 在 macOS 显示上下文绘制时完成显示器适配。数值测试已确认 CGImage 原通道数值及 ICC 不变；未执行硬件色度测量。预览长边 1600，采样及导出使用原始像素；诊断画面仍按上述 sRGB 策略显示。片基零值/饱和比例已显示，逐帧 epsilon 替换数与 LUT 域外计数的完整诊断 UI 尚未加入。
