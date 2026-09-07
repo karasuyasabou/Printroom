@@ -138,3 +138,7 @@ ICC真实转换按固定profile的matrix/TRC、D50 PCS计算；源/目标曲线�
 ### 构建号 4：长按降至 50 CV/秒
 
 用户试用后要求降低速度；现固定 50 CV/秒，其余交互不变。`scripts/test.sh --filter TimingKeyboardTests` 4 项通过，覆盖速率时间点、停止、Shift、系统重复、撤销及切帧。release 构建完成；沙盒资源检查因 Metal 不可用退出，非沙盒单独 `--verify-resources` 通过，签名严格校验通过。新版位于 `output/Printroom-0.2.0.app`；50 CV/秒手感待用户试用。
+
+### 反差控件上限 2（2026-09-07）
+
+按用户要求，Master/R/G/B 反差滑杆及数值输入范围改为 0.25–2，步长保持 0.01。旧项目参数仍按原数值读取和计算，不自动裁切；兼容范围见 pipeline.md。检查共享 AdjustmentRow 的滑杆和数值输入均使用同一范围限制。release 构建、严格签名校验、非沙盒 Metal/资源校验通过；沙盒内资源检查因 Metal 不可用退出后已单独重跑。此次简单控件范围调整未新增测试或重跑完整算法测试。独立试用包：`output/Printroom-0.2.0-Contrast2.app`。

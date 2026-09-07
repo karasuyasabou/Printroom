@@ -253,7 +253,7 @@ struct EditorView: View {
       value: Binding(
         get: { Double(model.adjustments.contrast[keyPath: path]) },
         set: { v in model.edit { $0.contrast[keyPath: path] = Float(v) } }),
-      range: 0.25...4, step: 0.01, fractionDigits: 2, color: color,
+      range: 0.25...2, step: 0.01, fractionDigits: 2, color: color,
       onEditingChanged: { if $0 { model.beginAdjustment() } else { model.endAdjustment() } })
   }
   private var filmstrip: some View {

@@ -116,7 +116,7 @@ finalContrast[c] = masterContrast × channelContrast[c]
 D3[c] = pivot + finalContrast[c] × (D2[c] − pivot)
 ```
 
-反差默认均为 1。工程默认每个控件范围 `[0.25,4.0]`，步长 0.01，允许数值输入；乘积不再次裁切。pivot 固定为 470 CV，不可编辑；界面中的呈现按 [interaction.md](interaction.md) 决定。不使用 685 CV 作为 pivot。
+反差默认均为 1。用户指定每个控件可调范围 `[0.25,2.0]`，步长 0.01，允许数值输入；乘积不再次裁切。为保持旧项目外观，读取、复制与计算仍兼容旧范围至 4.0，不自动裁切已保存值；控件重新输入或拖动时限定至 2.0。pivot 固定为 470 CV，不可编辑；界面中的呈现按 [interaction.md](interaction.md) 决定。不使用 685 CV 作为 pivot。
 
 ## 8. LUT
 
