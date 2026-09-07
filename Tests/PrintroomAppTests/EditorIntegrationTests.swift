@@ -158,7 +158,7 @@ struct EditorIntegrationTests {
     // Await pending preview tasks before tearing down local fixture files.
     try await Task.sleep(for: .milliseconds(400))
   }
-  @Test func testSliderGestureIsSingleUndoAndBothMasterKeysIncrease() async throws {
+  @Test func testSliderGestureIsSingleUndoAndMasterKeysHaveOppositeDirections() async throws {
     let model = EditorModel()
     var roll = RollProject()
     let frame = FrameRecord(filename: "Sample.tiff")
@@ -175,10 +175,39 @@ struct EditorIntegrationTests {
     model.redo()
     #expect((model.adjustments.timing.red) == (30))
     model.handleTimingKey("w")
+    #expect(model.adjustments.timing.master == 1)
     model.handleTimingKey("s")
-    #expect((model.adjustments.timing.master) == (2))
+    #expect((model.adjustments.timing.master) == (0))
     model.undo()
     #expect((model.adjustments.timing.master) == (1))
+  }
+  @Test func testPhotoNavigationSkipsMissingAndStopsAtEnds() {
+    let model = EditorModel()
+    let first = FrameRecord(filename: "01.tiff")
+    var missing = FrameRecord(filename: "02.tiff")
+    missing.isMissing = true
+    let last = FrameRecord(filename: "03.tiff")
+    var roll = RollProject()
+    roll.frames = [first, missing, last]
+    model.project = roll
+    model.selectAdjacentFrame(1)
+    #expect(model.selection.activeFrameID == first.id)
+    model.selectAdjacentFrame(-1)
+    #expect(model.selection.activeFrameID == first.id)
+    model.selectAdjacentFrame(1)
+    #expect(model.selection.activeFrameID == last.id)
+    #expect(model.selection.selectedFrameIDs == [last.id])
+    model.selectAdjacentFrame(1)
+    #expect(model.selection.activeFrameID == last.id)
+    model.selectAdjacentFrame(-1)
+    #expect(model.selection.activeFrameID == first.id)
+    #expect(model.project?.frames == roll.frames)
+    model.edit { $0.timing.master = -256 }
+    model.handleTimingKey("s")
+    #expect(model.adjustments.timing.master == -256)
+    model.edit { $0.timing.master = 256 }
+    model.handleTimingKey("w")
+    #expect(model.adjustments.timing.master == 256)
   }
   @Test func testSDRPreviewCarriesSourceICCWithoutExtraGamma() async throws {
     let assets = try AppAssets()

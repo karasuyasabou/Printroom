@@ -148,6 +148,17 @@ import UniformTypeIdentifiers
     dirty = true
     scheduleSave()
   }
+  func selectAdjacentFrame(_ delta: Int) {
+    let frames = project?.frames.filter { !$0.isMissing } ?? []
+    guard !frames.isEmpty else { return }
+    guard let index = frames.firstIndex(where: { $0.id == selection.activeFrameID }) else {
+      select(frames[0].id)
+      return
+    }
+    let next = index + delta
+    guard frames.indices.contains(next), next != index else { return }
+    select(frames[next].id)
+  }
   func selectAll() {
     guard let project else { return }
     let before = selection.activeFrameID
@@ -770,7 +781,8 @@ import UniformTypeIdentifiers
       case "d": a.timing.green = min(256, a.timing.green + 1)
       case "z": a.timing.blue = max(-256, a.timing.blue - 1)
       case "c": a.timing.blue = min(256, a.timing.blue + 1)
-      case "w", "s": a.timing.master = min(256, a.timing.master + 1)
+      case "w": a.timing.master = min(256, a.timing.master + 1)
+      case "s": a.timing.master = max(-256, a.timing.master - 1)
       default: break
       }
     }

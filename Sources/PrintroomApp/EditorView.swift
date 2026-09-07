@@ -68,6 +68,7 @@ struct EditorView: View {
     }
     .frame(minWidth: 1060, minHeight: 720)
     .background(Color(nsColor: .windowBackgroundColor))
+    .background(EditorKeyboardShortcuts(model: model))
     .preferredColorScheme(.dark)
     .tint(accent)
     .alert(

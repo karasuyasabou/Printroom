@@ -23,7 +23,7 @@
 | D017 | 工程默认 | 文档优先、单一根 AGENTS；不创建空应用模块、多角色配置或技能，待重复工作实际出现再增加 | README.md |
 | D018 | 用户确认 | 本轮串接算法、单张闭环、整卷操作；可使用子代理；批量导出、多输出 profile、最终性能优化延后 | roadmap.md |
 | D019 | 工程决定 | 0.1.0 使用无压缩 classic TIFF、分块请求样本、原始 ICC 字节嵌入、原子无覆盖发布；后续再增加压缩输出 | pipeline.md |
-| D020 | 用户修正 | W 和 S 均为 Master +1 CV；保留这一明确修正，不自行改成常见的正负组合 | interaction.md |
+| D020 | 用户修正 | 按用户最新修正：W 为 Master +1 CV、S 为 −1 CV，取代旧的两键均增加约定 | interaction.md |
 | D021 | 工程决定 | SwiftPM 原生 macOS executable 配合构建脚本组装 `.app`，本地 ad-hoc 签名，无外部包依赖 | README.md |
 | D022 | 工程决定 | 保存令牌与项目内容协调读取；失败可保存/恢复设置副本或明确重新载入，防止外部改动被覆盖或用户被困在保存错误中 | architecture.md |
 | D023 | 工程决定；用户授权修复 | 主预览与缩略图使用 UInt16 RGBA 展示副本及原始 ICC，避免本机实际大图 Float32 显示路径的压暗；内部计算、采样与导出不变，无额外 Gamma。仅替换绘图 API 的对照未解决问题，底层 HDR 机制仍未证实 | pipeline.md §9 |
@@ -58,3 +58,4 @@
 | D032 | 工程决定 | 条带级预览/ROI、原生区域1:1、有界LRU、512MiB/30天磁盘缓存；保持Float32与原始样本 | architecture.md |
 | D034 | 工程决定；解析测试支持 | 本机系统CMM暗部纯Gamma响应及ROMM TRC断点偏离标准；生产输出解析固定ICC colorants/TRC，经D50 PCS转换，避免系统暗部toe和重复适应；不改变P3直出或密度算法 | pipeline.md §11 |
 | D033 | 工程决定 | 重新定位限定同卷，稳定ID保留，仅合并默认占位帧，片基来源复核 | architecture.md |
+| D037 | 用户修正 | 增加方括号左/右旋转、⌘F水平翻转；四方向键取消调节，左右切换照片。按键范围和边界见交互规范 | interaction.md |
