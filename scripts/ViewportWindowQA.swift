@@ -6,6 +6,7 @@ import SwiftUI
 
 @main struct ViewportWindowQA {
   @MainActor static func main() {
+    setbuf(stdout, nil)
     let app = NSApplication.shared
     app.setActivationPolicy(.regular)
     Task { @MainActor in
@@ -84,8 +85,14 @@ import SwiftUI
         throw NSError(domain: "screencapture", code: Int(process.terminationStatus))
       }
     }
+    func clickControl(_ point: CGPoint) async throws {
+      NSApp.postEvent(mouse(.leftMouseDown, point), atStart: false)
+      NSApp.postEvent(mouse(.leftMouseUp, point), atStart: false)
+      try await settle()
+    }
     let originalBounds = canvas.bounds
     let center = CGPoint(x: originalBounds.midX, y: originalBounds.midY)
+    if !CommandLine.arguments.contains("--controls-only") {
     try await capture("01-fit")
     scroll(400, at: center, zoom: true)  // 0.25× minimum
     precondition(canvas.zoom == 0.25)
@@ -155,11 +162,6 @@ import SwiftUI
       try await capture(name + "-fit")
     }
     // Route queued mouse events through NSApplication/NSWindow hit testing to actual controls.
-    func clickControl(_ point: CGPoint) async throws {
-      NSApp.postEvent(mouse(.leftMouseDown, point), atStart: false)
-      NSApp.postEvent(mouse(.leftMouseUp, point), atStart: false)
-      try await settle()
-    }
     canvas.zoom = 16
     canvas.pan = CGPoint(x: 300, y: -200)
     canvas.needsDisplay = true
@@ -224,6 +226,8 @@ import SwiftUI
     print("MAIN_ACTOR_TIMER: requested=20ms median=\(delays[15] * 1000)ms p95=\(delays[28] * 1000)ms max=\(delays.last! * 1000)ms")
     try await ready()
     try await capture("20-v2-final")
+    print("PASS: window clipping, Fit, sampling, Filmstrip, direction, native 1:1, whole-photo histogram")
+    }
     model.sampleBase(PixelRect(x: 359, y: 604, width: 79, height: 494))
     for _ in 0..<200 where model.project?.calibration.isCalibrated != true { try await Task.sleep(for: .milliseconds(50)) }
     precondition(model.project?.calibration.isCalibrated == true)
@@ -232,7 +236,110 @@ import SwiftUI
       contrast: .init(master: 1.05, red: 0.95, green: 1.02, blue: 1.1)) }
     try await ready()
     try await capture("21-v2-calibrated-reference")
-    print("PASS: real window clipping, mouse controls, Filmstrip, user direction, native 1:1 pixels, whole-photo histogram, main-actor responsiveness")
+    // Exercise the shared native controls through window event routing.
+    func sliders(in view: NSView) -> [ChannelSlider] {
+      (view as? ChannelSlider).map { [$0] } ?? view.subviews.flatMap { sliders(in: $0) }
+    }
+    let controls = sliders(in: hosting)
+    print("SLIDER_CONTROLS: \(controls.count)")
+    precondition(controls.count == 8, "Four timing and four contrast sliders must be visible")
+    for title in controls.map({ $0.accessibilityLabel()! }) {
+      guard let slider = sliders(in: hosting).first(where: { $0.accessibilityLabel() == title }) else {
+        fatalError("Missing channel: \(title)")
+      }
+      let before = model.adjustments
+      // Click the rail away from the current thumb; a thumb click alone is a no-op.
+      let point = slider.convert(CGPoint(x: slider.bounds.width * 0.75, y: slider.bounds.midY), to: canvas)
+      try await clickControl(point)
+      print("SLIDER_CLICK: \(title) value=\(slider.doubleValue)")
+      precondition(model.adjustments != before, "Actual slider rail click must edit the frame")
+      model.undo()
+      precondition(model.adjustments == before, "One undo must restore a slider interaction")
+      try await settle()
+      window.makeFirstResponder(slider)
+      let frameID = model.selection.activeFrameID!
+      let framesBefore = model.project!.frames
+      func arrow(_ code: UInt16, _ character: String) async throws {
+        let key = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+          timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+          context: nil, characters: character, charactersIgnoringModifiers: character,
+          isARepeat: false, keyCode: code)!
+        NSApp.postEvent(key, atStart: false)
+        try await settle()
+      }
+      try await arrow(124, "\u{f703}")
+      precondition(model.selection.activeFrameID != frameID, "Right arrow must switch photos with slider focus")
+      try await arrow(123, "\u{f702}")
+      precondition(model.selection.activeFrameID == frameID)
+      try await arrow(125, "\u{f701}")
+      try await arrow(126, "\u{f700}")
+      precondition(model.project!.frames == framesBefore, "All arrows must leave adjustments unchanged")
+
+    }
+    let beforeShortcut = model.adjustments
+    let timingKey = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+      timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+      context: nil, characters: "q", charactersIgnoringModifiers: "q", isARepeat: false, keyCode: 12)!
+    NSApp.postEvent(timingKey, atStart: false)
+    try await settle()
+    precondition(model.adjustments.timing.red == beforeShortcut.timing.red - 1,
+      "Timing shortcuts must work while a native slider has focus")
+    model.undo()
+    precondition(model.adjustments == beforeShortcut)
+    func press(_ characters: String, code: UInt16, modifiers: NSEvent.ModifierFlags = []) async throws {
+      let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
+        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+        context: nil, characters: characters, charactersIgnoringModifiers: characters,
+        isARepeat: false, keyCode: code)!
+      NSApp.postEvent(event, atStart: false)
+      try await settle()
+    }
+    let timingBefore = model.adjustments.timing.master
+    try await press("w", code: 13)
+    precondition(model.adjustments.timing.master == timingBefore + 1)
+    try await press("s", code: 1)
+    precondition(model.adjustments.timing.master == timingBefore)
+    let directionBefore = model.orientation
+    try await press("[", code: 33)
+    precondition(model.orientation == directionBefore.applying(.rotateCounterclockwise))
+    try await press("]", code: 30)
+    precondition(model.orientation == directionBefore)
+    try await press("【", code: 33)
+    precondition(model.orientation == directionBefore.applying(.rotateCounterclockwise))
+    try await press("】", code: 30)
+    precondition(model.orientation == directionBefore)
+    try await press("f", code: 3, modifiers: [.command])
+    precondition(model.orientation == directionBefore.applying(.flipHorizontal))
+    model.undo()
+    precondition(model.orientation == directionBefore)
+    let textInput = NSTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 30))
+    hosting.addSubview(textInput)
+    window.makeFirstResponder(textInput)
+    let framesBeforeText = model.project!.frames
+    let activeBeforeText = model.selection.activeFrameID
+    try await press("[", code: 33)
+    try await press("\u{f703}", code: 124)
+    try await press("f", code: 3, modifiers: [.command])
+    precondition(model.project!.frames == framesBeforeText && model.selection.activeFrameID == activeBeforeText,
+      "Text editing must not rotate, flip or switch photos")
+    window.makeFirstResponder(canvas)
+    textInput.removeFromSuperview()
+    print("PASS: W/S, bracket rotation, Command-F/undo, slider arrow navigation, text focus exclusion")
+    // Clicking the floating picker must not begin image sampling or move the viewport.
+    model.sampling = true
+    try await settle()
+    let previousCalibration = model.project!.calibration
+    try await clickControl(CGPoint(x: canvas.bounds.maxX - 174, y: 30))
+    precondition(model.histogramChannel == 0, "Floating R channel control must receive clicks")
+    precondition(canvas.start == nil && canvas.selectionRect == nil)
+    precondition(model.project!.calibration == previousCalibration)
+    try await capture("22-floating-histogram-sampling")
+    model.sampling = false
+    try await clickControl(CGPoint(x: canvas.bounds.maxX - 198, y: 30))
+    precondition(model.histogramChannel == -1)
+    try await ready()
+    try await capture("23-ui-refresh-final")
+    print("PASS: eight slider clicks/undo/arrow navigation, focused Timing shortcut, floating picker hit testing")
     window.orderOut(nil)
   }
 }

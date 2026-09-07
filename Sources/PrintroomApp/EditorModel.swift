@@ -598,13 +598,18 @@ import UniformTypeIdentifiers
     status = "已恢复本卷设置副本"
   }
   func exportPanel() {
-    guard let frame = activeFrame, let folder, !isExporting else { return }
+    guard let project, let frame = activeFrame, let folder, !isExporting else { return }
     let panel = NSSavePanel()
     panel.allowedContentTypes = [.tiff]
     panel.nameFieldStringValue = URL(fileURLWithPath: frame.filename).deletingPathExtension().lastPathComponent + "_Printroom.tiff"
     panel.directoryURL = folder.appendingPathComponent("Printroom Exports", isDirectory: true)
-    panel.title = "导出当前照片 · 16-bit TIFF · \(exportSettings.profile.label)"
-    guard panel.runModal() == .OK, let destination = panel.url else { return }
+    panel.title = "导出当前照片"
+    panel.prompt = "导出"
+    let options = ExportOptionsView(settings: project.exportSettings)
+    options.attach(to: panel)
+    guard panel.runModal() == .OK, let destination = panel.url,
+      self.project?.id == project.id, !isExporting else { return }
+    setExportSettings(options.settings)
     startExport(targetIDs: [frame.id], directory: destination.deletingLastPathComponent(), explicitDestination: destination)
   }
   func batchExportPanel(allFrames: Bool) {
@@ -618,7 +623,12 @@ import UniformTypeIdentifiers
     panel.canCreateDirectories = true
     panel.allowsMultipleSelection = false
     panel.directoryURL = folder?.appendingPathComponent("Printroom Exports", isDirectory: true)
-    guard panel.runModal() == .OK, let directory = panel.url else { return }
+    panel.prompt = "导出"
+    let options = ExportOptionsView(settings: project.exportSettings)
+    options.attach(to: panel)
+    guard panel.runModal() == .OK, let directory = panel.url,
+      self.project?.id == project.id, !isExporting else { return }
+    setExportSettings(options.settings)
     startExport(targetIDs: targets, directory: directory)
   }
   func startExport(targetIDs: Set<UUID>, directory: URL, explicitDestination: URL? = nil) {
@@ -746,14 +756,18 @@ import UniformTypeIdentifiers
     } catch { errorMessage = error.localizedDescription }
   }
   func setOutputProfile(_ profile: OutputColorProfile) {
-    guard project != nil, exportSettings.profile != profile else { return }
-    project?.exportSettings.profile = profile
-    dirty = true
-    scheduleSave(immediate: true)
+    var settings = exportSettings
+    settings.profile = profile
+    setExportSettings(settings)
   }
   func setOutputCompression(_ compression: TIFFCompression) {
-    guard project != nil, exportSettings.compression != compression else { return }
-    project?.exportSettings.compression = compression
+    var settings = exportSettings
+    settings.compression = compression
+    setExportSettings(settings)
+  }
+  func setExportSettings(_ settings: ProjectExportSettings) {
+    guard project != nil, exportSettings != settings else { return }
+    project?.exportSettings = settings
     dirty = true
     scheduleSave(immediate: true)
   }

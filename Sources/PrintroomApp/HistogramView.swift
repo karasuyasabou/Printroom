@@ -3,20 +3,25 @@ import SwiftUI
 
 struct HistogramView: View {
   @ObservedObject var model: EditorModel
-  private let colors: [Color] = [.red, .green, .blue]
+  @State private var showDetails = false
+  private let colors: [Color] = [ChannelColors.red, ChannelColors.green, ChannelColors.blue]
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
-      HStack {
-        Text("预览直方图 · 整张").font(.caption.weight(.medium))
-        Spacer()
-        if model.isHistogramUpdating { ProgressView().controlSize(.mini) }
+      HStack(spacing: 8) {
+        Picker("直方图通道", selection: $model.histogramChannel) {
+          Text("RGB").tag(-1)
+          Text("R").tag(0)
+          Text("G").tag(1)
+          Text("B").tag(2)
+        }.pickerStyle(.segmented).controlSize(.mini).labelsHidden().frame(maxWidth: .infinity)
+        Button {
+          showDetails.toggle()
+        } label: {
+          Image(systemName: "info.circle").foregroundStyle(.secondary)
+        }.buttonStyle(.plain).help("整张预览的直方图统计")
+          .accessibilityLabel("直方图统计详情")
+          .popover(isPresented: $showDetails) { details.padding(14).frame(width: 310) }
       }
-      Picker("通道", selection: $model.histogramChannel) {
-        Text("RGB").tag(-1)
-        Text("R").tag(0)
-        Text("G").tag(1)
-        Text("B").tag(2)
-      }.pickerStyle(.segmented)
       Canvas { context, size in
         guard let stats = model.histogram else { return }
         let indices = model.histogramChannel < 0 ? [0, 1, 2] : [model.histogramChannel]
@@ -35,8 +40,30 @@ struct HistogramView: View {
           context.fill(path, with: .color(colors[channel].opacity(0.27)))
           context.stroke(path, with: .color(colors[channel].opacity(0.85)), lineWidth: 0.7)
         }
-      }.frame(height: 88).background(.black.opacity(0.3))
-      HStack { Text("0"); Spacer(); Text("1") }.font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
+      }.frame(height: 78)
+        .allowsHitTesting(false)
+        .accessibilityLabel("整张预览直方图")
+      HStack {
+        Text("0")
+        Spacer()
+        if model.isHistogramUpdating || model.isRendering {
+          ProgressView().controlSize(.mini)
+        } else {
+          Text(model.histogram?.stage.label ?? "等待预览")
+        }
+        Spacer()
+        Text("1")
+      }.font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
+        .frame(height: 12)
+    }
+    .padding(10)
+    .background(.black.opacity(0.58), in: RoundedRectangle(cornerRadius: 10))
+    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.12), lineWidth: 0.5))
+    .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+  }
+  private var details: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text("整张预览统计").font(.caption.weight(.medium))
       if let stats = model.histogram {
         Text("\(stats.stage.label) · \(stats.unit)").font(.system(size: 9))
         Text("\(stats.pixelCount) 个预览像素 · 256 bins").font(.system(size: 9)).foregroundStyle(.secondary)

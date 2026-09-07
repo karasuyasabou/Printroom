@@ -25,13 +25,20 @@ struct EditorView: View {
               }
               if model.sampling {
                 VStack {
-                  Label("拖动框选未曝光片基 · 使用原始像素中位数", systemImage: "viewfinder").padding(10).background(
-                    .regularMaterial, in: Capsule())
                   Spacer()
+                  Label("拖动框选未曝光片基", systemImage: "viewfinder").padding(10).background(
+                    .regularMaterial, in: Capsule())
                 }.padding().allowsHitTesting(false)
               }
             }
             .frame(width: viewport.size.width, height: viewport.size.height)
+            .overlay(alignment: .topTrailing) {
+              if model.activeFrame != nil {
+                HistogramView(model: model)
+                  .frame(width: 248)
+                  .padding(12)
+              }
+            }
             .clipped()
             .contentShape(Rectangle())
           }
@@ -116,9 +123,19 @@ struct EditorView: View {
         Button("导出选中 \(model.selection.selectedFrameIDs.count) 张…") { model.batchExportPanel(allFrames: false) }
           .disabled(model.selection.selectedFrameIDs.isEmpty)
         Button("导出整卷…") { model.batchExportPanel(allFrames: true) }
+        if model.exportSummary != nil {
+          Divider()
+          Button("查看上次导出结果") { model.showExportSummary = true }
+        }
       } label: {
         Label("导出 TIFF", systemImage: "square.and.arrow.up")
       }.menuStyle(.borderlessButton).fixedSize().disabled(model.project == nil || model.isExporting)
+      Menu {
+        Button("清理本卷缩略图缓存") { model.clearThumbnailCache() }
+      } label: {
+        Image(systemName: "ellipsis.circle")
+      }.menuStyle(.borderlessButton).fixedSize().disabled(model.project == nil)
+        .help("胶卷管理").accessibilityLabel("胶卷管理")
     }.padding(.horizontal, 18).frame(height: 65)
   }
   private var previewToolbar: some View {
@@ -177,75 +194,28 @@ struct EditorView: View {
           Picker("密度矩阵", selection: Binding(get: { model.matrix }, set: { model.setMatrix($0) })) {
             ForEach(PrintDensityMatrix.allCases, id: \.self) { Text($0.label).tag($0) }
           }
-          if let calibration = model.project?.calibration, calibration.isCalibrated {
-            Label(
-              model.project?.calibrationNeedsReview == true ? "片基来源变化 · 请重新采样" : "已校准 · 95 CV",
-              systemImage: model.project?.calibrationNeedsReview == true
-                ? "exclamationmark.triangle" : "checkmark.circle.fill"
-            ).foregroundStyle(accent).font(.caption)
-            if let base = calibration.baseRGB { vectorLine("BASE", base) }
-            vectorLine("GAIN", calibration.gainRGB)
-            vectorLine("OFFSET CV", calibration.filmBaseOffsetCV)
-            if !model.baseStatistics.isEmpty {
-              Text(model.baseStatistics).font(.system(size: 9, design: .monospaced))
-                .foregroundStyle(.secondary)
-            }
-          } else {
-            Text("尚未校准 · 全卷共享").font(.caption).foregroundStyle(.secondary)
+          if model.project?.calibrationNeedsReview == true {
+            Label("片基来源变化 · 请重新采样", systemImage: "exclamationmark.triangle")
+              .foregroundStyle(accent).font(.caption)
           }
         }
         Divider()
-        HistogramView(model: model)
-        Divider()
         VStack(alignment: .leading, spacing: 10) {
-          heading("02", "TIMING · 当前照片")
-          Text(model.activeFrame.map { "正在编辑：\($0.filename)" } ?? "未选择照片").font(.caption2)
-            .foregroundStyle(.secondary)
+          heading("02", "COLOR TIMING")
           timingRow("Master", \.master, color: .white)
-          timingRow("Red", \.red, color: Color(red: 0.92, green: 0.49, blue: 0.43))
-          timingRow("Green", \.green, color: Color(red: 0.48, green: 0.75, blue: 0.55))
-          timingRow("Blue", \.blue, color: Color(red: 0.47, green: 0.65, blue: 0.88))
-          Text("Q/E  R−/+    A/D  G−/+    Z/C  B−/+\nW / S  Master +1 CV").font(
-            .system(size: 9, design: .monospaced)
-          ).foregroundStyle(.tertiary)
+          timingRow("Red", \.red, color: ChannelColors.red)
+          timingRow("Green", \.green, color: ChannelColors.green)
+          timingRow("Blue", \.blue, color: ChannelColors.blue)
         }.disabled(model.activeFrame == nil)
         Divider()
         VStack(alignment: .leading, spacing: 10) {
           heading("03", "RGB CONTRAST")
-          contrastRow("Master", \.master)
-          contrastRow("Red", \.red)
-          contrastRow("Green", \.green)
-          contrastRow("Blue", \.blue)
-          HStack {
-            Text("Pivot")
-            Spacer()
-            Text("470 CV · 固定")
-          }.font(.caption).foregroundStyle(.secondary)
+          contrastRow("Master", \.master, color: .white)
+          contrastRow("Red", \.red, color: ChannelColors.red)
+          contrastRow("Green", \.green, color: ChannelColors.green)
+          contrastRow("Blue", \.blue, color: ChannelColors.blue)
           Button("重置当前照片参数") { model.resetAdjustments() }.font(.caption)
         }.disabled(model.activeFrame == nil)
-        Divider()
-        VStack(alignment: .leading, spacing: 7) {
-          heading("04", "PIPELINE / OUTPUT")
-          Text(
-            "输入解释：P3-D65 Linear\n嵌入：\(model.embeddedProfile.isEmpty ? "—":model.embeddedProfile)\n保留原始通道数值，未转换"
-          ).font(.system(size: 10)).foregroundStyle(.secondary)
-          Text("Kodak 2383 D65 · 33³").font(.caption2).foregroundStyle(.secondary)
-          Picker("输出 ICC", selection: Binding(get: { model.exportSettings.profile }, set: { model.setOutputProfile($0) })) {
-            ForEach(OutputColorProfile.allCases, id: \.self) { Text($0.label).tag($0) }
-          }
-          Picker("压缩", selection: Binding(get: { model.exportSettings.compression }, set: { model.setOutputCompression($0) })) {
-            Text("无压缩").tag(TIFFCompression.none)
-            Text("Deflate · 无损").tag(TIFFCompression.deflate)
-          }
-          Text("16-bit RGB TIFF · 嵌入 ICC · 无抖动\n导出任务使用开始时的照片与设置快照").font(.system(size: 10)).foregroundStyle(.secondary)
-          Button("清理本卷缩略图缓存") { model.clearThumbnailCache() }.font(.caption2)
-          if model.exportSummary != nil {
-            Button("查看上次导出结果") { model.showExportSummary = true }.font(.caption2)
-          }
-          if model.stage != .final {
-            Text("当前为数值诊断画面；导出始终使用 Final。").font(.caption2).foregroundStyle(accent)
-          }
-        }
       }.padding(16)
     }.background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
       .onKeyPress(phases: [.down, .repeat]) { press in
@@ -257,59 +227,27 @@ struct EditorView: View {
         return .handled
       }
   }
-  private func vectorLine(_ label: String, _ v: SIMD3<Float>) -> some View {
-    HStack {
-      Text(label).foregroundStyle(.tertiary)
-      Spacer()
-      Text(String(format: "%.4f  %.4f  %.4f", v.x, v.y, v.z)).foregroundStyle(.secondary)
-    }.font(.system(size: 9, design: .monospaced))
-  }
   private func timingRow(
     _ title: String, _ path: WritableKeyPath<TimingParameters, Int>, color: Color
   ) -> some View {
-    VStack(spacing: 3) {
-      HStack {
-        Text(title).font(.caption).foregroundStyle(color)
-        Spacer()
-        TextField(
-          "CV",
-          value: Binding(
-            get: { model.adjustments.timing[keyPath: path] },
-            set: { value in model.edit { $0.timing[keyPath: path] = max(-256, min(256, value)) } }),
-          format: .number
-        ).textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing).frame(width: 62).font(
-          .system(size: 11, design: .monospaced))
-        Text("CV").font(.system(size: 9, design: .monospaced)).foregroundStyle(.tertiary)
-      }
-      Slider(
-        value: Binding(
-          get: { Double(model.adjustments.timing[keyPath: path]) },
-          set: { v in model.edit { $0.timing[keyPath: path] = Int(v.rounded()) } }), in: -256...256,
-        step: 1,
-        onEditingChanged: { if $0 { model.beginAdjustment() } else { model.endAdjustment() } }
-      ).tint(color)
-    }
+    AdjustmentRow(
+      title: "Color Timing \(title)",
+      value: Binding(
+        get: { Double(model.adjustments.timing[keyPath: path]) },
+        set: { v in model.edit { $0.timing[keyPath: path] = Int(v.rounded()) } }),
+      range: -256...256, step: 1, fractionDigits: 0, color: color,
+      onEditingChanged: { if $0 { model.beginAdjustment() } else { model.endAdjustment() } })
   }
-  private func contrastRow(_ title: String, _ path: WritableKeyPath<ContrastParameters, Float>)
-    -> some View
-  {
-    HStack(spacing: 8) {
-      Text(title).font(.caption).frame(width: 44, alignment: .leading)
-      Slider(
-        value: Binding(
-          get: { Double(model.adjustments.contrast[keyPath: path]) },
-          set: { v in model.edit { $0.contrast[keyPath: path] = Float(v) } }), in: 0.25...4,
-        step: 0.01,
-        onEditingChanged: { if $0 { model.beginAdjustment() } else { model.endAdjustment() } })
-      TextField(
-        "Contrast",
-        value: Binding(
-          get: { Double(model.adjustments.contrast[keyPath: path]) },
-          set: { v in model.edit { $0.contrast[keyPath: path] = Float(max(0.25, min(4, v))) } }),
-        format: .number.precision(.fractionLength(2))
-      ).textFieldStyle(.roundedBorder).frame(width: 52).multilineTextAlignment(.trailing).font(
-        .system(size: 11, design: .monospaced))
-    }
+  private func contrastRow(
+    _ title: String, _ path: WritableKeyPath<ContrastParameters, Float>, color: Color
+  ) -> some View {
+    AdjustmentRow(
+      title: "Contrast \(title)",
+      value: Binding(
+        get: { Double(model.adjustments.contrast[keyPath: path]) },
+        set: { v in model.edit { $0.contrast[keyPath: path] = Float(v) } }),
+      range: 0.25...4, step: 0.01, fractionDigits: 2, color: color,
+      onEditingChanged: { if $0 { model.beginAdjustment() } else { model.endAdjustment() } })
   }
   private var filmstrip: some View {
     VStack(alignment: .leading, spacing: 6) {

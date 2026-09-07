@@ -25,7 +25,7 @@ CPU 参考和 Metal 基线都用 Float32。L0/L1 是线性透射率数值；D0�
 
 输入解释固定记录为：原色 P3-D65，transfer Linear。最终工作显示 profile 使用现有 `ICC/DCIP3_D65.icc`。
 
-**资产实测差异：**10 张参考 TIFF 实际嵌入 `ProPhoto RGB Linear`，三个 TRC 均为 Gamma 1.0。按用户“指定/解释，保持数值”的要求，初始模式仍将这些原始通道数值解释为 P3-D65 Linear，不执行 ProPhoto→P3 转换。保留原 ICC 名称和哈希作为诊断，并显示“输入解释：P3-D65 Linear；嵌入：ProPhoto RGB Linear；未转换”。这是一项明确的数值处理约定，不宣称保留嵌入 profile 定义的原始色度。
+**资产实测差异：**10 张参考 TIFF 实际嵌入 `ProPhoto RGB Linear`，三个 TRC 均为 Gamma 1.0。按用户“指定/解释，保持数值”的要求，初始模式仍将这些原始通道数值解释为 P3-D65 Linear，不执行 ProPhoto→P3 转换。保留原 ICC 名称和哈希作为诊断；界面中的呈现按 [interaction.md](interaction.md) 决定。这是一项明确的数值处理约定，不宣称保留嵌入 profile 定义的原始色度。
 
 不新增“自动按 ICC 转换”模式。未来如果引入真正的输入原色转换，必须成为独立算法策略和项目字段，不能改变旧项目结果。
 
@@ -116,7 +116,7 @@ finalContrast[c] = masterContrast × channelContrast[c]
 D3[c] = pivot + finalContrast[c] × (D2[c] − pivot)
 ```
 
-反差默认均为 1。工程默认每个控件范围 `[0.25,4.0]`，步长 0.01，允许数值输入；乘积不再次裁切。首版 pivot 固定，显示 470 CV，不可编辑。不使用 685 CV 作为 pivot。
+反差默认均为 1。工程默认每个控件范围 `[0.25,4.0]`，步长 0.01，允许数值输入；乘积不再次裁切。pivot 固定为 470 CV，不可编辑；界面中的呈现按 [interaction.md](interaction.md) 决定。不使用 685 CV 作为 pivot。
 
 ## 8. LUT
 

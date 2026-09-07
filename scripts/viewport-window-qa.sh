@@ -17,6 +17,7 @@ python3 - <<'PY'
 import struct
 from pathlib import Path
 source = Path('TEST/DSC07079.tiff').read_bytes()
+Path('scratch/viewport-qa/roll/.printroom.json').unlink(missing_ok=True)
 order = '<' if source[:2] == b'II' else '>'
 offset = struct.unpack_from(order + 'I', source, 4)[0]
 count = struct.unpack_from(order + 'H', source, offset)[0]
@@ -38,4 +39,4 @@ xcrun swiftc -parse-as-library -module-name ViewportWindowQA "${optimization[@]}
   "${app_sources[@]}" scripts/ViewportWindowQA.swift \
   .build/"$configuration"/PrintroomCore.build/*.swift.o -o scratch/viewport-qa/window-qa
 cp -R .build/"$configuration"/Printroom_PrintroomCore.bundle scratch/viewport-qa/
-scratch/viewport-qa/window-qa
+scratch/viewport-qa/window-qa "$@"

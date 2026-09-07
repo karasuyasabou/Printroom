@@ -1,5 +1,15 @@
 # Printroom 0.2.0 验收记录
 
+## 界面精简补记（2026-09-07，build 2）
+
+本次按用户截图精简调色面板，统一 Color Timing / Contrast 四色滑杆及右侧数值，将直方图移至预览右上角半透明浮层，输出 ICC/压缩移至系统导出对话框。交互以 interaction.md 为准；算法与 schema 不变。
+
+已完成 release 应用包、资源冒烟与签名校验；12 项原始资产哈希一致。宿主常规回归为 93 个 XCTest（2 项按需跳过）及 33 个 Swift Testing（3 项按需跳过），无失败；受限沙盒首次因 Metal 不可用而失败，没有记作通过。原有真实窗口视口回归通过；追加检查通过八个原生滑杆轨道点击、单次撤销、方向键步长、滑杆焦点下 Q 快捷键及浮层 RGB/R 点击不误触取样。合成拖动事件未能稳定驱动原生滑块，因此追加窗口检查只记轨道点击，不记真实连续拖动通过。
+
+单张/所选/整卷三种真实导出对话框均已验证选项默认显示、四 ICC 与两压缩选择、取消保留项目字节且不产生导出；截图已查看。用户随后要求停止验收，本轮新增的确认导出及回读验收未完成，不作通过声明。此前版本的导出数值证据仍见下文。没有继续追加测试。
+
+本次日志：scratch/test-ui-refresh-host.log、scratch/window-ui-refresh.log、scratch/window-ui-refresh-controls-passed.log、scratch/build-ui-refresh-final.log、scratch/assets-ui-refresh.log；导出对话框记录在 scratch/export-panel-qa/。窗口样片使用 scratch 副本，新增导出面板使用合成 TIFF。
+
 日期：2026-09-07。本记录与交付源码一起保存在本地提交（`git log -1 --oneline`）；起始提交 `d744f60`，保留了任务开始时尚未提交的 0.1.0 显示与视口修正。无远端、无推送、无发布。
 
 交付：`output/Printroom-0.2.0.app`，约 3.3 MiB，arm64，版本 0.2.0 / build 1，独立 identifier `studio.printroom.local.v2`。旧 `Printroom-0.1.0.app` 未被替换，旧偏好未修改。开始时未发现运行中的 Printroom 进程。schema 2，算法仍为 `printroom-density-v1`。
