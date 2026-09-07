@@ -134,3 +134,7 @@ ICC真实转换按固定profile的matrix/TRC、D50 PCS计算；源/目标曲线�
 用户实际长按手感及旧系统/其它键盘输入法仍待人工体验；本次未重跑十张 TIFF 全尺寸输出与原始资产完整哈希。
 
 交付：`scripts/build-app.sh` 完成 release 编译和 ad-hoc 签名；其沙盒内资源校验因 Metal 不可用退出后，单独在非沙盒运行 `output/Printroom-0.2.0.app/Contents/MacOS/Printroom --verify-resources` 通过（Apple M4、ICC/LUT、四输出 profile、UInt16 预览）。`codesign --verify --deep --strict output/Printroom-0.2.0.app` 通过。
+
+### 构建号 4：长按降至 50 CV/秒
+
+用户试用后要求降低速度；现固定 50 CV/秒，其余交互不变。`scripts/test.sh --filter TimingKeyboardTests` 4 项通过，覆盖速率时间点、停止、Shift、系统重复、撤销及切帧。release 构建完成；沙盒资源检查因 Metal 不可用退出，非沙盒单独 `--verify-resources` 通过，签名严格校验通过。新版位于 `output/Printroom-0.2.0.app`；50 CV/秒手感待用户试用。

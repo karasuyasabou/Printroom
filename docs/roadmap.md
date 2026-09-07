@@ -59,3 +59,5 @@ W/S改为Master正负步进；增加方括号旋转、⌘F水平翻转与左右�
 ## 0.2.0 Timing 连续调节
 
 按用户确认实现固定速率长按、单击微调及 Shift 大步进，扩展统一控件范围；详见 [interaction.md](interaction.md) 和 [pipeline.md §7](pipeline.md#7-timing-与-rgb-contrast)。算法标识和 schema 2 不变，已有项目画面保持；旧版应用不支持超出旧范围的新参数，兼容性决定见 D038。本轮工程验证结果记录于 [acceptance-0.2.0.md](acceptance-0.2.0.md)，实际按键手感仍需用户试用。
+
+Timing 试用更新：构建号 4 按用户反馈将长按速率降为 50 CV/秒，已打包并通过针对性测试，待试用。交互见 interaction.md。

@@ -18,10 +18,10 @@ struct TimingKeyboardTests {
   @Test func fixedRateContract() {
     #expect(EditorModel.heldTimingCV(elapsed: 0.399) == 0)
     #expect(EditorModel.heldTimingCV(elapsed: 0.4) == 0)
-    #expect(EditorModel.heldTimingCV(elapsed: 0.45) == 6)
-    #expect(EditorModel.heldTimingCV(elapsed: 0.9) == 60)
-    #expect(EditorModel.heldTimingCV(elapsed: 1.4) == 120)
-    #expect(EditorModel.heldTimingCV(elapsed: 2.4) == 240)
+    #expect(EditorModel.heldTimingCV(elapsed: 0.45) == 2)
+    #expect(EditorModel.heldTimingCV(elapsed: 0.9) == 25)
+    #expect(EditorModel.heldTimingCV(elapsed: 1.4) == 50)
+    #expect(EditorModel.heldTimingCV(elapsed: 2.4) == 100)
   }
 
   @Test func tapShiftAndSystemRepeat() async throws {

@@ -67,7 +67,7 @@
 | ⌘F | 当前画面水平翻转 |
 | ← / → | 上一张 / 下一张可用照片 |
 
-仅编辑器或 Timing 面板处于编辑焦点、无文本输入焦点、无弹窗，且没有 Command/Control/Option 修饰时生效。Filmstrip 焦点不触发 Timing；⌘A、⌘C、⌘Z 和输入法不被截获。单击每次 1 CV，Shift + 快捷键单击每次 10 CV。按住约 0.4 秒后由应用计时，以固定 120 CV/秒连续调节，不渐进加速，Shift 不放大连续速率；不依赖 macOS 键盘重复设置。松手立即停止；换键重新计时，切帧、失焦或弹窗时终止。一次按住到松开对应一次撤销/重做，到达控件范围即停止变化且不追加空撤销。滑杆、输入框及快捷键共享 [pipeline.md §7](pipeline.md#7-timing-与-rgb-contrast) 的范围。
+仅编辑器或 Timing 面板处于编辑焦点、无文本输入焦点、无弹窗，且没有 Command/Control/Option 修饰时生效。Filmstrip 焦点不触发 Timing；⌘A、⌘C、⌘Z 和输入法不被截获。单击每次 1 CV，Shift + 快捷键单击每次 10 CV。按住约 0.4 秒后由应用计时，以固定 50 CV/秒连续调节，不渐进加速，Shift 不放大连续速率；不依赖 macOS 键盘重复设置。松手立即停止；换键重新计时，切帧、失焦或弹窗时终止。一次按住到松开对应一次撤销/重做，到达控件范围即停止变化且不追加空撤销。滑杆、输入框及快捷键共享 [pipeline.md §7](pipeline.md#7-timing-与-rgb-contrast) 的范围。
 
 ## Filmstrip 与卷级状态
 

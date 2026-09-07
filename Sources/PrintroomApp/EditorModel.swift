@@ -813,7 +813,7 @@ import UniformTypeIdentifiers
     let clock = ContinuousClock()
     let start = clock.now
     timingTask = Task { [weak self] in
-      // Six CV at 20 Hz gives 120 CV/s while leaving time for preview rendering.
+      // Accumulate integer CV at 20 Hz while leaving time for preview rendering.
       do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
       var applied = 0
       while !Task.isCancelled {
@@ -836,7 +836,7 @@ import UniformTypeIdentifiers
   }
 
   static func heldTimingCV(elapsed: Double) -> Int {
-    Int((max(0, elapsed - 0.4) * 120 + 1e-9).rounded(.down))
+    Int((max(0, elapsed - 0.4) * 50 + 1e-9).rounded(.down))
   }
 
   func handleTimingKey(_ key: String, step: Int = 1) {
