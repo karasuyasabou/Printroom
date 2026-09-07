@@ -73,6 +73,10 @@ import SwiftUI
       print(
         "\(name): viewport=\(rect), zoom=\(canvas.zoom), pan=\(canvas.pan), image=\(canvas.imageRect)"
       )
+      if CommandLine.arguments.contains("--no-screenshots") {
+        print("SCREENSHOT SKIPPED: \(name) (--no-screenshots)")
+        return
+      }
       let process = Process()
       process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
       process.arguments = [
@@ -85,7 +89,22 @@ import SwiftUI
         throw NSError(domain: "screencapture", code: Int(process.terminationStatus))
       }
     }
+    func postKeyTap(_ event: NSEvent) {
+      NSApp.postEvent(event, atStart: false)
+      // A tap includes release: leaving only keyDown queued for the 450 ms
+      // settle period exercises the application's 400 ms hold behavior.
+      let release = NSEvent.keyEvent(with: .keyUp, location: event.locationInWindow,
+        modifierFlags: event.modifierFlags, timestamp: event.timestamp,
+        windowNumber: event.windowNumber, context: nil,
+        characters: event.characters ?? "", charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
+        isARepeat: false, keyCode: event.keyCode)!
+      NSApp.postEvent(release, atStart: false)
+    }
     func clickControl(_ point: CGPoint) async throws {
+      guard NSApp.isActive, window.isKeyWindow, window.isVisible else {
+        throw NSError(domain: "ViewportWindowQA", code: 2, userInfo: [NSLocalizedDescriptionKey:
+          "Queued control events require an active visible key window (active=\(NSApp.isActive), key=\(window.isKeyWindow), visible=\(window.isVisible))"])
+      }
       NSApp.postEvent(mouse(.leftMouseDown, point), atStart: false)
       NSApp.postEvent(mouse(.leftMouseUp, point), atStart: false)
       try await settle()
@@ -264,7 +283,7 @@ import SwiftUI
           timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
           context: nil, characters: character, charactersIgnoringModifiers: character,
           isARepeat: false, keyCode: code)!
-        NSApp.postEvent(key, atStart: false)
+        postKeyTap(key)
         try await settle()
       }
       try await arrow(124, "\u{f703}")
@@ -280,7 +299,7 @@ import SwiftUI
     let timingKey = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
       timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
       context: nil, characters: "q", charactersIgnoringModifiers: "q", isARepeat: false, keyCode: 12)!
-    NSApp.postEvent(timingKey, atStart: false)
+    postKeyTap(timingKey)
     try await settle()
     precondition(model.adjustments.timing.red == beforeShortcut.timing.red - 1,
       "Timing shortcuts must work while a native slider has focus")
@@ -291,7 +310,7 @@ import SwiftUI
         timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
         context: nil, characters: characters, charactersIgnoringModifiers: characters,
         isARepeat: false, keyCode: code)!
-      NSApp.postEvent(event, atStart: false)
+      postKeyTap(event)
       try await settle()
     }
     let timingBefore = model.adjustments.timing.master

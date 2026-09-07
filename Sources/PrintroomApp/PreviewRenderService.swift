@@ -11,15 +11,22 @@ struct RenderedPreview: Sendable {
 /// A cancelled queued request exits before allocating Metal buffers. The GPU's
 /// already submitted command completes, then its stale result is discarded.
 actor PreviewRenderService {
+  private var pipeline: MetalPipeline?
+  private var session: MetalPipeline.Session?
   func render(
     _ input: PixelBuffer, calibration: FilmCalibration, adjustments: FrameAdjustments,
     assets: AppAssets, stage: PipelineStage = .final,
-    orientation: FrameOrientation = .identity
+    orientation: FrameOrientation = .identity, inputIdentity: UUID? = nil
   ) throws -> RenderedPreview {
     try autoreleasepool {
       try Task.checkCancellation()
-      let output = try assets.gpu.render(
-        input, calibration: calibration, adjustments: adjustments, lut: assets.lut, stage: stage)
+      if pipeline !== assets.gpu || session == nil {
+        pipeline = assets.gpu
+        session = assets.gpu.makeSession()
+      }
+      let output = try session!.render(
+        input, calibration: calibration, adjustments: adjustments, lut: assets.lut, stage: stage,
+        inputIdentity: inputIdentity)
       try Task.checkCancellation()
       let oriented = try orientation.transform(output, cancelled: { Task.isCancelled })
       try Task.checkCancellation()

@@ -2,7 +2,7 @@
 
 macOS 原生负片调色工具。一个文件夹是一卷底片；保持 16-bit TIFF 原始样本，卷级片基校准、逐帧调色，使用 Kodak 2383 D65 LUT 输出。
 
-**当前版本：0.2.0。** 提供完整调色、方向、预览直方图和单张/批量多 ICC TIFF 输出。算法为 `printroom-density-v2`（反差 pivot 685 CV），项目 schema 2；schema 1 自动迁移为默认方向、P3、无压缩，画面数值不变。
+**当前版本：0.2.0。** 提供完整调色、方向、预览直方图和单张/批量多 ICC TIFF 输出。算法为 `printroom-density-v2`（反差 pivot 685 CV），项目 schema 2；schema 1 自动补充默认方向、P3、无压缩；旧算法按用户选择迁移到白点 v2，首次保存前备份原设置。
 
 ## 运行与构建
 
@@ -13,6 +13,7 @@ scripts/build-app.sh              # release 构建、资源打包、ad-hoc 签�
 scripts/test.sh                   # 算法、模型、TIFF、输出、异步 UI 集成
 scripts/test.sh --full            # 十张实际 TIFF / 全尺寸导出 / Metal
 scripts/measure-performance.sh    # release 预览性能与内存记录
+scripts/measure-adjustments.sh    # release 调参准备耗时、连续出图与最终收敛
 scripts/measure-performance.sh --export # 两帧全尺寸批导性能
 scripts/viewport-window-qa.sh --release # 真实窗口的视口回归
 shasum -a 256 -c assets/SHA256SUMS
@@ -32,7 +33,7 @@ SwiftPM 项目，可在 Xcode 打开 `Package.swift`。部署目标 macOS 14+、
 
 ## 保存与输出
 
-设置自动保存到卷内 `.printroom.json`。旧项目迁移只增加结构字段；算法不变。损坏或未来 schema 不重置覆盖，外部写入冲突明确报错，保存失败保留内存设置与撤销，可另存/恢复 JSON 设置副本。新版保存 schema 2 后，0.1.0 将拒绝读取该新结构；避免同时用两个版本编辑同一卷。
+设置自动保存到卷内 `.printroom.json`。schema 迁移补充结构字段；白点算法迁移规则见下文，既有非单位反差画面会改变。损坏或未来 schema 不重置覆盖，外部写入冲突明确报错，保存失败保留内存设置与撤销，可另存/恢复 JSON 设置副本。新版保存 schema 2 后，0.1.0 将拒绝读取该新结构；避免同时用两个版本编辑同一卷。
 
 Final 的 P3-D65 Gamma 2.6 数值按四个固定 ICC 的 matrix/TRC 定义执行相对色度转换，黑点补偿关闭；源 TRC 解码 → D50 PCS 矩阵 → 目标 TRC 反函数，使用 Double 计算，最终统一量化。ProPhoto 使用正确 D50 白点与暗部线性段；色适应包含在 ICC 的 D50 colorants 中。相同 P3 不改变编码值，LUT 后不再添加 Gamma。统一 16-bit RGB TIFF、嵌入 ICC、orientation=1、无抖动。用户方向实际变换输出像素，奇数次 90° 交换宽高。
 
@@ -40,7 +41,7 @@ Final 的 P3-D65 Gamma 2.6 数值按四个固定 ICC 的 matrix/TRC 定义执行
 
 ## 性能与边界
 
-预览长边 1600，缩略图长边 240；原始取样与 1:1 读取 TIFF 条带中的必要区域。低分辨率源缓存有界，整卷全尺寸数据不常驻；每次全尺寸导出仅保留当前一张 UInt16 原图与有界 Float32 块。1:1 单区域上限 8,388,608 原始像素，超大窗口超限时明确提示，不自动降低精度。磁盘缩略图缓存默认上限 512 MiB、30 天未访问失效，只清理应用拥有的缓存文件。
+连续调参使用单在途、单待办预览，复用 GPU 缓冲及 D1 前段结果；直方图在最终预览稳定后更新，缩略图仅刷新受影响帧。预览长边 1600，缩略图长边 240；原始取样与 1:1 读取 TIFF 条带中的必要区域。低分辨率源缓存有界，整卷全尺寸数据不常驻；每次全尺寸导出仅保留当前一张 UInt16 原图与有界 Float32 块。1:1 单区域上限 8,388,608 原始像素，超大窗口超限时明确提示，不自动降低精度。磁盘缩略图缓存默认上限 512 MiB、30 天未访问失效，只清理应用拥有的缓存文件。
 
 输入支持 classic TIFF RGB UInt16 条带、无压缩/Deflate、大小端、水平预测、八种 TIFF orientation；暂不支持 BigTIFF、tile、多页、alpha 或其他位深。手动重新定位限定卷内直接子文件。精确扫描标定、LUT Cineon 物理衔接及跨设备色彩外观仍保留验证边界。
 

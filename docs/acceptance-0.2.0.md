@@ -144,9 +144,9 @@ ICC真实转换按固定profile的matrix/TRC、D50 PCS计算；源/目标曲线�
 按用户要求，Master/R/G/B 反差滑杆及数值输入范围改为 0.25–2，步长保持 0.01。旧项目参数仍按原数值读取和计算，不自动裁切；兼容范围见 pipeline.md。检查共享 AdjustmentRow 的滑杆和数值输入均使用同一范围限制。release 构建、严格签名校验、非沙盒 Metal/资源校验通过；沙盒内资源检查因 Metal 不可用退出后已单独重跑。此次简单控件范围调整未新增测试或重跑完整算法测试。独立试用包：`output/Printroom-0.2.0-Contrast2.app`。
 
 
-## 调参性能优化（2026-09-07，构建号 5）
+## 调参性能优化（2026-09-07，构建号 5 隔离验证；构建号 6 集成）
 
-用户确认实施连续预览调度、GPU 缓冲复用、D1 缓存、直方图及缩略图减少重复更新。行为与缓存失效以 architecture.md 为准；保持 `printroom-density-v1`、schema 2、1600 预览、Float32 和 `sdr-uint16-v1`。此轮不缓存 1:1 原始区域。保留之前提交的 Timing 50 CV/秒规则。
+用户确认实施连续预览调度、GPU 缓冲复用、D1 缓存、直方图及缩略图减少重复更新。行为与缓存失效以 architecture.md 为准；下方隔离对照保持 `printroom-density-v1`、schema 2、1600 预览、Float32 和 `sdr-uint16-v1`。此轮不缓存 1:1 原始区域。保留之前提交的 Timing 50 CV/秒规则。
 
 本机 Apple M4 / macOS 26.6.2，release，固定 `DSC07079.tiff` 1600×1066 预览、片基 ROI `(359,604,79,494)`、LED。优化前使用实施前保存的源码快照，优化后使用构建号 5 源码；旧快照与当前版本的其他键盘设置差异不参与测量。两种路径使用相同测试入口、温热文件系统缓存、独立进程，未强制清系统缓存。原始日志位于 `scratch/adjustment-performance/before.log`、`after.log`。
 
@@ -181,7 +181,7 @@ ICC真实转换按固定profile的matrix/TRC、D50 PCS计算；源/目标曲线�
 - 十张 TIFF 的完整原样本与独立 Python/zlib 解码一致。真实 7008×4672 管线导出回读最大抽样 CPU 差 `7.748604e-6`（含 UInt16 量化），ICC 字节一致；全尺寸 writer 全样本回读通过。四 ICC 转换与批量快照/取消/无覆盖回归通过。
 - `shasum -a 256 -c assets/SHA256SUMS`：12/12 原始资产通过。`scripts/build-app.sh`：release 构建、ad-hoc 签名、四输出 ICC/LUT、Metal 和 UInt16 预览资源检查通过；严格签名验证通过。交付 `output/Printroom-0.2.0.app`，构建号 5，保留 0.1.0。
 
-过程中一次并行测试文件写入使 Swift 编译中止、一次新增测试嵌套宏编译失败，均修正后完整重跑；测量脚本初次受 macOS Bash 空数组与 nounset 组合影响，改为非空参数数组后正式测量通过。旧基线初次校准引用了错误的临时 frameID，修正后正式对照通过。失败日志保留，没有把这些尝试算作通过。窗口回归执行结果随后补充。
+过程中一次并行测试文件写入使 Swift 编译中止、一次新增测试嵌套宏编译失败，均修正后完整重跑；测量脚本初次受 macOS Bash 空数组与 nounset 组合影响，改为非空参数数组后正式测量通过。旧基线初次校准引用了错误的临时 frameID，修正后正式对照通过。失败日志保留，没有把这些尝试算作通过。首次真实窗口完整流程已通过预览/视口/方向/1:1/直方图检查，但后续快捷键 QA 仅合成 keyDown 并等待 450ms，触发新 400ms 长按导致单击断言失败；QA 已修正为 keyDown+keyUp。集成重跑结果随后补充。
 
 ### Cineon 白点 pivot（2026-09-07）
 
@@ -190,3 +190,15 @@ ICC真实转换按固定profile的matrix/TRC、D50 PCS计算；源/目标曲线�
 ` scripts/test.sh ` 非沙盒完整回归通过：XCTest 102 项（2 项完整资产测试按默认模式跳过），Swift Testing 44 项。解析测试证明 685 CV 在反差极值下不动、470 CV 按新 pivot 移动及合成反差不裁切；4099 像素×2 矩阵×3 组参数×7 阶段 CPU/Metal 比较，最大阶段误差 3.8146973e-6、Final 最大 1.3113022e-6、Final RMS 3.2846768e-8。迁移测试覆盖 schema 1/2、参数保留、首存原字节备份、重复保存不重复备份、时间/ID 冲突不覆盖、旧快照和未知算法拒绝。
 
 ` scripts/build-app.sh Printroom-0.2.0-WhitePoint `、包内资源/Metal 校验和严格签名验证通过。交付 `output/Printroom-0.2.0-WhitePoint.app`。未重跑十张参考 TIFF 全尺寸验收与完整资产哈希，实际白点反差外观待用户体验。
+
+
+### 构建号 6：性能与白点 v2 集成
+
+在白点任务提交 `1318dfe` 后复测，避免把原 v1 的隔离性能验证冒充最终算法的验收。`scripts/test.sh --full -c release` 再次通过：102 项 XCTest、44 项应用测试，0 失败；十张原始 TIFF 独立解码、7008×4672 全尺寸输出与白点迁移均执行，完整导出抽样 CPU 最大差 `7.748604e-6`，原 ICC 字节一致。日志 `scratch/adjustment-performance/integrated-full-release.log`。
+
+集成版另跑 `scripts/measure-adjustments.sh`，日志 `integrated-performance.log`：Timing/Contrast 准备平均 8.748/9.962 ms；120 次输入跨度 1436.101 ms，期间 103 次预览发布、总 105 次。首输入→首发布 19.264 ms，末输入→最终发布 29.058 ms；最终直方图含轮询 177.532 ms。最终完整显示字节与 v2 完整 Metal 路径一致。editor 峰值 RSS 297.89 MiB。这些为另一轮系统调度下的集成复核，不把与 v1 数值外观的不同归因于性能优化，也不当作屏幕 FPS。
+
+
+最终 `scripts/build-app.sh` 和 `scripts/build-app.sh Printroom-0.2.0-WhitePoint` 均成功；两个包的可执行文件逐字节相同，Info.plist 构建号均为 6，分别通过严格签名校验。日志 `integrated-build.log`。常规包与白点包现在均含性能优化和已确认的 685 CV 算法；0.1.0 包保持。
+
+最终窗口验收边界：`integrated-window-qa.log` 在截图阶段被系统 `screencapture` 的 “could not create image from window” 中止；`--controls-only` 重跑同样无法截图。新增显式 `--no-screenshots` 可保留事件断言而不冒充视觉验收；此模式完整流程在首个排队控件断言中止。随后增加活动窗口前置检查，`--controls-only --no-screenshots` 明确记录 `active=false, key=false, visible=true`，无法可靠执行排队的控件事件（`integrated-controls-events.log`）。因此最终完整窗口截图/事件验收未通过，不把此前 v1 部分窗口通过或数值测试当作最终窗口通过。已查看本次前段成功的 `01-fit.png`，仅确认默认适应窗口布局和浮层边界；不作为最终调色外观验收。146 项最终自动测试覆盖的原生宿主视图、连续调度、全部阶段及图像字节一致性仍有效。

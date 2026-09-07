@@ -48,6 +48,25 @@ import UniformTypeIdentifiers
   private let thumbnailService = ImageService()
   var assets: AppAssets?
   private var previewInput: PixelBuffer?
+  private var previewInputIdentity = UUID()
+  private struct PreviewContext: Equatable {
+    let source: UUID
+    let frameID: UUID
+    let calibration: FilmCalibration
+    let stage: PipelineStage
+    let orientation: FrameOrientation
+  }
+  private struct PreviewRequest {
+    let input: PixelBuffer
+    let assets: AppAssets
+    let context: PreviewContext
+    let adjustments: FrameAdjustments
+    let revision: Int
+  }
+  private var previewContext: PreviewContext?
+  private var pendingPreview: PreviewRequest?
+  private var renderGeneration = UUID()
+  private var pendingThumbnailIDs: Set<UUID> = []
   private var sampleTask: Task<Void, Never>?
   private var sampleRevision = 0
   private var pixelTask: Task<Void, Never>?
@@ -110,6 +129,7 @@ import UniformTypeIdentifiers
       let roll = try ProjectStore.open(folder: targetFolder, preferredFile: preferred)
       if folder != targetFolder { snapshot = nil }
       thumbnails = [:]
+      pendingThumbnailIDs = []
       baseStatistics = ""
       loadTask?.cancel()
       renderTask?.cancel()
@@ -175,7 +195,8 @@ import UniformTypeIdentifiers
     isRendering = false
     embeddedProfile = ""
     loadTask?.cancel()
-    renderTask?.cancel()
+    cancelPreviewWorker()
+    previewContext = nil
     loadRevision += 1
     renderRevision += 1
     let revision = loadRevision
@@ -200,6 +221,7 @@ import UniformTypeIdentifiers
         let result = try await imageService.preview(url)
         guard !Task.isCancelled, revision == loadRevision else { return }
         previewInput = result.0
+        previewInputIdentity = UUID()
         sourceWidth = result.1
         sourceHeight = result.2
         embeddedProfile = result.3
@@ -213,42 +235,69 @@ import UniformTypeIdentifiers
       }
     }
   }
-  func render() {
+  private func cancelPreviewWorker() {
     renderTask?.cancel()
+    renderTask = nil
+    pendingPreview = nil
+    renderGeneration = UUID()
+  }
+  func render() {
     histogramTask?.cancel()
     histogram = nil
     isHistogramUpdating = false
     invalidateDetail()
     renderRevision += 1
     guard let input = previewInput, let project, let frame = activeFrame, let assets else { return }
-    let revision = renderRevision
-    let selectedStage = stage
-    let calibration = project.calibration
-    let adjustments = frame.adjustments
-    let orientation = frame.orientation
+    let context = PreviewContext(source: previewInputIdentity, frameID: frame.id,
+      calibration: project.calibration, stage: stage, orientation: frame.orientation)
+    // Geometry/source/stage changes invalidate in-flight work. Ordinary edits keep
+    // the current job alive and replace the single pending snapshot instead.
+    if context != previewContext {
+      cancelPreviewWorker()
+      previewContext = context
+    }
+    pendingPreview = PreviewRequest(input: input, assets: assets, context: context,
+      adjustments: frame.adjustments, revision: renderRevision)
     isRendering = true
+    guard renderTask == nil else { return }
+    let generation = renderGeneration
     renderTask = Task {
-      do {
-        // Coalesce continuous input before allocating a GPU job; cancelled work cannot queue indefinitely.
-        try await Task.sleep(for: .milliseconds(25))
-        let result = try await previewRenderer.render(input, calibration: calibration,
-          adjustments: adjustments, assets: assets, stage: selectedStage, orientation: orientation)
-        guard !Task.isCancelled, revision == renderRevision, activeFrame?.id == frame.id else { return }
-        previewImage = result.image
-        isRendering = false
-        updateHistogram(result.pixels, stage: selectedStage, revision: revision, frameID: frame.id)
-      } catch {
-        if !Task.isCancelled && revision == renderRevision {
-          isRendering = false
-          errorMessage = error.localizedDescription
+      while !Task.isCancelled, generation == renderGeneration, let request = pendingPreview {
+        pendingPreview = nil
+        do {
+          let result = try await previewRenderer.render(request.input,
+            calibration: request.context.calibration, adjustments: request.adjustments,
+            assets: request.assets, stage: request.context.stage,
+            orientation: request.context.orientation, inputIdentity: request.context.source)
+          guard !Task.isCancelled, generation == renderGeneration,
+            previewContext == request.context, activeFrame?.id == request.context.frameID else { return }
+          // One serial worker publishes snapshots in increasing order, including
+          // while input continues faster than rendering. The next job reads only
+          // the latest pending edit; an older result cannot overwrite a newer one.
+          previewImage = result.image
+          if request.revision == renderRevision {
+            isRendering = false
+            updateHistogram(result.pixels, stage: request.context.stage,
+              revision: request.revision, frameID: request.context.frameID)
+          }
+        } catch {
+          guard !Task.isCancelled, generation == renderGeneration else { return }
+          if request.revision == renderRevision {
+            isRendering = false
+            errorMessage = error.localizedDescription
+          }
         }
       }
+      if generation == renderGeneration { renderTask = nil }
     }
   }
   private func updateHistogram(_ buffer: PixelBuffer, stage: PipelineStage, revision: Int, frameID: UUID) {
     isHistogramUpdating = true
     histogramTask = Task {
       do {
+        // Statistics follow settled edits; high-rate interaction does not scan
+        // every intermediate 1600px image. Cancellation also covers this delay.
+        try await Task.sleep(for: .milliseconds(120))
         let worker = Task.detached(priority: .utility) {
           try HistogramStatistics.compute(buffer, stage: stage, isPreview: true, cancelled: { Task.isCancelled })
         }
@@ -274,7 +323,7 @@ import UniformTypeIdentifiers
     project = next
     dirty = true
     render()
-    refreshThumbnails()
+    refreshThumbnails(affectedIDs: [next.frames[index].id])
     scheduleSave(immediate: true)
   }
   func inspectNativeResolution() { nativeZoomToken += 1 }
@@ -335,10 +384,10 @@ import UniformTypeIdentifiers
   func endAdjustment() {
     if let old = gestureBefore, let current = project, old.frames != current.frames {
       registerUndo(old: old, name: "调整参数")
+      refreshThumbnails(changedFrom: old, to: current)
     }
     gestureBefore = nil
     scheduleSave(immediate: true)
-    refreshThumbnails()
   }
   func edit(_ mutate: (inout FrameAdjustments) -> Void) {
     guard var next = project,
@@ -356,7 +405,7 @@ import UniformTypeIdentifiers
     dirty = true
     render()
     scheduleSave()
-    if gestureBefore == nil { refreshThumbnails() }
+    if gestureBefore == nil { refreshThumbnails(affectedIDs: [next.frames[index].id]) }
   }
   private func registerUndo(old: RollProject, name: String) {
     let grouping = !undoManager.isUndoing && !undoManager.isRedoing
@@ -382,7 +431,7 @@ import UniformTypeIdentifiers
     dirty = true
     if old.frames.map({ $0.filename }) != value.frames.map({ $0.filename }) { loadActive() }
     else { render() }
-    refreshThumbnails()
+    refreshThumbnails(changedFrom: old, to: value)
     scheduleSave(immediate: true)
     undoRevision += 1
   }
@@ -422,7 +471,7 @@ import UniformTypeIdentifiers
       self.project = next
       dirty = true
       render()
-      refreshThumbnails()
+      refreshThumbnails(affectedIDs: targets)
       scheduleSave(immediate: true)
       status = "已应用到 \(targets.count) 张"
     } catch { errorMessage = error.localizedDescription }
@@ -599,7 +648,7 @@ import UniformTypeIdentifiers
     saveFailure = false
     errorMessage = nil
     render()
-    refreshThumbnails()
+    refreshThumbnails(changedFrom: previous, to: next)
     status = "已恢复本卷设置副本"
   }
   func exportPanel() {
@@ -686,15 +735,28 @@ import UniformTypeIdentifiers
       } catch { errorMessage = error.localizedDescription }
     }
   }
-  private func refreshThumbnails() {
+  private func refreshThumbnails(changedFrom old: RollProject, to next: RollProject) {
+    guard old.calibration == next.calibration else { refreshThumbnails(); return }
+    let previous = Dictionary(uniqueKeysWithValues: old.frames.map { ($0.id, $0) })
+    refreshThumbnails(affectedIDs: Set(next.frames.filter { previous[$0.id] != $0 }.map(\.id)))
+  }
+  private func refreshThumbnails(affectedIDs: Set<UUID>? = nil) {
+    guard let project, let folder, let assets else { return }
+    let available = Set(project.frames.filter { !$0.isMissing }.map(\.id))
+    pendingThumbnailIDs.formUnion(affectedIDs ?? available)
+    pendingThumbnailIDs.formIntersection(available)
+    if thumbnails.keys.contains(where: { !available.contains($0) }) {
+      thumbnails = thumbnails.filter { available.contains($0.key) }
+    }
     thumbnailTask?.cancel()
     thumbnailGeneration = UUID()
-    guard let project, let folder, let assets else { return }
+    guard !pendingThumbnailIDs.isEmpty else { return }
     let generation = thumbnailGeneration
-    let frames = project.frames.filter { !$0.isMissing }
+    let frames = project.frames.filter { pendingThumbnailIDs.contains($0.id) }
+      .sorted { $0.id == selection.activeFrameID && $1.id != selection.activeFrameID }
     let cache = DiskThumbnailCache(directory: folder.appendingPathComponent(".printroom-cache", isDirectory: true))
     thumbnailTask = Task {
-      _ = try? await cache.maintain()
+      if affectedIDs == nil { _ = try? await cache.maintain() }
       for frame in frames {
         guard !Task.isCancelled, generation == thumbnailGeneration else { return }
         do {
@@ -717,6 +779,7 @@ import UniformTypeIdentifiers
           if let cg = try? await cache.image(for: key) {
             guard !Task.isCancelled, generation == thumbnailGeneration else { return }
             thumbnails[frame.id] = cg
+            pendingThumbnailIDs.remove(frame.id)
             continue
           }
           let input = try await thumbnailService.thumbnail(sourceURL)
@@ -727,6 +790,8 @@ import UniformTypeIdentifiers
           thumbnails[frame.id] = output.image
           // Expendable disk cache failures never prevent editing or project save.
           try? await cache.store(output.image, for: key)
+          guard !Task.isCancelled, generation == thumbnailGeneration else { return }
+          pendingThumbnailIDs.remove(frame.id)
         } catch {
           if !Task.isCancelled && generation == thumbnailGeneration { status = "缩略图不可用：\(frame.filename)" }
         }
