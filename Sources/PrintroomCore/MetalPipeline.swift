@@ -104,7 +104,7 @@ public final class MetalPipeline: @unchecked Sendable {
         if (p.stage>=2) v=-log10(max(v,float3(1e-6f)))/2.048f;
         if (p.stage>=3 && p.matrix==1) v=float3(1.0584f*v.r-0.0204f*v.g+0.0023f*v.b,0.0753f*v.r+1.0120f*v.g-0.0693f*v.b,-0.0147f*v.r+0.1420f*v.g+0.7774f*v.b);
         if (p.stage>=4) v+=p.offset.xyz;
-        if (p.stage>=5) v=470.0f/1024.0f+p.contrast.xyz*(v-470.0f/1024.0f);
+        if (p.stage>=5) v=\(contrastPivotCV).0f/1024.0f+p.contrast.xyz*(v-\(contrastPivotCV).0f/1024.0f);
         if (p.stage>=6) v=lookup(table,p.lutSize,v);
         dst[i]=float4(v,1);
     }

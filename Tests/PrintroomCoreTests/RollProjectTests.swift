@@ -557,7 +557,7 @@ final class RollProjectTests: XCTestCase {
         sourceID: source.id, sourceName: source.filename, adjustments: .init(),
         algorithmVersion: "future"),
       ParameterSnapshot(
-        sourceID: source.id, sourceName: source.filename, adjustments: .init(), pivotCV: 685),
+        sourceID: source.id, sourceName: source.filename, adjustments: .init(), pivotCV: 470),
       ParameterSnapshot(
         sourceID: source.id, sourceName: source.filename,
         adjustments: .init(timing: .init(master: 513))),

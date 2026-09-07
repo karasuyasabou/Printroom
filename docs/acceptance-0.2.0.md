@@ -142,3 +142,51 @@ ICC真实转换按固定profile的matrix/TRC、D50 PCS计算；源/目标曲线�
 ### 反差控件上限 2（2026-09-07）
 
 按用户要求，Master/R/G/B 反差滑杆及数值输入范围改为 0.25–2，步长保持 0.01。旧项目参数仍按原数值读取和计算，不自动裁切；兼容范围见 pipeline.md。检查共享 AdjustmentRow 的滑杆和数值输入均使用同一范围限制。release 构建、严格签名校验、非沙盒 Metal/资源校验通过；沙盒内资源检查因 Metal 不可用退出后已单独重跑。此次简单控件范围调整未新增测试或重跑完整算法测试。独立试用包：`output/Printroom-0.2.0-Contrast2.app`。
+
+
+## 调参性能优化（2026-09-07，构建号 5）
+
+用户确认实施连续预览调度、GPU 缓冲复用、D1 缓存、直方图及缩略图减少重复更新。行为与缓存失效以 architecture.md 为准；保持 `printroom-density-v1`、schema 2、1600 预览、Float32 和 `sdr-uint16-v1`。此轮不缓存 1:1 原始区域。保留之前提交的 Timing 50 CV/秒规则。
+
+本机 Apple M4 / macOS 26.6.2，release，固定 `DSC07079.tiff` 1600×1066 预览、片基 ROI `(359,604,79,494)`、LED。优化前使用实施前保存的源码快照，优化后使用构建号 5 源码；旧快照与当前版本的其他键盘设置差异不参与测量。两种路径使用相同测试入口、温热文件系统缓存、独立进程，未强制清系统缓存。原始日志位于 `scratch/adjustment-performance/before.log`、`after.log`。
+
+| 首轮测量 | 优化前 | 优化后 |
+| --- | ---: | ---: |
+| 30 次 Timing 的 GPU＋显示准备平均 | 12.699 ms | 8.908 ms |
+| 30 次 Contrast 的 GPU＋显示准备平均 | 12.648 ms | 12.089 ms |
+| 120 次连续输入跨度 | 1398.859 ms | 1423.106 ms |
+| 连续输入期间 / 总预览发布数 | 0 / 1 | 108 / 110 |
+| 首次输入 → 首次预览发布 | 1459.450 ms | 17.917 ms |
+| 最后输入 → 最终预览发布 | 60.590 ms | 17.134 ms |
+| 最后输入 → 最终直方图就绪（含轮询） | 81.121 ms | 164.514 ms |
+| renderer 进程峰值 RSS | 237.05 MiB | 184.56 MiB |
+| editor 进程峰值 RSS | 258.62 MiB | 299.00 MiB |
+
+预览发布是 Combine 观测到模型交付 CGImage，未测屏幕合成或物理显示时刻，不能当作屏幕 FPS。完整最终 UInt16 图像在计时结束后与不启用源/D1缓存的 Metal 完整路径逐字节比较，通过后才记录收敛。直方图延后是主动让出连续交互计算，停止后统计最终参数；editor 峰值增加约 40 MiB，是此次缓存与持续出图的实测代价，不能从单次 RSS 推断所有场景的内存变化。
+
+首轮尾延迟存在波动，因此追加三组交错的优化前/后 renderer 测量，每组各 30 次 Timing 与 30 次 Contrast，不挑选最好的一次。原始日志 `renderer-{before,after}-repeat{1,2,3}.log`：
+
+| 轮次 | 前 Timing / Contrast 平均 ms | 后 Timing / Contrast 平均 ms |
+| --- | ---: | ---: |
+| 1 | 32.350 / 20.350 | 9.619 / 9.906 |
+| 2 | 14.956 / 14.374 | 10.696 / 9.109 |
+| 3 | 14.880 / 14.284 | 9.874 / 10.540 |
+
+新增 `scripts/measure-adjustments.sh` 可执行同一入口；`--legacy-renderer` 用于无 inputIdentity API 的旧源码。三轮优化后共 180 次热调参的平均准备时间约 9.96 ms。系统调度噪声可明显影响结果，不把这些本机数值推广为跨设备承诺。
+
+已执行验证：
+
+- `scripts/test.sh --full -c release`：99 项 XCTest、44 项应用 Swift Testing 通过，0 失败；3 个 opt-in 测量入口在 full 中跳过，新的调参测量另行执行通过。完整日志 `full-release.log`。
+- 新增 6 项 Metal 复用测试和 5 项应用调度测试：真实 LUT、全阶段、两矩阵、参数极值、gain/matrix/source/尺寸/LUT 失效、nil 身份、并发 lane、超预算 buffer 释放、连续输入、切帧/阶段/方向、差量缩略图、批量/Undo/整卷失效及未完成待办保留。缓存与完整 Metal 数组完全相同；CPU 数值契约通过。
+- 十张 TIFF 的完整原样本与独立 Python/zlib 解码一致。真实 7008×4672 管线导出回读最大抽样 CPU 差 `7.748604e-6`（含 UInt16 量化），ICC 字节一致；全尺寸 writer 全样本回读通过。四 ICC 转换与批量快照/取消/无覆盖回归通过。
+- `shasum -a 256 -c assets/SHA256SUMS`：12/12 原始资产通过。`scripts/build-app.sh`：release 构建、ad-hoc 签名、四输出 ICC/LUT、Metal 和 UInt16 预览资源检查通过；严格签名验证通过。交付 `output/Printroom-0.2.0.app`，构建号 5，保留 0.1.0。
+
+过程中一次并行测试文件写入使 Swift 编译中止、一次新增测试嵌套宏编译失败，均修正后完整重跑；测量脚本初次受 macOS Bash 空数组与 nounset 组合影响，改为非空参数数组后正式测量通过。旧基线初次校准引用了错误的临时 frameID，修正后正式对照通过。失败日志保留，没有把这些尝试算作通过。窗口回归执行结果随后补充。
+
+### Cineon 白点 pivot（2026-09-07）
+
+用户指定 pivot 改为 685 CV，并选择旧项目也采用新白点且保留原设置备份。算法 v2，schema 2，完整规则见 pipeline.md §13。CPU/Metal 共享白点常量，快照身份与缓存算法标识同步更新。
+
+` scripts/test.sh ` 非沙盒完整回归通过：XCTest 102 项（2 项完整资产测试按默认模式跳过），Swift Testing 44 项。解析测试证明 685 CV 在反差极值下不动、470 CV 按新 pivot 移动及合成反差不裁切；4099 像素×2 矩阵×3 组参数×7 阶段 CPU/Metal 比较，最大阶段误差 3.8146973e-6、Final 最大 1.3113022e-6、Final RMS 3.2846768e-8。迁移测试覆盖 schema 1/2、参数保留、首存原字节备份、重复保存不重复备份、时间/ID 冲突不覆盖、旧快照和未知算法拒绝。
+
+` scripts/build-app.sh Printroom-0.2.0-WhitePoint `、包内资源/Metal 校验和严格签名验证通过。交付 `output/Printroom-0.2.0-WhitePoint.app`。未重跑十张参考 TIFF 全尺寸验收与完整资产哈希，实际白点反差外观待用户体验。

@@ -1,6 +1,7 @@
 import Foundation
 
-public let algorithmVersion = "printroom-density-v1"
+public let algorithmVersion = "printroom-density-v2"
+public let contrastPivotCV: Int = 685
 public enum PipelineStage: Int, CaseIterable, Codable, Sendable {
   case l0, l1, d0, d1, d2, d3, final
   public var label: String { ["L0", "L1", "D0", "D1", "D2", "D3", "Final"][rawValue] }

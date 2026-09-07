@@ -127,14 +127,14 @@ public struct CalibrationDiagnostics: Equatable, Sendable {
   public var saturatedFraction: Double { Double(saturatedPixelCount) / Double(pixelCount) }
 }
 
-/// Float32 reference implementation of printroom-density-v1; no ICC or gamma transforms.
+/// Float32 reference implementation of printroom-density-v2; no ICC or gamma transforms.
 public enum Pipeline {
   private static let cvScale: Float = 1024
   private static let densityScale: Float = 2.048
   private static let epsilon: Float = 1e-6
   private static let baseTarget: Float = 0.75
   private static let baseTargetCV: Float = 95
-  private static let pivot: Float = 470 / 1024
+  private static let pivot: Float = Float(contrastPivotCV) / 1024
 
   public static func matrix(_ rgb: SIMD3<Float>, _ matrix: PrintDensityMatrix) -> SIMD3<Float> {
     switch matrix {

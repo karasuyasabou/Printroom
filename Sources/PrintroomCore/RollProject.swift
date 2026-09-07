@@ -1,6 +1,7 @@
 import Foundation
 
 private let projectAlgorithmVersion = algorithmVersion
+private let legacyAlgorithmVersion = "printroom-density-v1"
 private let migratingSchemaOne = CodingUserInfoKey(rawValue: "printroom.migratingSchemaOne")!
 
 public struct FrameRecord: Identifiable, Codable, Equatable, Sendable {
@@ -268,8 +269,17 @@ public enum ProjectStore {
         guard current == expectedModification else { throw ProjectStoreError.externalConflict }
         if current != nil {
           // Even a caller with the newest timestamp cannot overwrite a damaged/future project.
-          let existing = try decode(Data(contentsOf: coordinated))
+          let original = try Data(contentsOf: coordinated)
+          let existing = try decode(original)
           guard existing.id == project.id else { throw ProjectStoreError.externalConflict }
+          let header = try JSONDecoder().decode(Header.self, from: original)
+          if header.algorithmVersion == legacyAlgorithmVersion {
+            // Preserve exact original settings before the first save under the new image behavior.
+            // Exclusive creation never overwrites another backup; any failure aborts replacement.
+            let backup = coordinated.deletingLastPathComponent().appendingPathComponent(
+              ".printroom-density-v1-\(UUID().uuidString).json")
+            try original.write(to: backup, options: .withoutOverwriting)
+          }
         }
         try data.write(to: coordinated, options: .atomic)
         guard let date = try fileDate(coordinated) else {
@@ -341,23 +351,25 @@ public enum ProjectStore {
     return updated
   }
 
+  private struct Header: Decodable {
+    var schemaVersion: Int
+    var algorithmVersion: String
+  }
+
   private static func decode(_ data: Data) throws -> RollProject {
-    struct Header: Decodable {
-      var schemaVersion: Int
-      var algorithmVersion: String
-    }
     do {
       let decoder = JSONDecoder()
       let header = try decoder.decode(Header.self, from: data)
       guard [1, RollProject.currentSchemaVersion].contains(header.schemaVersion) else {
         throw ProjectStoreError.unsupportedSchema(header.schemaVersion)
       }
-      guard header.algorithmVersion == projectAlgorithmVersion else {
+      guard [legacyAlgorithmVersion, projectAlgorithmVersion].contains(header.algorithmVersion) else {
         throw ProjectStoreError.incompatibleAlgorithm(header.algorithmVersion)
       }
       decoder.userInfo[migratingSchemaOne] = header.schemaVersion == 1
       var project = try decoder.decode(RollProject.self, from: data)
       project.schemaVersion = RollProject.currentSchemaVersion
+      project.algorithmVersion = projectAlgorithmVersion
       try validate(project)
       return project
     } catch let error as ProjectStoreError {
@@ -614,8 +626,8 @@ public struct ParameterSnapshot: Sendable {
 
   public init(
     sourceID: UUID, sourceName: String, adjustments: FrameAdjustments,
-    formatVersion: Int = currentFormatVersion, algorithmVersion: String = "printroom-density-v1",
-    pivotCV: Int = 470
+    formatVersion: Int = currentFormatVersion, algorithmVersion: String = "printroom-density-v2",
+    pivotCV: Int = contrastPivotCV
   ) {
     self.sourceID = sourceID
     self.sourceName = sourceName
@@ -628,7 +640,7 @@ public struct ParameterSnapshot: Sendable {
   /// Value semantics form one reversible transaction. The UI registers before/after with UndoManager.
   public func applying(to project: RollProject, targets: Set<UUID>) throws -> RollProject {
     guard formatVersion == Self.currentFormatVersion, algorithmVersion == projectAlgorithmVersion,
-      pivotCV == 470
+      pivotCV == contrastPivotCV
     else {
       throw ProjectStoreError.invalidProject("参数快照版本、算法或 pivot 不兼容")
     }

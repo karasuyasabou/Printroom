@@ -36,7 +36,7 @@ Roll/
 
 ## 持久模型契约
 
-`schemaVersion=2`，`algorithmVersion="printroom-density-v1"`；schema 1 显式迁移，见文末。项目至少含：
+`schemaVersion=2`，`algorithmVersion="printroom-density-v2"`；schema 1 显式迁移，见文末。项目至少含：
 
 | 字段组 | 数据与约束 |
 | --- | --- |
@@ -114,3 +114,7 @@ JSON 数值必须有限；整数 Timing 不接受小数。记录 `schemaVersion`
 磁盘 `DiskThumbnailCache` 存储嵌入工作 ICC 的 PNG，键包含源指纹、方向、调色、校准、阶段策略、LUT/ICC、算法与展示版本。默认 512 MiB / 30 天未访问；刷新/写入时清理（不运行周期定时器），仅删除本缓存目录的已知哈希 PNG 与超过一天的已知临时文件，不跟随 symlink，不删除陌生文件。UI 可手动清理，后续重建。
 
 `ExportRequest` 为不可变值：固定 ordered 帧、源路径/大小/mtime、校准、Timing/Contrast、方向、profile/compression，以及全卷受保护原路径。独立 `ExportEngine` actor 逐帧串行导出，当前帧原始 UInt16 全图 + 有界 Float32 行块；图像和文件输出与主预览 lane 分离。所有出口共享真实 ICC 转换与量化，取消在读条带、处理块和发布前检查。写入同目录临时文件，再原子 `RENAME_EXCL` 发布；同名或发布竞争不得覆盖已存在文件。
+
+## 白点 pivot 算法迁移
+
+当前算法 v2 采用 685 CV（见 pipeline.md §13），schema 仍为 2。v1 项目读取后升级算法身份，不补偿原调色参数；用户已明确接受既有非单位反差外观变化。保存先检查外部修改时间和项目 ID，再以独占新文件保存 v1 原 JSON 字节备份，成功后才原子替换正式项目。备份失败即停止，v2 后续保存不重复备份。缓存以算法身份失效，参数快照要求 v2/685 CV。

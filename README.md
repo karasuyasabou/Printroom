@@ -2,7 +2,7 @@
 
 macOS 原生负片调色工具。一个文件夹是一卷底片；保持 16-bit TIFF 原始样本，卷级片基校准、逐帧调色，使用 Kodak 2383 D65 LUT 输出。
 
-**当前版本：0.2.0。** 提供完整调色、方向、预览直方图和单张/批量多 ICC TIFF 输出。算法仍为 `printroom-density-v1`，项目 schema 2；schema 1 自动迁移为默认方向、P3、无压缩，画面数值不变。
+**当前版本：0.2.0。** 提供完整调色、方向、预览直方图和单张/批量多 ICC TIFF 输出。算法为 `printroom-density-v2`（反差 pivot 685 CV），项目 schema 2；schema 1 自动迁移为默认方向、P3、无压缩，画面数值不变。
 
 ## 运行与构建
 
@@ -55,3 +55,5 @@ Final 的 P3-D65 Gamma 2.6 数值按四个固定 ICC 的 matrix/TRC 定义执行
 - `Sources/PrintroomApp`：SwiftUI/AppKit 编辑器、异步预览、区域读取与缓存。
 
 参考 TIFF 从不上传或改写。测试项目、导出、截图均位于 `scratch/`、`output/` 或临时目录；Git 不跟踪这些产物。
+
+白点 pivot 试用包：`output/Printroom-0.2.0-WhitePoint.app`。旧项目按用户选择迁移到白点算法；首次覆盖前保留同卷 `.printroom-density-v1-UUID.json` 原设置备份。已有反差不为 1 的通道外观会变化，旧版应用拒绝新版算法项目。

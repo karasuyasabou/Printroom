@@ -314,22 +314,22 @@ final class PipelineTests: XCTestCase {
     assertRGB(result, SIMD3(31.53063, -10.25, 1.5) / 1024, accuracy: 1e-7)
   }
 
-  func testContrastUses470PivotAndUnclampedProduct() throws {
+  func testContrastUses685WhitePivotAndUnclampedProduct() throws {
     let lut = try identityLUT()
-    let pivot: Float = 470 / 1024
+    let pivot: Float = 685 / 1024
     var calibration = FilmCalibration()
     calibration.baseRGB = SIMD3(repeating: 0.75)
-    calibration.filmBaseOffsetCV = SIMD3(repeating: 470)
+    calibration.filmBaseOffsetCV = SIMD3(repeating: 685)
     let extremes = FrameAdjustments(contrast: .init(master: 4, red: 4, green: 0.25, blue: 2))
     let atPivot = try Pipeline.process(
       SIMD3(repeating: 1), calibration: calibration,
       adjustments: extremes, lut: lut, stage: .d3)
     assertRGB(atPivot, SIMD3(repeating: pivot), accuracy: 0)
-    calibration.filmBaseOffsetCV = SIMD3(repeating: 685)
+    calibration.filmBaseOffsetCV = SIMD3(repeating: 470)
     let awayFromPivot = try Pipeline.process(
       SIMD3(repeating: 1), calibration: calibration,
       adjustments: extremes, lut: lut, stage: .d3)
-    assertRGB(awayFromPivot, SIMD3(3910, 685, 2190) / 1024, accuracy: 0)
+    assertRGB(awayFromPivot, SIMD3(-2755, 470, -1035) / 1024, accuracy: 0)
     calibration.filmBaseOffsetCV = SIMD3(repeating: 0)
     let lowProduct = try Pipeline.process(
       SIMD3(repeating: 1), calibration: calibration,

@@ -61,3 +61,10 @@ W/S改为Master正负步进；增加方括号旋转、⌘F水平翻转与左右�
 按用户确认实现固定速率长按、单击微调及 Shift 大步进，扩展统一控件范围；详见 [interaction.md](interaction.md) 和 [pipeline.md §7](pipeline.md#7-timing-与-rgb-contrast)。算法标识和 schema 2 不变，已有项目画面保持；旧版应用不支持超出旧范围的新参数，兼容性决定见 D038。本轮工程验证结果记录于 [acceptance-0.2.0.md](acceptance-0.2.0.md)，实际按键手感仍需用户试用。
 
 Timing 试用更新：构建号 4 按用户反馈将长按速率降为 50 CV/秒，已打包并通过针对性测试，待试用。交互见 interaction.md。
+
+白点 pivot 更新：按用户要求改为 685 CV，算法 v2，旧项目同步迁移并在首次覆盖前备份原设置。公式及兼容性见 pipeline.md §13；验证记录见 acceptance-0.2.0.md。
+
+
+## 0.2.0 调参性能优化
+
+已实现用户选择的连续预览调度、GPU buffer 复用、D1 前段缓存、直方图稳定后更新与缩略图按目标失效。算法、schema、预览分辨率、数值精度及既有快捷键不变；不新增 1:1 区域缓存。构建号 5；全套 release 数值/输出/应用回归与前后性能对照见 [验收记录](acceptance-0.2.0.md)。
