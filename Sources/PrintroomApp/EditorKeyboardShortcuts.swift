@@ -21,16 +21,30 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
     super.viewDidMoveToWindow()
     stopMonitoring()
     guard window != nil else { return }
-    monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+    monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
       let handled = MainActor.assumeIsolated { self?.handle(event) == true }
       return handled ? nil : event
     }
   }
   func stopMonitoring() {
+    model?.stopTimingKey()
     if let monitor { NSEvent.removeMonitor(monitor) }
     monitor = nil
   }
   func handle(_ event: NSEvent) -> Bool {
+    if event.type == .keyUp {
+      model?.stopTimingKey(event.charactersIgnoringModifiers ?? "")
+      return false
+    }
+    if event.type != .keyDown {
+      model?.stopTimingKey()
+      return false
+    }
+    let timingKey = event.charactersIgnoringModifiers?.lowercased() ?? ""
+    if timingKey.count != 1 || !"qeadzcws".contains(timingKey)
+      || !event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
+      model?.stopTimingKey()
+    }
     guard let window, event.window === window, window.isKeyWindow,
       window.attachedSheet == nil, NSApp.modalWindow == nil,
       !(window.firstResponder is NSTextView),

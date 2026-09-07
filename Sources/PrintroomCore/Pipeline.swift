@@ -264,10 +264,10 @@ public enum Pipeline {
     let timing = adjustments.timing
     guard
       [timing.master, timing.red, timing.green, timing.blue].allSatisfy({
-        (-256...256).contains($0)
+        TimingParameters.range.contains($0)
       })
     else {
-      throw PrintroomError.invalid("每个 Timing 控件必须为 -256…256 CV 的整数。")
+      throw PrintroomError.invalid("每个 Timing 控件必须为 -512…512 CV 的整数。")
     }
     let contrast = adjustments.contrast
     guard

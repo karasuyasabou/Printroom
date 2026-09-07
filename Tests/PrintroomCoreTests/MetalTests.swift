@@ -32,7 +32,7 @@ final class MetalTests: XCTestCase {
           timing: .init(master: 37, red: -12, green: 23, blue: 8),
           contrast: .init(master: 1.13, red: 0.8, green: 1.2, blue: 1.5)),
         FrameAdjustments(
-          timing: .init(master: -256, red: 256, green: -256, blue: 256),
+          timing: .init(master: -512, red: 512, green: -512, blue: 512),
           contrast: .init(master: 4, red: 4, green: 0.25, blue: 4)),
       ] {
         for stage in PipelineStage.allCases {

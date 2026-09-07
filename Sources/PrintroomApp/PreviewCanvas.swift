@@ -242,7 +242,13 @@ struct PreviewCanvas: NSViewRepresentable {
       let key = event.charactersIgnoringModifiers, "qeadzcws".contains(key.lowercased()),
       key.count == 1
     {
-      model?.handleTimingKey(key)
+      let targetWindow = window
+      model?.startTimingKey(key, shift: event.modifierFlags.contains(.shift),
+        isRepeat: event.isARepeat) { [weak self, weak targetWindow] in
+          guard let self, let targetWindow else { return false }
+          return targetWindow.isKeyWindow && targetWindow.firstResponder === self
+            && targetWindow.attachedSheet == nil && NSApp.modalWindow == nil && NSApp.isActive
+        }
     } else {
       super.keyDown(with: event)
     }

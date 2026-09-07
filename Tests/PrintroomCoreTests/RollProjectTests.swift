@@ -91,7 +91,7 @@ final class RollProjectTests: XCTestCase {
       try source("1.tiff", in: root)
       try source("2.tiff", in: root)
       var project = calibrated(try ProjectStore.open(folder: root), matrix: matrix)
-      project.frames[0].adjustments.timing = .init(master: 256, red: -256, green: 13, blue: 0)
+      project.frames[0].adjustments.timing = .init(master: 512, red: -512, green: 257, blue: -257)
       project.frames[1].adjustments.contrast = .init(master: 0.25, red: 4, green: 1.15, blue: 2.75)
       project.lastActiveFrameID = project.frames[1].id
       let date = try ProjectStore.save(project, folder: root, expectedModification: nil)
@@ -365,7 +365,7 @@ final class RollProjectTests: XCTestCase {
     let date = try ProjectStore.save(project, folder: root, expectedModification: nil)
     let bytes = try Data(contentsOf: jsonURL(root))
     let mutations: [(inout RollProject) -> Void] = [
-      { $0.frames[0].adjustments.timing.master = 257 },
+      { $0.frames[0].adjustments.timing.master = 513 },
       { $0.frames[0].adjustments.timing.blue = Int.min },
       { $0.frames[0].adjustments.contrast.master = .nan },
       { $0.frames[0].adjustments.contrast.red = .infinity },
@@ -560,7 +560,7 @@ final class RollProjectTests: XCTestCase {
         sourceID: source.id, sourceName: source.filename, adjustments: .init(), pivotCV: 685),
       ParameterSnapshot(
         sourceID: source.id, sourceName: source.filename,
-        adjustments: .init(timing: .init(master: 257))),
+        adjustments: .init(timing: .init(master: 513))),
       ParameterSnapshot(
         sourceID: source.id, sourceName: source.filename,
         adjustments: .init(contrast: .init(blue: .nan))),

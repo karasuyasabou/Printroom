@@ -108,7 +108,7 @@ effectiveCV[c] = filmBaseOffsetCV[c] + masterCV + channelCV[c]
 D2[c] = D1[c] + effectiveCV[c] / 1024
 ```
 
-Master、R、G、B 默认为 0，用户控件各自为整数 `[-256,256]`，每次步进 1 CV。各控件限制独立，合成偏移不再裁切到该范围。正值代表密度增加，不先按最终亮暗视觉反向解释。
+Master、R、G、B 默认为 0，用户控件各自为整数 `[-512,512]`，基础步进 1 CV（快捷键连续行为见 [interaction.md](interaction.md)）。各控件限制独立，合成偏移不再裁切到该范围。正值代表密度增加，不先按最终亮暗视觉反向解释。
 
 ```text
 pivot = 470 / 1024

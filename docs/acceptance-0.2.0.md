@@ -124,3 +124,13 @@ ICC真实转换按固定profile的matrix/TRC、D50 PCS计算；源/目标曲线�
 - `scripts/build-app.sh`：release构建、ad-hoc签名、四输出profile及Metal资源冒烟检查通过，更新`output/Printroom-0.2.0.app`。
 
 首次沙盒内集成测试受Metal不可用影响，窗口测试受图形会话访问限制超时；随后在本机权限环境重跑上述检查并通过。原始TIFF/ICC/LUT未写入，本次不改算法和项目schema。弹窗排除由窗口/模态状态守卫实现，本轮未注入弹窗按键自动验证。
+
+## Timing 长按与范围更新（2026-09-07，构建号 3）
+
+按用户确认：单击 1 CV、Shift 单击 10 CV，按住 0.4 秒后固定 120 CV/秒；规则见 interaction.md。应用按单调时钟累计 CV，以约 20 Hz 提交参数；系统重复事件不再额外累加。松手、换键、切帧、失焦、弹窗终止或重新开始对应手势，一次长按合并为一次撤销。四控件扩展至 ±512，公式和算法/schema 版本不变；超出旧范围的项目会被旧版拒绝。
+
+验证：`scripts/test.sh` 在可访问 Metal 的环境通过，XCTest 93 项（2 项完整资产检查按默认模式跳过），Swift Testing 38 项通过。新增计时契约、系统重复抑制、Shift、松手停止、整次撤销/重做、换键/失焦/切帧测试；扩展 ±512 数值及 JSON 往返、±513 拒绝、合成偏移不二次裁切和 Metal 极值测试。初次沙盒执行无法创建 Metal 上下文，已在非沙盒环境重跑通过。异步速率测试不假设任务在指定 sleep 时间精确唤醒，固定速率由独立时间点断言验证。
+
+用户实际长按手感及旧系统/其它键盘输入法仍待人工体验；本次未重跑十张 TIFF 全尺寸输出与原始资产完整哈希。
+
+交付：`scripts/build-app.sh` 完成 release 编译和 ad-hoc 签名；其沙盒内资源校验因 Metal 不可用退出后，单独在非沙盒运行 `output/Printroom-0.2.0.app/Contents/MacOS/Printroom --verify-resources` 通过（Apple M4、ICC/LUT、四输出 profile、UInt16 预览）。`codesign --verify --deep --strict output/Printroom-0.2.0.app` 通过。

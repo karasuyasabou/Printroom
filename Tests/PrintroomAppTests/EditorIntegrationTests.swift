@@ -202,12 +202,12 @@ struct EditorIntegrationTests {
     model.selectAdjacentFrame(-1)
     #expect(model.selection.activeFrameID == first.id)
     #expect(model.project?.frames == roll.frames)
-    model.edit { $0.timing.master = -256 }
+    model.edit { $0.timing.master = -512 }
     model.handleTimingKey("s")
-    #expect(model.adjustments.timing.master == -256)
-    model.edit { $0.timing.master = 256 }
+    #expect(model.adjustments.timing.master == -512)
+    model.edit { $0.timing.master = 512 }
     model.handleTimingKey("w")
-    #expect(model.adjustments.timing.master == 256)
+    #expect(model.adjustments.timing.master == 512)
   }
   @Test func testSDRPreviewCarriesSourceICCWithoutExtraGamma() async throws {
     let assets = try AppAssets()

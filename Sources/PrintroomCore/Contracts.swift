@@ -10,6 +10,7 @@ public enum PrintDensityMatrix: String, CaseIterable, Codable, Sendable {
   public var label: String { self == .identity ? "Identity" : "LED Light Source" }
 }
 public struct TimingParameters: Codable, Equatable, Sendable {
+  public static let range = -512...512
   public var master: Int = 0, red: Int = 0, green: Int = 0, blue: Int = 0
   public init(master: Int = 0, red: Int = 0, green: Int = 0, blue: Int = 0) {
     self.master = master

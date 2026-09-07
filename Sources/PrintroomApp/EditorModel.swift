@@ -93,6 +93,7 @@ import UniformTypeIdentifiers
     if panel.runModal() == .OK, let url = panel.url { open(url) }
   }
   func open(_ url: URL, discardUnsaved: Bool = false) {
+    stopTimingKey()
     guard !isExporting else {
       errorMessage = "请先完成或取消当前导出"
       return
@@ -138,6 +139,7 @@ import UniformTypeIdentifiers
     } catch { errorMessage = error.localizedDescription }
   }
   func select(_ id: UUID, command: Bool = false, shift: Bool = false) {
+    stopTimingKey()
     guard let project else { return }
     let old = selection.activeFrameID
     selection.click(
@@ -160,6 +162,7 @@ import UniformTypeIdentifiers
     select(frames[next].id)
   }
   func selectAll() {
+    stopTimingKey()
     guard let project else { return }
     let before = selection.activeFrameID
     selection.selectAll(project.frames.filter { !$0.isMissing }.map(\.id))
@@ -384,11 +387,13 @@ import UniformTypeIdentifiers
     undoRevision += 1
   }
   func undo() {
+    stopTimingKey()
     undoManager.undo()
     undoRevision += 1
     status = "已撤销调色操作"
   }
   func redo() {
+    stopTimingKey()
     undoManager.redo()
     undoRevision += 1
     status = "已重做调色操作"
@@ -508,7 +513,7 @@ import UniformTypeIdentifiers
       return
     }
     saveTask = Task {
-      try? await Task.sleep(for: .milliseconds(300))
+      try? await Task.sleep(for: .seconds(2))
       if !Task.isCancelled { _ = flushSave() }
     }
   }
@@ -785,18 +790,68 @@ import UniformTypeIdentifiers
     let dimension: Int
     let presentationVersion: String
   }
-  func handleTimingKey(_ key: String) {
+  private var timingTask: Task<Void, Never>?
+  private var heldTimingKey: String?
+
+  func stopTimingKey(_ key: String? = nil) {
+    guard let held = heldTimingKey, key == nil || key?.lowercased() == held else { return }
+    timingTask?.cancel()
+    timingTask = nil
+    heldTimingKey = nil
+    endAdjustment()
+  }
+
+  func startTimingKey(_ key: String, shift: Bool, isRepeat: Bool,
+                      canContinue: @escaping @MainActor () -> Bool) {
+    let key = key.lowercased()
+    guard !isRepeat, key.count == 1, "qeadzcws".contains(key), activeFrame != nil else { return }
+    stopTimingKey()
+    beginAdjustment()
+    heldTimingKey = key
+    handleTimingKey(key, step: shift ? 10 : 1)
+    let frameID = selection.activeFrameID
+    let clock = ContinuousClock()
+    let start = clock.now
+    timingTask = Task { [weak self] in
+      // Six CV at 20 Hz gives 120 CV/s while leaving time for preview rendering.
+      do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
+      var applied = 0
+      while !Task.isCancelled {
+        guard let self else { return }
+        guard self.selection.activeFrameID == frameID, canContinue(),
+          self.errorMessage == nil, !self.showExportSummary else {
+          self.stopTimingKey()
+          return
+        }
+        let elapsed = start.duration(to: clock.now).components
+        let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+        let total = Self.heldTimingCV(elapsed: seconds)
+        if total > applied {
+          self.handleTimingKey(key, step: total - applied)
+          applied = total
+        }
+        do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
+      }
+    }
+  }
+
+  static func heldTimingCV(elapsed: Double) -> Int {
+    Int((max(0, elapsed - 0.4) * 120 + 1e-9).rounded(.down))
+  }
+
+  func handleTimingKey(_ key: String, step: Int = 1) {
     guard activeFrame != nil else { return }
+    let step = max(0, min(TimingParameters.range.count - 1, step))
     edit { a in
       switch key.lowercased() {
-      case "q": a.timing.red = max(-256, a.timing.red - 1)
-      case "e": a.timing.red = min(256, a.timing.red + 1)
-      case "a": a.timing.green = max(-256, a.timing.green - 1)
-      case "d": a.timing.green = min(256, a.timing.green + 1)
-      case "z": a.timing.blue = max(-256, a.timing.blue - 1)
-      case "c": a.timing.blue = min(256, a.timing.blue + 1)
-      case "w": a.timing.master = min(256, a.timing.master + 1)
-      case "s": a.timing.master = max(-256, a.timing.master - 1)
+      case "q": a.timing.red = max(TimingParameters.range.lowerBound, a.timing.red - step)
+      case "e": a.timing.red = min(TimingParameters.range.upperBound, a.timing.red + step)
+      case "a": a.timing.green = max(TimingParameters.range.lowerBound, a.timing.green - step)
+      case "d": a.timing.green = min(TimingParameters.range.upperBound, a.timing.green + step)
+      case "z": a.timing.blue = max(TimingParameters.range.lowerBound, a.timing.blue - step)
+      case "c": a.timing.blue = min(TimingParameters.range.upperBound, a.timing.blue + step)
+      case "w": a.timing.master = min(TimingParameters.range.upperBound, a.timing.master + step)
+      case "s": a.timing.master = max(TimingParameters.range.lowerBound, a.timing.master - step)
       default: break
       }
     }

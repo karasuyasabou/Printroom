@@ -294,6 +294,13 @@ final class PipelineTests: XCTestCase {
       adjustments: .init(timing: .init(master: 256, red: 256, green: -256, blue: 0)), lut: lut,
       stage: .d2)
     assertRGB(combined, SIMD3(0.5, 0, 0.25), accuracy: 0)
+    for sign: Float in [-1, 1] {
+      let extended = try Pipeline.process(
+        SIMD3(repeating: 1), calibration: calibration,
+        adjustments: .init(timing: .init(master: Int(sign) * 512, red: Int(sign) * 512,
+          green: -Int(sign) * 512)), lut: lut, stage: .d2)
+      assertRGB(extended, SIMD3(sign, 0, sign * 0.5), accuracy: 0)
+    }
   }
 
   func testFractionalCalibrationOffsetRemainsInCV() throws {
@@ -346,7 +353,7 @@ final class PipelineTests: XCTestCase {
 
   func testInvalidAdjustmentsRejectEveryControlAndNonfiniteContrast() throws {
     for index in 0..<4 {
-      for value in [-257, 257, Int.min, Int.max] {
+      for value in [-513, 513, Int.min, Int.max] {
         var t = [0, 0, 0, 0]
         t[index] = value
         XCTAssertThrowsError(
@@ -364,7 +371,7 @@ final class PipelineTests: XCTestCase {
     XCTAssertNoThrow(
       try Pipeline.validate(
         .init(
-          timing: .init(master: -256, red: 256, green: -256, blue: 256),
+          timing: .init(master: -512, red: 512, green: -512, blue: 512),
           contrast: .init(master: 0.25, red: 4, green: 0.25, blue: 4))))
     XCTAssertNoThrow(try Pipeline.validate(.init(contrast: .init(master: 1.234))))
   }

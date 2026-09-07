@@ -223,7 +223,13 @@ struct EditorView: View {
           press.modifiers.intersection([.command, .control, .option]).isEmpty,
           press.characters.count == 1, "qeadzcws".contains(press.characters.lowercased())
         else { return .ignored }
-        model.handleTimingKey(press.characters)
+        let window = NSApp.keyWindow
+        let responder = window?.firstResponder
+        model.startTimingKey(press.characters, shift: press.modifiers.contains(.shift),
+          isRepeat: press.phase == .repeat) { [weak window, weak responder] in
+            window?.isKeyWindow == true && window?.firstResponder === responder
+              && window?.attachedSheet == nil && NSApp.modalWindow == nil && NSApp.isActive
+          }
         return .handled
       }
   }
@@ -235,7 +241,8 @@ struct EditorView: View {
       value: Binding(
         get: { Double(model.adjustments.timing[keyPath: path]) },
         set: { v in model.edit { $0.timing[keyPath: path] = Int(v.rounded()) } }),
-      range: -256...256, step: 1, fractionDigits: 0, color: color,
+      range: Double(TimingParameters.range.lowerBound)...Double(TimingParameters.range.upperBound),
+      step: 1, fractionDigits: 0, color: color,
       onEditingChanged: { if $0 { model.beginAdjustment() } else { model.endAdjustment() } })
   }
   private func contrastRow(
