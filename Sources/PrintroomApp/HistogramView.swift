@@ -87,19 +87,23 @@ struct HistogramView: View {
       Text("整张预览统计").font(.caption.weight(.medium))
       if let stats = model.histogram {
         Text("\(stats.stage.label) · \(usesDensityUnits ? "CV" : stats.unit)").font(.system(size: 9))
-        Text("\(stats.pixelCount) 个预览像素 · 256 bins").font(.system(size: 9)).foregroundStyle(.secondary)
+        Text(stats.isApproximate
+          ? "整图均匀取样 \(stats.sampleCount) / \(stats.pixelCount) 像素 · 256 bins"
+          : "\(stats.pixelCount) 个预览像素 · 256 bins").font(.system(size: 9)).foregroundStyle(.secondary)
         let indices = model.histogramChannel < 0 ? [0, 1, 2] : [model.histogramChannel]
         ForEach(indices, id: \.self) { index in
           let c = stats.channels[index]
           Text(String(format: "%@  ≤0 %.2f%%   ≥%@ %.2f%%", ["R", "G", "B"][index],
-            Double(c.blackClipped) / Double(max(1, stats.pixelCount)) * 100,
+            Double(c.blackClipped) / Double(max(1, stats.sampleCount)) * 100,
             usesDensityUnits ? "1024" : "1",
-            Double(c.whiteClipped) / Double(max(1, stats.pixelCount)) * 100))
+            Double(c.whiteClipped) / Double(max(1, stats.sampleCount)) * 100))
             .font(.system(size: 9, design: .monospaced)).foregroundStyle(colors[index].opacity(0.85))
         }
         Text("域外 <0: \(stats.channels.reduce(UInt64(0)) { $0 + $1.belowRange }) · >\(usesDensityUnits ? "1024" : "1"): \(stats.channels.reduce(UInt64(0)) { $0 + $1.aboveRange }) · 非有限: \(stats.channels.reduce(UInt64(0)) { $0 + $1.nonFinite })")
           .font(.system(size: 9)).foregroundStyle(.secondary)
-        Text("域外与非有限值不入 bins；端点单列。统计不改变管线值。")
+        Text(stats.isApproximate
+          ? "比例为取样估计，计数仅指取样像素，可能漏掉少量极值。"
+          : "域外与非有限值不入 bins；端点单列。统计不改变管线值。")
           .font(.system(size: 9)).foregroundStyle(.tertiary)
       } else {
         Text(model.isRendering || model.isLoading ? "等待当前照片…" : "暂无统计")

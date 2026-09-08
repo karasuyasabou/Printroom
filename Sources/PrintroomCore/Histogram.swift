@@ -16,6 +16,8 @@ public struct HistogramStatistics: Equatable, Sendable {
   public let channels: [HistogramChannel]
   public let stage: PipelineStage
   public let pixelCount: Int
+  public let sampleCount: Int
+  public var isApproximate: Bool { sampleCount != pixelCount }
   public let isPreview: Bool
   public var unit: String {
     switch stage {
@@ -54,6 +56,36 @@ public struct HistogramStatistics: Equatable, Sendable {
     }
     if cancelled() { throw CancellationError() }
     return Self(channels: channels, stage: stage, pixelCount: buffer.pixels.count,
+                sampleCount: buffer.pixels.count,
                 isPreview: isPreview)
+  }
+
+  /// Deterministic whole-image grid: one sample per 4×4 cell for large previews.
+  /// Counts describe actual samples, never extrapolated full-image counts.
+  public static func computePreview(
+    _ buffer: PixelBuffer, stage: PipelineStage,
+    cancelled: @Sendable () -> Bool = { false }
+  ) throws -> HistogramStatistics {
+    guard buffer.width > 0, buffer.height > 0, buffer.width <= Int.max / buffer.height,
+      buffer.width * buffer.height == buffer.pixels.count
+    else { throw PrintroomError.invalid("直方图像素缓冲区尺寸无效") }
+    guard buffer.pixels.count > 131_072 else {
+      return try compute(buffer, stage: stage, cancelled: cancelled)
+    }
+    let width = (buffer.width - 1) / 4 + 1
+    let height = (buffer.height - 1) / 4 + 1
+    var sampled = PixelBuffer(width: width, height: height,
+      pixels: [])
+    sampled.pixels.reserveCapacity(width * height)
+    for y in stride(from: 0, to: buffer.height, by: 4) {
+      if cancelled() { throw CancellationError() }
+      let row = min(y + 2, buffer.height - 1) * buffer.width
+      for x in stride(from: 0, to: buffer.width, by: 4) {
+        sampled.pixels.append(buffer.pixels[row + min(x + 2, buffer.width - 1)])
+      }
+    }
+    let result = try compute(sampled, stage: stage, cancelled: cancelled)
+    return Self(channels: result.channels, stage: stage, pixelCount: buffer.pixels.count,
+      sampleCount: result.sampleCount, isPreview: true)
   }
 }

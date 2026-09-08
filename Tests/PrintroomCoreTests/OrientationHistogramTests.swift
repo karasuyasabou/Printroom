@@ -4,6 +4,38 @@ import XCTest
 @testable import PrintroomCore
 
 final class OrientationHistogramTests: XCTestCase {
+  func testPreviewGridMatchesIndependentSamplesAndPreservesCounts() throws {
+    let width = 513, height = 259
+    let values: [Float] = [-1, 0, 0.25, 1, 2, .nan, .infinity]
+    let pixels = (0..<(width * height)).map { index in
+      SIMD4<Float>(repeating: values[(index / width + index % width) % values.count])
+    }
+    let buffer = PixelBuffer(width: width, height: height, pixels: pixels)
+    let result = try HistogramStatistics.computePreview(buffer, stage: .d3)
+    var reference = [SIMD4<Float>]()
+    for y in 0..<65 {
+      for x in 0..<129 {
+        reference.append(pixels[min(y * 4 + 2, height - 1) * width + min(x * 4 + 2, width - 1)])
+      }
+    }
+    let exact = try HistogramStatistics.compute(
+      PixelBuffer(width: 129, height: 65, pixels: reference), stage: .d3)
+    XCTAssertEqual(result.channels, exact.channels)
+    XCTAssertEqual(result.pixelCount, width * height)
+    XCTAssertEqual(result.sampleCount, 129 * 65)
+    XCTAssertTrue(result.isApproximate)
+    for channel in result.channels {
+      XCTAssertEqual(channel.bins.reduce(0, +) + channel.belowRange + channel.aboveRange
+        + channel.nonFinite, UInt64(result.sampleCount))
+    }
+    XCTAssertThrowsError(try HistogramStatistics.computePreview(buffer, stage: .d3, cancelled: { true }))
+  }
+
+  func testSmallPreviewKeepsExactStatistics() throws {
+    let result = try HistogramStatistics.computePreview(image, stage: .l0)
+    XCTAssertEqual(result, try HistogramStatistics.compute(image, stage: .l0))
+    XCTAssertFalse(result.isApproximate)
+  }
   private let image: PixelBuffer = {
     let pixels: [SIMD4<Float>] = [
       SIMD4(0, 10, 20, 30), SIMD4(1, 11, 21, 31), SIMD4(2, 12, 22, 32),

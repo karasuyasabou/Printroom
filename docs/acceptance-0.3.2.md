@@ -71,9 +71,14 @@
 
 保留原构建 `output/Printroom-0.3.2-build1.app` 与所有既有旧版。本次仅修改工具指针、快捷键与帮助文字；未重跑全尺寸导出/CPU-Metal 全套数值或性能量测，跨设备及用户手感仍待试用。
 
-## ⌘C / ⌘V 快捷键补记（2026-09-08）
 
-- 窗口内复制/应用参数改用 ⌘C/⌘V，长按不重复，文字输入保留原生复制/粘贴；菜单及按钮帮助同步提示。
-- 为避开并行性能/吸管修改，以 HEAD 加本轮快捷键代码隔离构建 `output/Printroom-0.3.2-Shortcuts.app`（构建号 3），保留原应用。
-- 隔离副本运行 `scripts/test.sh --filter 'EditorKeyboardRoutingTests|EditorIntegrationTests'`：15 项通过，覆盖快捷键快照、重复按键抑制、文本焦点、复制/批量应用/撤销/重开。初次沙箱运行受 Metal 不可用限制，最终沙箱外验证通过。
-- release 构建、`--verify-resources`、`codesign --verify --deep --strict` 通过。日志位于 `scratch/parameter-shortcuts-*.log`。本轮未执行实际键鼠事件验收。
+## 0.3.2 构建 3：取样直方图与画面同步（2026-09-08）
+
+用户授权在实测显著改善后采用近似统计并一起发布。规则见 pipeline.md §12；没有改变图像算法、schema、几何或输出精度。
+
+- 本机 Apple M4 / macOS 26.6.2，release，DSC07079.tiff → 1600×1066，LED 既有 ROI，Timing/Contrast 各 30 次。完整直方图平均 14.22–14.31ms；4×4 网格 106,800 样本平均 1.157–1.163ms，P95 1.258–1.323ms，约快 12 倍。这张照片/60 组参数的三通道最大累计分布偏差 0.346 个百分点以内；并非任意图像的误差保证，规则纹理与稀少极值可能漏采。
+- 接入后连续 120 次编辑，输入期间发布 119 次、共 120 次；最后输入到最终画面发布 11.939ms，画面/统计 idle 观测分别 14.600/14.603ms（2ms 轮询）。旧版同次对照最后画面发布 14.718ms、统计 idle 160.489ms。时序和模型发布测量不等于屏幕物理刷新率；UI 实际观感待用户试用。
+- 在 `scratch/histogram-sync-source` 隔离源码运行 `bash scripts/test.sh -c release`：132 核心测试，3 个实际大图 opt-in 跳过，0 失败；71 应用功能测试通过，4 项 opt-in 跳过。新增网格奇数尺寸/边缘、样本计数与异常、取消、小图精确路径、图像发布时已含对应统计验证；既有快速切帧/阶段/裁剪、1:1 与最终画面回归通过。
+- 同一隔离源码运行 `scripts/measure-adjustments.sh`，renderer/editor 两项通过，最终完整图像字节与独立 stateless GPU 一致。日志：`scratch/adjustment-performance/sampling-comparison.log`、`scratch/adjustment-performance/editor-before-sync.log`、`scratch/histogram-sync-measure.log`、`scratch/histogram-sync-isolated-tests.log`。
+- `scripts/build-app.sh`、资源/Metal 自检、`codesign --verify --deep --strict output/Printroom-0.3.2.app` 和 12 项资产哈希通过。交付 `output/Printroom-0.3.2.app` build3；原 build2 保存在 `output/Printroom-0.3.2-build2.app`。隔离打包避免带入另一任务尚未完成的 Final 吸管修改。
+- 首次共享工作区回归两次因另一任务进行中的测试/API 编译暂态失败；上述通过结果来自隔离源码。未执行全尺寸导出/十张大图完整回读或窗口截图，不宣称本轮通过。

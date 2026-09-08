@@ -1,3 +1,4 @@
+import Combine
 import CoreGraphics
 import Foundation
 import PrintroomCore
@@ -55,6 +56,32 @@ struct EditorRefinementTests {
     #expect(model.histogram == nil)
     try await settled(model)
     #expect(model.histogram?.stage == .l0)
+    #expect(model.flushSave())
+  }
+
+  @Test func imagePublicationAlreadyHasMatchingHistogram() async throws {
+    let model = EditorModel()
+    let folder = try fixture(model)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    model.open(folder)
+    model.stage = .d3
+    try await settled(model)
+    let old = try #require(model.histogram)
+    var publishedHistogram: HistogramStatistics?
+    let subscription = model.$previewImage.dropFirst().sink { image in
+      if image != nil { publishedHistogram = model.histogram }
+    }
+    defer { subscription.cancel() }
+    model.edit { $0.timing.master = 120 }
+    try await settled(model)
+    #expect(publishedHistogram != nil)
+    #expect(publishedHistogram != old)
+    #expect(publishedHistogram == model.histogram)
+    let frame = try #require(model.activeFrame)
+    let input = try await ImageService().preview(folder.appendingPathComponent(frame.filename)).0
+    let pixels = try Pipeline.render(input, calibration: try #require(model.project?.calibration),
+      adjustments: model.adjustments, stage: .d3)
+    #expect(publishedHistogram == (try HistogramStatistics.computePreview(pixels, stage: .d3)))
     #expect(model.flushSave())
   }
 

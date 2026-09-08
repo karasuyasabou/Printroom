@@ -230,7 +230,7 @@ struct AdjustmentSchedulingTests {
     let oriented = try frame.orientation.transform(reference)
     let image = try DisplayImage.make(oriented, profile: assets.profile, diagnostic: model.stage != .final)
     try expectSameImage(try #require(model.previewImage), image)
-    #expect(model.histogram == (try HistogramStatistics.compute(oriented, stage: model.stage)))
+    #expect(model.histogram == (try HistogramStatistics.computePreview(oriented, stage: model.stage)))
     let cpu = try Pipeline.render(input, calibration: calibration,
       adjustments: frame.adjustments, lut: assets.lut, stage: model.stage)
     var maxError: Float = 0

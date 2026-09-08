@@ -47,6 +47,10 @@ struct AdjustmentPerformanceMeasurements {
     report("renderer", "first_gpu_and_display", milliseconds(cold, .now))
     for group in ["timing", "contrast"] {
       var samples: [Double] = []
+      var histogramSamples: [Double] = []
+      var combinedSamples: [Double] = []
+      var sampledTimes: [Double] = []
+      var maxCDFError = 0.0
       for step in 1...30 {
         if group == "timing" {
           adjustments.timing.master = step
@@ -59,14 +63,45 @@ struct AdjustmentPerformanceMeasurements {
         let result = try await render(renderer, input, calibration: calibration,
           adjustments: adjustments, assets: assets, identity: identity)
         samples.append(milliseconds(began, .now))
+        let histogramBegan = ContinuousClock.now
+        let statistics = try await Task.detached(priority: .utility) {
+          try HistogramStatistics.compute(result.pixels, stage: .final,
+            isPreview: true, cancelled: { Task.isCancelled })
+        }.value
+        histogramSamples.append(milliseconds(histogramBegan, .now))
+        combinedSamples.append(milliseconds(began, .now))
+        #expect(statistics.pixelCount == input.width * input.height)
+        let sampledBegan = ContinuousClock.now
+        let sampled = try await Task.detached(priority: .utility) {
+          try HistogramStatistics.computePreview(result.pixels, stage: .final,
+            cancelled: { Task.isCancelled })
+        }.value
+        sampledTimes.append(milliseconds(sampledBegan, .now))
+        for channel in 0..<3 {
+          var exactCDF = 0.0, sampledCDF = 0.0
+          for bin in 0..<256 {
+            exactCDF += Double(statistics.channels[channel].bins[bin]) / Double(statistics.sampleCount)
+            sampledCDF += Double(sampled.channels[channel].bins[bin]) / Double(sampled.sampleCount)
+            maxCDFError = max(maxCDFError, abs(exactCDF - sampledCDF))
+          }
+        }
         #expect(result.image.width == input.width && result.image.height == input.height)
       }
       report("renderer", "\(group)_mean", samples.reduce(0, +) / Double(samples.count))
       report("renderer", "\(group)_p50", percentile(samples, 0.5))
       report("renderer", "\(group)_p95", percentile(samples, 0.95))
       report("renderer", "\(group)_max", samples.max()!)
+      for (name, values) in [("histogram", histogramSamples), ("combined", combinedSamples)] {
+        report(name, "\(group)_mean", values.reduce(0, +) / Double(values.count))
+        report(name, "\(group)_p50", percentile(values, 0.5))
+        report(name, "\(group)_p95", percentile(values, 0.95))
+      }
+      report("sampled_histogram", "\(group)_mean", sampledTimes.reduce(0, +) / Double(sampledTimes.count))
+      report("sampled_histogram", "\(group)_p95", percentile(sampledTimes, 0.95))
+      print("ADJUSTMENT_ACCURACY \(group) max_CDF_error_percentage_points=\(maxCDFError * 100)")
     }
     print("ADJUSTMENT_CHECK renderer measured_changes=60 includes=GPU,CPU_readback,orientation,UInt16_CGImage excludes=decode,histogram,UI_publication,screen_compositor")
+    print("ADJUSTMENT_CHECK histogram includes=utility_task_scheduling,whole_preview_scan excludes=120ms_debounce combined=serial_render_then_histogram screen_presentation=not_measured")
   }
 
   @MainActor private func measureEditor(_ source: URL, input: PixelBuffer,

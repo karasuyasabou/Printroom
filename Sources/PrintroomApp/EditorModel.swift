@@ -14,7 +14,7 @@ import UniformTypeIdentifiers
   @Published private(set) var isPreviewPlaceholder = false
   @Published var histogram: HistogramStatistics?
   @Published var histogramChannel = -1
-  @Published var isHistogramUpdating = false
+  var isHistogramUpdating: Bool { isRendering && !isCropping }
   @Published var detailImage: CGImage?
   @Published var detailRect: PixelRect?
   @Published var isDetailLoading = false
@@ -102,7 +102,6 @@ import UniformTypeIdentifiers
   private var presentationCache = PreviewPresentationCache()
   private var thumbnailPresentationKeys: [UUID: PreviewPresentationKey] = [:]
   private var loadTask: Task<Void, Never>?
-  private var histogramTask: Task<Void, Never>?
   private var detailTask: Task<Void, Never>?
   private var detailRevision = 0
   private var requestedDetailRect: PixelRect?
@@ -249,9 +248,7 @@ import UniformTypeIdentifiers
     loadRevision += 1
     renderRevision += 1
     let revision = loadRevision
-    histogramTask?.cancel()
     histogram = nil
-    isHistogramUpdating = false
     invalidateDetail()
     previewImage = nil
     isPreviewPlaceholder = false
@@ -327,9 +324,7 @@ import UniformTypeIdentifiers
   }
   func render() {
     cancelNeutralPicker()
-    histogramTask?.cancel()
     if histogram?.stage != stage { histogram = nil }
-    isHistogramUpdating = false
     invalidateDetail()
     renderRevision += 1
     guard let input = previewInput, let project, let frame = activeFrame, let assets else { return }
@@ -357,12 +352,14 @@ import UniformTypeIdentifiers
             assets: request.assets, stage: request.context.stage,
             orientation: request.context.orientation, inputIdentity: request.context.source,
             crop: request.context.crop, sourceWidth: request.context.sourceWidth,
-            sourceHeight: request.context.sourceHeight)
+            sourceHeight: request.context.sourceHeight, includeHistogram: !isCropping)
           guard !Task.isCancelled, generation == renderGeneration,
             previewContext == request.context, activeFrame?.id == request.context.frameID else { return }
           // One serial worker publishes snapshots in increasing order, including
           // while input continues faster than rendering. The next job reads only
           // the latest pending edit; an older result cannot overwrite a newer one.
+          // Publish one matched snapshot in a single main-actor turn, without suspension.
+          histogram = result.histogram
           previewImage = result.image
           isPreviewPlaceholder = false
           if let source = previewSourceStamp {
@@ -375,10 +372,6 @@ import UniformTypeIdentifiers
           }
           if request.revision == renderRevision {
             isRendering = false
-            if !isCropping {
-              updateHistogram(result.pixels, stage: request.context.stage,
-                revision: request.revision, frameID: request.context.frameID)
-            }
           }
         } catch {
           guard !Task.isCancelled, generation == renderGeneration else { return }
@@ -389,27 +382,6 @@ import UniformTypeIdentifiers
         }
       }
       if generation == renderGeneration { renderTask = nil }
-    }
-  }
-  private func updateHistogram(_ buffer: PixelBuffer, stage: PipelineStage, revision: Int, frameID: UUID) {
-    isHistogramUpdating = true
-    histogramTask = Task {
-      do {
-        // Statistics follow settled edits; high-rate interaction does not scan
-        // every intermediate 1600px image. Cancellation also covers this delay.
-        try await Task.sleep(for: .milliseconds(120))
-        let worker = Task.detached(priority: .utility) {
-          try HistogramStatistics.compute(buffer, stage: stage, isPreview: true, cancelled: { Task.isCancelled })
-        }
-        let result = try await withTaskCancellationHandler {
-          try await worker.value
-        } onCancel: { worker.cancel() }
-        guard !Task.isCancelled, revision == renderRevision, activeFrame?.id == frameID else { return }
-        histogram = result
-        isHistogramUpdating = false
-      } catch {
-        if !Task.isCancelled && revision == renderRevision { isHistogramUpdating = false }
-      }
     }
   }
   func changeOrientation(_ operation: OrientationOperation) {

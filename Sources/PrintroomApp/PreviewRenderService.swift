@@ -5,6 +5,7 @@ import PrintroomCore
 struct RenderedPreview: Sendable {
   let pixels: PixelBuffer
   let image: CGImage
+  var histogram: HistogramStatistics? = nil
 }
 
 /// Serializes one interactive render lane, including UInt16 display preparation.
@@ -27,7 +28,8 @@ actor PreviewRenderService {
     _ input: PixelBuffer, calibration: FilmCalibration, adjustments: FrameAdjustments,
     assets: AppAssets, stage: PipelineStage = .final,
     orientation: FrameOrientation = .identity, inputIdentity: UUID? = nil,
-    crop: FrameCrop? = nil, sourceWidth: Int? = nil, sourceHeight: Int? = nil
+    crop: FrameCrop? = nil, sourceWidth: Int? = nil, sourceHeight: Int? = nil,
+    includeHistogram: Bool = false
   ) throws -> RenderedPreview {
     try autoreleasepool {
       try Task.checkCancellation()
@@ -67,7 +69,10 @@ actor PreviewRenderService {
       let image = try DisplayImage.make(
         oriented, profile: assets.profile, diagnostic: stage != .final)
       try Task.checkCancellation()
-      return RenderedPreview(pixels: oriented, image: image)
+      let histogram = includeHistogram
+        ? try HistogramStatistics.computePreview(oriented, stage: stage,
+            cancelled: { Task.isCancelled }) : nil
+      return RenderedPreview(pixels: oriented, image: image, histogram: histogram)
     }
   }
 }
