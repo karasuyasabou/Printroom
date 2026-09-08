@@ -227,7 +227,8 @@ struct PreviewCanvasTests {
       url: folder.appendingPathComponent("frame.tiff"), width: 120, height: 80,
       profile: assets.profile
     ) { rows in
-      (0..<(rows.count * 120)).flatMap { _ in [UInt16(26000), 32768, 41000] }
+      // A coloured midtone in Final, outside the already-neutral dark tolerance.
+      (0..<(rows.count * 120)).flatMap { _ in [UInt16(10387), 7524, 5206] }
     }
     model.open(folder)
     for _ in 0..<100 where !model.canPickNeutral {

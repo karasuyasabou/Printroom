@@ -1,6 +1,6 @@
 # 架构与项目数据
 
-状态：0.3.1；使用 Swift Package 实现核心与 SwiftUI 应用；构建脚本生成原生 `.app`，没有 `.xcodeproj`。公式见 [pipeline.md](pipeline.md)，交互见 [interaction.md](interaction.md)。以下为设计契约；本轮验证状态见 [acceptance-0.3.1.md](acceptance-0.3.1.md)，历史记录不替代本轮验证。
+状态：0.3.3；使用 Swift Package 实现核心与 SwiftUI 应用；构建脚本生成原生 `.app`，没有 `.xcodeproj`。公式见 [pipeline.md](pipeline.md)，交互见 [interaction.md](interaction.md)。以下为设计契约；本轮验证状态见 [acceptance-0.3.3.md](acceptance-0.3.3.md)，历史记录不替代本轮验证。
 
 ## 模块边界
 
@@ -158,3 +158,12 @@ ExportFrameSnapshot 固定裁剪值；导出期间的新编辑不改变已提交
 切帧仍取消旧加载/渲染工作并验证修订，缓存与缩略图只是暂时展示，不成为取样或调色输入。精确操作在正式输入/预览准备好前禁用。正式结果直接替换占位并更新 LRU；缓存不上磁盘，不改变已有输入 LRU/GPU缓存和磁盘缩略图格式。首次载入中的缩略图若先完成，也可补上当前空白占位。
 
 中性点取样使用有界原始邻域读取，异步结果校验卷、帧、加载修订、渲染修订、校准、调色和取消令牌，文件读取前后检测源指纹。成功通过既有单帧 edit 事务登记一次撤销并安排保存/缩略图刷新；不保存取样坐标、不新增项目字段。普通像素读数的任务/状态/API 已移除，底层原始像素读取仍供验证和其他内部用途。
+
+
+## 0.3.3 Final 中性点事务
+
+`NeutralTiming` 接收原片邻域、校准/调色快照、实际 LUT 和工作 ICC；`FinalColorimetry` 复用输出模块的 ICC matrix/TRC 解析，仅提供求解器测量，不改变渲染或导出。数值目标、上限和失败标准的唯一来源是 pipeline.md §15。
+
+EditorModel 将求解放入 userInitiated detached task，父任务取消向后台传播；完成后再次校验整个取样上下文和源文件指纹，只有仍有效的结果可进入单帧 edit。内部可注入求解闭包用于确定性测试取消、后台隔离和求解期间源变更；应用默认始终使用真实核心求解器。
+
+无新增持久字段或迁移；既有参数快照、Undo/Redo、自动保存和缓存身份继续适用。旧项目按原参数渲染，只有用户点吸管才写入新 Timing。交付独立 0.3.3 bundle，保留 0.3.2 及更早应用。

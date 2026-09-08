@@ -98,6 +98,10 @@ import UniformTypeIdentifiers
   private var sampleRevision = 0
   private var neutralTask: Task<Void, Never>?
   private var neutralRevision = 0
+  typealias NeutralSolver = @Sendable (
+    PixelBuffer, FilmCalibration, FrameAdjustments, CubeLUT, Data
+  ) throws -> FrameAdjustments
+  private let neutralSolver: NeutralSolver
   private var previewSourceStamp: PreviewSourceStamp?
   private var presentationCache = PreviewPresentationCache()
   private var thumbnailPresentationKeys: [UUID: PreviewPresentationKey] = [:]
@@ -141,7 +145,11 @@ import UniformTypeIdentifiers
   var exportSettings: ProjectExportSettings { project?.exportSettings ?? .init() }
   var matrix: PrintDensityMatrix { project?.calibration.matrix ?? .identity }
 
-  init() {
+  init(neutralSolver: @escaping NeutralSolver = { samples, calibration, adjustments, lut, profile in
+    try NeutralTiming.solve(samples, calibration: calibration, adjustments: adjustments,
+      lut: lut, p3Profile: profile)
+  }) {
+    self.neutralSolver = neutralSolver
     undoManager.groupsByEvent = false
     do { assets = try AppAssets() } catch { errorMessage = error.localizedDescription }
   }
@@ -557,7 +565,7 @@ import UniformTypeIdentifiers
   }
   func pickNeutralDisplayed(x: Int, y: Int) {
     guard neutralPicking, canPickNeutral, let geometry = displayGeometry,
-      let frame = activeFrame, let project, let folder,
+      let frame = activeFrame, let project, let folder, let assets,
       x >= 0, y >= 0, x < geometry.outputWidth, y < geometry.outputHeight else { return }
     let point = geometry.sourcePoint(outputX: Double(x) + 0.5, outputY: Double(y) + 0.5)
     let sx = max(0, min(sourceWidth - 1, Int(floor(point.x))))
@@ -570,12 +578,25 @@ import UniformTypeIdentifiers
     isNeutralSampling = true
     let token = neutralRevision, revision = renderRevision, loadID = loadRevision
     let stamp = previewSourceStamp
+    let width = sourceWidth, height = sourceHeight, expectedStage = stage
     let url = folder.appendingPathComponent(frame.filename)
+    let solve = neutralSolver
+    func contextIsCurrent() -> Bool {
+      token == neutralRevision && revision == renderRevision && loadID == loadRevision
+        && self.folder == folder && activeFrame == frame && self.project?.id == project.id
+        && self.project?.calibration == project.calibration
+        && sourceWidth == width && sourceHeight == height && stage == expectedStage
+        && !sampling && !isCropping && previewSourceStamp == stamp
+        && self.assets?.profile == assets.profile && self.assets?.lut.size == assets.lut.size
+        && self.assets?.lut.values == assets.lut.values
+    }
     neutralTask = Task {
       defer {
         if token == neutralRevision { isNeutralSampling = false; neutralTask = nil }
       }
       do {
+        try Task.checkCancellation()
+        guard contextIsCurrent() else { return }
         guard try PreviewSourceStamp(url: url) == stamp else {
           throw PrintroomError.invalid("源 TIFF 已改变，请重新打开照片后取样")
         }
@@ -584,16 +605,23 @@ import UniformTypeIdentifiers
         guard try PreviewSourceStamp(url: url) == stamp else {
           throw PrintroomError.invalid("取样期间源 TIFF 已改变，请重新打开照片")
         }
-        guard token == neutralRevision, revision == renderRevision, loadID == loadRevision,
-          activeFrame?.id == frame.id, self.project?.id == project.id,
-          self.project?.calibration == project.calibration, adjustments == frame.adjustments else { return }
-        let result = try NeutralTiming.solve(samples, calibration: project.calibration,
-          adjustments: frame.adjustments)
+        guard contextIsCurrent() else { return }
+        let worker = Task.detached(priority: .userInitiated) {
+          try Task.checkCancellation()
+          return try solve(samples, project.calibration, frame.adjustments, assets.lut, assets.profile)
+        }
+        let result = try await withTaskCancellationHandler {
+          try await worker.value
+        } onCancel: { worker.cancel() }
+        try Task.checkCancellation()
+        guard contextIsCurrent() else { return }
+        guard try PreviewSourceStamp(url: url) == stamp else {
+          throw PrintroomError.invalid("标定期间源 TIFF 已改变，请重新打开照片")
+        }
         // edit() is the same atomic frame transaction used by manual controls.
-        edit(actionName: "吸取中性点") { $0 = result }
+        edit(actionName: "标定 Final 中性点") { $0 = result }
       } catch {
-        if !Task.isCancelled, token == neutralRevision, revision == renderRevision,
-          loadID == loadRevision, activeFrame?.id == frame.id { errorMessage = error.localizedDescription }
+        if !Task.isCancelled, contextIsCurrent() { errorMessage = error.localizedDescription }
       }
     }
   }

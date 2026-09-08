@@ -139,6 +139,39 @@ public final class OutputColorConverter {
   }
 }
 
+/// Read-only Final measurements using the same pinned ICC definitions as export.
+/// Decoded values never feed back into the image rendering pipeline.
+struct FinalColorimetry {
+  private let profile: MatrixICCProfile
+  private let white: SIMD3<Double>
+
+  init(p3Profile: Data) throws {
+    profile = try MatrixICCProfile(OutputColorProfile.p3.profileData(p3: p3Profile))
+    white = profile.colorants * SIMD3<Double>(repeating: 1)
+  }
+
+  private func xyz(_ encoded: SIMD3<Double>) -> SIMD3<Double> {
+    profile.colorants * SIMD3(
+      profile.curves[0].decode(encoded.x), profile.curves[1].decode(encoded.y),
+      profile.curves[2].decode(encoded.z))
+  }
+
+  func neutralMatchingLuminance(_ encoded: SIMD3<Double>) -> SIMD3<Double> {
+    let y = xyz(encoded).y / white.y
+    // The SHA-pinned working profile has identical pure-gamma RGB curves.
+    return SIMD3(repeating: profile.curves[0].encode(y))
+  }
+
+  func lab(_ encoded: SIMD3<Double>) -> SIMD3<Double> {
+    let relative = xyz(encoded) / white
+    func f(_ t: Double) -> Double {
+      t > pow(6.0 / 29, 3) ? cbrt(t) : t / (3 * pow(6.0 / 29, 2)) + 4.0 / 29
+    }
+    let x = f(relative.x), y = f(relative.y), z = f(relative.z)
+    return SIMD3(116 * y - 16, 500 * (x - y), 200 * (y - z))
+  }
+}
+
 private struct MatrixICCProfile {
   let colorants: simd_double3x3
   let curves: [ICCToneCurve]

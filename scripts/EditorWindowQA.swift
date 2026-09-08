@@ -277,12 +277,18 @@ import SwiftUI
     try await press("\u{1b}", code: 53)
     try require(NSCursor.current === NSCursor.openHand, "Escape must restore the stationary cursor")
     print("PASS: I toggles eyedropper; cursor updates without movement, restores on Escape and stays inside canvas")
+    // Bring the synthetic patch into Final midtones so this tests a real fit.
+    model.edit { $0.timing.master = 200 }
+    try await ready()
+    let beforeNeutralPick = model.adjustments
     try await press("i", code: 34)
     try await click(windowPoint: canvasCenter)
     try await ready()
     try require(!model.neutralPicking && !model.isNeutralSampling && NSCursor.current === NSCursor.openHand,
       "Completed neutral sampling must restore the hand cursor without movement")
-    print("PASS: Picking a neutral point restores the stationary cursor")
+    try require(model.adjustments != beforeNeutralPick && model.adjustments.timing.master == 200,
+      "Final neutral picking must fit RGB Timing and preserve Master")
+    print("PASS: Final neutral picking fits RGB Timing, preserves Master and restores the stationary cursor")
     // Locate the Film Base button relative to the top of the actual canvas.
     let baseButton = CGPoint(x: host.bounds.width - 153,
       y: canvas.convert(CGPoint(x: 0, y: 0), to: nil).y - 20)
