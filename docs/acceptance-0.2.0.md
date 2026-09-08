@@ -202,3 +202,10 @@ ICC真实转换按固定profile的matrix/TRC、D50 PCS计算；源/目标曲线�
 最终 `scripts/build-app.sh` 和 `scripts/build-app.sh Printroom-0.2.0-WhitePoint` 均成功；两个包的可执行文件逐字节相同，Info.plist 构建号均为 6，分别通过严格签名校验。日志 `integrated-build.log`。常规包与白点包现在均含性能优化和已确认的 685 CV 算法；0.1.0 包保持。
 
 最终窗口验收边界：`integrated-window-qa.log` 在截图阶段被系统 `screencapture` 的 “could not create image from window” 中止；`--controls-only` 重跑同样无法截图。新增显式 `--no-screenshots` 可保留事件断言而不冒充视觉验收；此模式完整流程在首个排队控件断言中止。随后增加活动窗口前置检查，`--controls-only --no-screenshots` 明确记录 `active=false, key=false, visible=true`，无法可靠执行排队的控件事件（`integrated-controls-events.log`）。因此最终完整窗口截图/事件验收未通过，不把此前 v1 部分窗口通过或数值测试当作最终窗口通过。已查看本次前段成功的 `01-fit.png`，仅确认默认适应窗口布局和浮层边界；不作为最终调色外观验收。146 项最终自动测试覆盖的原生宿主视图、连续调度、全部阶段及图像字节一致性仍有效。
+
+
+## 2026-09-08 双指平移方向修正（构建号 7）
+
+修正主预览对水平、垂直滚动位移的额外反转，遵循系统自然滚动设置。更新既有事件方向断言；算法与项目结构不变。
+
+`scripts/test.sh --filter PreviewCanvasTests` 在可访问 Metal 的环境中 6 项通过，覆盖平移方向、视口边界、缩放、复位和原始坐标取样。首次沙盒执行 5 项通过，取样测试因 Metal 资源初始化失败；非沙盒重跑全部通过。`scripts/build-app.sh` 完成 release 构建和签名，沙盒内资源校验因 Metal 不可用失败；随后应用 `--verify-resources` 非沙盒校验通过，`codesign --verify --deep --strict` 通过。应用位于 `output/Printroom-0.2.0.app`，实际双指手感待用户试用。

@@ -231,8 +231,10 @@ struct PreviewCanvas: NSViewRepresentable {
     if event.modifierFlags.contains(.command) || event.modifierFlags.contains(.option) {
       zoom = max(0.25, min(16, zoom * exp(-event.scrollingDeltaY * 0.01)))
     } else {
-      pan.x -= event.scrollingDeltaX
-      pan.y -= event.scrollingDeltaY
+      // AppKit already applies the user's natural scrolling preference.
+      // Move the image with that delta in this flipped (y-down) canvas.
+      pan.x += event.scrollingDeltaX
+      pan.y += event.scrollingDeltaY
     }
     scheduleDetail()
     needsDisplay = true

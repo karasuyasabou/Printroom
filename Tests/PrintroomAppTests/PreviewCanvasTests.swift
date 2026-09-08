@@ -182,7 +182,7 @@ struct PreviewCanvasTests {
     canvas.magnify(with: event)
     #expect(canvas.zoom == 1.5)
     canvas.scrollWheel(with: event)
-    #expect(canvas.pan == CGPoint(x: -10, y: 30))
+    #expect(canvas.pan == CGPoint(x: 10, y: -30))
     event.testModifiers = .option
     canvas.scrollWheel(with: event)
     #expect(canvas.zoom > 1.5)
