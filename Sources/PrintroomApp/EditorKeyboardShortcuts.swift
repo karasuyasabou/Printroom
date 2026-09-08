@@ -92,6 +92,14 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
       return true
     }
     model.stopTimingKey()
+    if modifiers == [.command], key == "c" {
+      if !event.isARepeat { model.copyParameters() }
+      return true
+    }
+    if modifiers == [.command], key == "v" {
+      if !event.isARepeat && model.canApply { model.applyParameters() }
+      return true
+    }
     if modifiers == [.command], key == "a" {
       model.selectAll()
       return true

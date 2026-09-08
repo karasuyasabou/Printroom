@@ -58,6 +58,21 @@ struct EditorKeyboardRoutingTests {
     #expect(window.firstResponder === thumbnails)
   }
 
+  @Test func commandCopyCapturesSnapshotWithoutAdjustingBlue() throws {
+    let (model, window, router, _) = fixture()
+    defer { router.stopMonitoring(); window.close() }
+    model.edit { $0.timing.master = 12 }
+    #expect(router.handle(try key(8, "c", window: window, modifiers: [.command]), from: window))
+    let copied = try #require(model.snapshot)
+    #expect(model.adjustments.timing.blue == 0)
+    model.edit { $0.timing.master = 77 }
+    #expect(router.handle(try key(8, "c", window: window, modifiers: [.command], repeatKey: true), from: window))
+    #expect(model.snapshot?.adjustments == copied.adjustments)
+    model.snapshot = nil
+    #expect(router.handle(try key(9, "v", window: window, modifiers: [.command]), from: window))
+    #expect(model.adjustments.timing.master == 77)
+  }
+
   @Test func optionDeadKeyAndShiftUseOneHundredthAndReleaseByKeyCode() async throws {
     let (model, window, router, _) = fixture()
     defer { router.stopMonitoring(); window.close() }
@@ -82,6 +97,9 @@ struct EditorKeyboardRoutingTests {
     #expect(!router.handle(try key(13, "w", window: window), from: window))
     #expect(!router.handle(try key(14, "´", window: window, modifiers: [.option]), from: window))
     #expect(!router.handle(try key(0, "a", window: window, modifiers: [.command]), from: window))
+    #expect(!router.handle(try key(8, "c", window: window, modifiers: [.command]), from: window))
+    #expect(!router.handle(try key(9, "v", window: window, modifiers: [.command]), from: window))
+    #expect(model.snapshot == nil)
     #expect(model.adjustments == FrameAdjustments())
     #expect(model.selection.selectedFrameIDs.count == 1)
     window.makeFirstResponder(thumbnails)

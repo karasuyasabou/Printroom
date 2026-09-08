@@ -70,3 +70,10 @@
 初次实际窗口检查暴露同步 hitTest 引起的 SwiftUI 布局循环日志，已改为界面更新结束后刷新；最终窗口日志无此循环。最终截图 `scratch/editor-ui-qa/04-keyboard-regression.png` 和指针图 `scratch/editor-ui-qa/05-neutral-cursor.png` 已查看。受限运行无法访问 Metal/文件协调服务的失败不计为通过；上述图像与窗口结果来自本机权限运行。
 
 保留原构建 `output/Printroom-0.3.2-build1.app` 与所有既有旧版。本次仅修改工具指针、快捷键与帮助文字；未重跑全尺寸导出/CPU-Metal 全套数值或性能量测，跨设备及用户手感仍待试用。
+
+## ⌘C / ⌘V 快捷键补记（2026-09-08）
+
+- 窗口内复制/应用参数改用 ⌘C/⌘V，长按不重复，文字输入保留原生复制/粘贴；菜单及按钮帮助同步提示。
+- 为避开并行性能/吸管修改，以 HEAD 加本轮快捷键代码隔离构建 `output/Printroom-0.3.2-Shortcuts.app`（构建号 3），保留原应用。
+- 隔离副本运行 `scripts/test.sh --filter 'EditorKeyboardRoutingTests|EditorIntegrationTests'`：15 项通过，覆盖快捷键快照、重复按键抑制、文本焦点、复制/批量应用/撤销/重开。初次沙箱运行受 Metal 不可用限制，最终沙箱外验证通过。
+- release 构建、`--verify-resources`、`codesign --verify --deep --strict` 通过。日志位于 `scratch/parameter-shortcuts-*.log`。本轮未执行实际键鼠事件验收。

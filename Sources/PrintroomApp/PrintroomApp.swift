@@ -72,12 +72,9 @@ import SwiftUI
           Button("原始分辨率 1:1") { model.inspectNativeResolution() }.keyboardShortcut("1").disabled(!model.hasImage || model.isCropping)
         }
         CommandMenu("调色") {
-          Button("复制参数") { model.copyParameters() }.keyboardShortcut(
-            "c", modifiers: [.command, .shift]
-          ).disabled(model.activeFrame == nil)
-          Button("应用到所选照片") { model.applyParameters() }.keyboardShortcut(
-            "v", modifiers: [.command, .shift]
-          ).disabled(!model.canApply)
+          // Routed by ShortcutView so native text copy/paste keeps priority.
+          Button("复制参数（⌘C）") { model.copyParameters() }.disabled(model.activeFrame == nil)
+          Button("应用到所选照片（⌘V）") { model.applyParameters() }.disabled(!model.canApply)
         }
       }
   }

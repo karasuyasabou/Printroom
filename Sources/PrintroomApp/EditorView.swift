@@ -134,8 +134,10 @@ struct EditorView: View {
       } label: {
         Label("复制参数", systemImage: "doc.on.doc")
       }.disabled(model.activeFrame == nil)
+        .help("复制当前照片参数 · ⌘C")
       Button("应用到 \(model.selection.selectedFrameIDs.count) 张") { model.applyParameters() }
         .disabled(!model.canApply)
+        .help("应用参数到所选照片 · ⌘V")
       Menu {
         Button("导出当前照片…") { model.exportPanel() }.disabled(!model.hasImage)
         Button("导出选中 \(model.selection.selectedFrameIDs.count) 张…") { model.batchExportPanel(allFrames: false) }
