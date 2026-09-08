@@ -185,15 +185,12 @@ struct EditorView: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 19) {
         VStack(alignment: .leading, spacing: 10) {
-          heading("01", "FILM BASE · 整卷")
+          heading("01", "FILM BASE 对齐 · 整卷")
           Button {
             model.sampling.toggle()
           } label: {
             Label(model.sampling ? "取消框选" : "框选片基", systemImage: "viewfinder")
           }.frame(maxWidth: .infinity).disabled(!model.hasImage)
-          Picker("密度矩阵", selection: Binding(get: { model.matrix }, set: { model.setMatrix($0) })) {
-            ForEach(PrintDensityMatrix.allCases, id: \.self) { Text($0.label).tag($0) }
-          }
           if model.project?.calibrationNeedsReview == true {
             Label("片基来源变化 · 请重新采样", systemImage: "exclamationmark.triangle")
               .foregroundStyle(accent).font(.caption)
@@ -201,7 +198,14 @@ struct EditorView: View {
         }
         Divider()
         VStack(alignment: .leading, spacing: 10) {
-          heading("02", "COLOR TIMING")
+          heading("02", "密度矩阵 · 整卷")
+          Picker("密度矩阵", selection: Binding(get: { model.matrix }, set: { model.setMatrix($0) })) {
+            ForEach(PrintDensityMatrix.allCases, id: \.self) { Text($0.label).tag($0) }
+          }.labelsHidden()
+        }
+        Divider()
+        VStack(alignment: .leading, spacing: 10) {
+          heading("03", "COLOR TIMING")
           timingRow("Master", \.master, color: .white)
           timingRow("Red", \.red, color: ChannelColors.red)
           timingRow("Green", \.green, color: ChannelColors.green)
@@ -209,7 +213,7 @@ struct EditorView: View {
         }.disabled(model.activeFrame == nil)
         Divider()
         VStack(alignment: .leading, spacing: 10) {
-          heading("03", "RGB CONTRAST")
+          heading("04", "RGB CONTRAST")
           contrastRow("Master", \.master, color: .white)
           contrastRow("Red", \.red, color: ChannelColors.red)
           contrastRow("Green", \.green, color: ChannelColors.green)

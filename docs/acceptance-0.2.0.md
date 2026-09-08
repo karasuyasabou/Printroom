@@ -209,3 +209,11 @@ ICC真实转换按固定profile的matrix/TRC、D50 PCS计算；源/目标曲线�
 修正主预览对水平、垂直滚动位移的额外反转，遵循系统自然滚动设置。更新既有事件方向断言；算法与项目结构不变。
 
 `scripts/test.sh --filter PreviewCanvasTests` 在可访问 Metal 的环境中 6 项通过，覆盖平移方向、视口边界、缩放、复位和原始坐标取样。首次沙盒执行 5 项通过，取样测试因 Metal 资源初始化失败；非沙盒重跑全部通过。`scripts/build-app.sh` 完成 release 构建和签名，沙盒内资源校验因 Metal 不可用失败；随后应用 `--verify-resources` 非沙盒校验通过，`codesign --verify --deep --strict` 通过。应用位于 `output/Printroom-0.2.0.app`，实际双指手感待用户试用。
+
+## 2026-09-08 调色面板顺序（构建号 8）
+
+将 Film Base 对齐与密度矩阵分为两个独立编号分组，后续调色项顺延，顺序以 interaction.md 为准。模型绑定及算法/schema 保持不变。
+
+基于 `18baaa6`，本次修改随本条记录提交。`scripts/build-app.sh` 的 release 编译、打包和签名成功；末尾资源校验在沙盒中因无法创建 Metal 上下文失败（日志 `scratch/panel-order-build.log`）。随后对同一应用执行 `--verify-resources`，在可访问 Metal 的环境中通过四 ICC、LUT、Apple M4 Metal 渲染与 UInt16 预览校验；`codesign --verify --deep --strict output/Printroom-0.2.0.app` 通过，Info.plist 构建号确认为 8，`git diff --check` 通过。
+
+交付 `output/Printroom-0.2.0.app`。本次仅调整面板组织，未新增或重跑数值/导出测试，未执行窗口截图及人工布局验收；原始资产未写入。
