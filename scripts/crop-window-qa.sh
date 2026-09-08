@@ -9,7 +9,9 @@ if [[ "${1:-}" == "--release" ]]; then
   configuration=release
   optimization=(-O)
 fi
-swift build -c "$configuration" --disable-sandbox
+if [[ " $* " != *" --skip-build "* ]]; then
+  swift build -c "$configuration" --disable-sandbox
+fi
 mkdir -p scratch/crop-qa/roll
 python3 - <<'PY'
 from pathlib import Path
@@ -26,7 +28,7 @@ app_sources=()
 for source_file in Sources/PrintroomApp/*.swift; do
   [[ "$source_file" == "Sources/PrintroomApp/PrintroomApp.swift" ]] || app_sources+=("$source_file")
 done
-xcrun swiftc -parse-as-library -module-name CropWindowQA "${optimization[@]}" -I ".build/$configuration/Modules" \
+xcrun swiftc -parse-as-library -g -module-name CropWindowQA "${optimization[@]}" -I ".build/$configuration/Modules" \
   "${app_sources[@]}" scripts/CropWindowQA.swift \
   .build/"$configuration"/PrintroomCore.build/*.swift.o -o scratch/crop-qa/window-qa
 cp -R .build/"$configuration"/Printroom_PrintroomCore.bundle scratch/crop-qa/

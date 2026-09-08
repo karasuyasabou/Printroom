@@ -1,6 +1,6 @@
 # 架构与项目数据
 
-状态：0.2.0；使用 Swift Package 实现核心与 SwiftUI 应用；构建脚本生成原生 `.app`，没有 `.xcodeproj`。公式见 [pipeline.md](pipeline.md)，交互见 [interaction.md](interaction.md)。以下为设计契约，文末列出本版实际映射与边界。
+状态：0.3.1；使用 Swift Package 实现核心与 SwiftUI 应用；构建脚本生成原生 `.app`，没有 `.xcodeproj`。公式见 [pipeline.md](pipeline.md)，交互见 [interaction.md](interaction.md)。以下为设计契约；本轮验证状态见 [acceptance-0.3.1.md](acceptance-0.3.1.md)，历史记录不替代本轮验证。
 
 ## 模块边界
 
@@ -36,7 +36,7 @@ Roll/
 
 ## 持久模型契约
 
-`schemaVersion=2`，`algorithmVersion="printroom-density-v2"`；schema 1 显式迁移，见文末。项目至少含：
+`schemaVersion=3`，`algorithmVersion="printroom-density-v2"`，当前裁剪 `geometryVersion=2`；schema 1/2 与旧裁剪几何显式迁移，见文末。项目至少含：
 
 | 字段组 | 数据与约束 |
 | --- | --- |
@@ -44,7 +44,7 @@ Roll/
 | assets | LUT 与工作 ICC 的相对引用、SHA-256；矩阵标识由算法注册表解释 |
 | inputInterpretation | primaries=P3-D65、transfer=linear、policy=assignPreserveSamples |
 | calibration | 状态、来源 frameID、整数选区/坐标空间/尺寸、baseRGB、gainRGB、filmBaseOffsetCV、printDensityMatrix |
-| frames | frameID→FrameRecord 映射，记录相对路径、源文件指纹、Timing、Contrast、独立 orientation；不使用数组下标作为 ID |
+| frames | frameID→FrameRecord 映射，记录相对路径、源文件指纹、Timing、Contrast、独立 orientation 和 crop；不使用数组下标作为 ID |
 | ordering | frameID 顺序列表和排序模式；新文件插入自然位置，不改变已存在 ID |
 | exportSettings | profile 身份、16-bit TIFF、ICC 开关、抖动、命名规则；本地目录授权单独管理 |
 | viewState | 可选 lastActiveFrameID；不保存多选、撤销历史或复制快照 |
@@ -97,7 +97,7 @@ JSON 数值必须有限；整数 Timing 不接受小数。记录 `schemaVersion`
 - 缺失条目保留设置、原名重现可恢复；未实现改名后的手动重连界面。项目文件之外的独立恢复副本不改变原始 TIFF。
 - 本版是本地 ad-hoc 签名应用，没有 App Sandbox/商店签名配置。macOS 14 部署目标未进行旧系统实机验收。
 
-## 0.2.0 模型与迁移（当前契约）
+## 0.2.0 模型与迁移（历史契约）
 
 本节更新上文 0.1.0 实现边界。`schemaVersion=2`；算法版本继续 `printroom-density-v1`。`FrameRecord.orientation` 是独立于 `FrameAdjustments` 的八状态 D4 枚举；`ProjectExportSettings` 增加 profile 和 compression，同时持久化 profileSHA256。Timing/Contrast 参数快照格式不变。
 
@@ -129,13 +129,23 @@ JSON 数值必须有限；整数 Timing 不接受小数。记录 `schemaVersion`
 
 ## 白点 pivot 算法迁移
 
-当前算法 v2 采用 685 CV（见 pipeline.md §13），schema 仍为 2。v1 项目读取后升级算法身份，不补偿原调色参数；用户已明确接受既有非单位反差外观变化。保存先检查外部修改时间和项目 ID，再以独占新文件保存 v1 原 JSON 字节备份，成功后才原子替换正式项目。备份失败即停止，v2 后续保存不重复备份。缓存以算法身份失效，参数快照要求 v2/685 CV。
+当前算法 v2 采用 685 CV（见 pipeline.md §13）；白点更新时 schema 为 2，当前裁剪结构为 3。v1 项目读取后升级算法身份，不补偿原调色参数；用户已明确接受既有非单位反差外观变化。保存先检查外部修改时间和项目 ID，再以独占新文件保存 v1 原 JSON 字节备份，成功后才原子替换正式项目。备份失败即停止，v2 后续保存不重复白点迁移备份。缓存以算法身份失效，参数快照要求 v2/685 CV。
 
 
-## 0.3.0 项目、裁剪与资源
+## 0.3.1 项目、裁剪与资源
 
-本节更新先前 schema 2 契约：当前 `schemaVersion=3`，`FrameRecord.crop` 为必需键，值可为 null；非空值采用 pipeline.md §14 的版本化几何。schema 1/2 明确迁移为无裁剪，保留原 ID、调色、方向与输出设置，schema 3 缺失 crop 或未知几何版本属于损坏/不支持，禁止用默认值吞掉错误。旧项目首次覆盖前保留原 JSON 备份，备份失败则停止保存；旧应用拒绝 schema 3。0.3.0 使用独立包名和 bundle identifier，保留 0.2.0 应用。
+当前 `schemaVersion=3`，`FrameRecord.crop` 为必需键，值可为 null；非空值采用 [pipeline.md §14](pipeline.md#14-031-裁剪与精细旋转) 的版本化几何。新编辑保存 `geometryVersion=2`，坐标位于 TIFF 方向校正后、用户 D4 之前。`FrameRecord.orientation` 与原片裁剪分别保存，改变方向不改版本 2 裁剪值。
 
-EditorModel 分离裁剪草稿和项目，草稿提交/多选同步统一事务、整组撤销和保存。主预览上下文增加裁剪与源尺寸，几何切换取消旧渲染并清除不匹配展示，避免旧图配新尺寸。主预览 actor 只保留当前几何的有界输入，调色时可复用几何输入及 D1 缓存；未裁剪路径保留既有行为。缩略图缓存键增加裁剪，源尺寸由真实 TIFF metadata 提供。恢复、同步和撤销按受影响帧失效。
+schema 1/2 明确迁移为无裁剪，保留原 ID、调色、方向与输出设置；schema 3 同时支持几何版本 1/2，缺失 crop 或未知几何版本仍报损坏/不支持。打开 0.3.0 几何版本 1 项目时，以各帧 TIFF metadata 的原始尺寸和既有方向转换为版本 2，保持原画面。读取本身不改写旁存 JSON；缺失文件或不可读 metadata 保留版本 1，待源文件恢复、重连后取得尺寸再转换，不借其他帧尺寸猜测。
+
+保存先验证项目、修改时间与卷 ID，再备份被覆盖的原 JSON 字节：旧算法沿用 `.printroom-density-v1-UUID.json`，旧 schema 使用 `.printroom-schemaN-UUID.json`，schema 3 的旧几何首次被转换或清除前使用 `.printroom-geometry-v1-UUID.json`。备份以独占新文件写入，失败则停止正式项目替换。已转换为版本 2 后的普通保存不重复该备份；若此前保留的缺失帧后来转换，其旧几何被覆盖前同样保留当时的 JSON。设置副本恢复也按源帧自身方向和可用尺寸迁移几何，恢复裁剪、方向与输出设置，并保留整组 Undo/Redo。
+
+0.1.0/0.2.0 拒绝 schema 3，0.3.0 拒绝几何版本 2。0.3.1 交付独立 `Printroom-0.3.1.app` 和 bundle identifier，保留已有应用及偏好设置。
+
+EditorModel 分离原片坐标草稿与项目；显示控件和 Canvas 使用由当前 D4 转换的临时显示草稿，编辑显示值后转换回原片坐标。草稿提交/多选同步统一事务、整组撤销和保存。同步先捕获当前原片裁剪，再按目标原始尺寸拟合，全组校验成功后一次写入；同尺寸目标裁剪值相同，保留各自方向和调色。
+
+SelectionState 的 active 与 anchor 由普通点击建立；⌘/Shift/⌘Shift 修改目标集合时保持二者，active 不可被 ⌘ 移除。仅目标集合变化不重新载入源、不清除草稿、不更换预览或视口；普通点击换 active 才取消未提交草稿并载入新源。具体边界由 interaction.md 定义。
+
+主预览上下文包括裁剪及其几何版本、源尺寸与方向，几何切换取消旧渲染并清除不匹配展示，避免旧图配新尺寸。主预览 actor 只保留当前几何的有界输入，调色时可复用几何输入及 D1 缓存；未裁剪路径保留既有行为。缩略图缓存键包含完整裁剪，几何迁移后自然失效，源尺寸由真实 TIFF metadata 提供。恢复、同步和撤销按受影响帧失效。
 
 ExportFrameSnapshot 固定裁剪值；导出期间的新编辑不改变已提交任务。CropGeometry 以一份原始 UInt16 图生成有界行块，不常驻全尺寸 Float32 旋转结果。1:1 通过 sourceRegion 读取必要原始包围区域并重采样，保留原来的区域预算和取消检查。缺失帧重新定位保留裁剪，含裁剪的占位条目不被合并覆盖。

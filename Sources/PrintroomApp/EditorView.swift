@@ -159,14 +159,6 @@ struct EditorView: View {
         Label("裁剪", systemImage: "crop")
       }.controlSize(.small).disabled(!model.hasImage || model.isCropping)
         .help("裁剪与精细角度 · R")
-      Menu {
-        Button("同步当前裁剪到所选 \(model.selection.selectedFrameIDs.count) 张") {
-          model.syncCurrentCropToSelection()
-        }.disabled(!model.canSyncCrop)
-      } label: {
-        Text("同步")
-      }.menuStyle(.borderlessButton).fixedSize().disabled(!model.hasImage || model.isCropping)
-        .help("同步裁剪").accessibilityLabel("同步裁剪菜单")
       Menu("方向") {
         Button("顺时针 90°") { model.changeOrientation(.rotateClockwise) }
         Button("逆时针 90°") { model.changeOrientation(.rotateCounterclockwise) }
@@ -307,7 +299,7 @@ struct EditorView: View {
               } else {
                 Button {
                   filmstripFocused = true
-                  let flags = NSEvent.modifierFlags
+                  let flags = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
                   model.select(frame.id, command: flags.contains(.command), shift: flags.contains(.shift))
                 } label: {
                   thumbnail(frame, index: index).contentShape(Rectangle())

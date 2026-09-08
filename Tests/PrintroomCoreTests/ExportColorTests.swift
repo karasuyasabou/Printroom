@@ -294,6 +294,49 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
     XCTAssertEqual(try Data(contentsOf: source), original)
   }
 
+  func testSharedSourceCropBatchExportKeepsSameOriginalRegionForEveryDirection() async throws {
+    let folder = try temporary()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    for orientation in FrameOrientation.allCases {
+      try fixture(folder.appendingPathComponent("source-\(orientation.rawValue).tiff"), width: 120, height: 80)
+    }
+    var project = try ProjectStore.open(folder: folder)
+    let crop = try FrameCrop(aspect: .sevenSix, centerX: 0.27, centerY: 0.61,
+                             width: 0.35, angleDegrees: 6.73)
+      .constrained(sourceWidth: 120, sourceHeight: 80)
+    XCTAssertEqual(crop.geometryVersion, 2)
+    for index in project.frames.indices {
+      project.frames[index].crop = crop
+      project.frames[index].orientation = FrameOrientation.allCases[index]
+    }
+    project.exportSettings = .init(profile: .sRGB, compression: .deflate)
+    let request = try ExportRequest(project: project, targetIDs: Set(project.frames.map(\.id)),
+                                    destinationDirectory: folder)
+    XCTAssertTrue(request.frames.allSatisfy { $0.crop == crop })
+    let summary = try await ExportEngine(useCPUReference: true).run(request, lut: identityLUT(), p3Profile: p3())
+    XCTAssertEqual(summary.completedCount, 8)
+    let originalCrop = try TIFFCodec.read(url: XCTUnwrap(summary.results[0].destination))
+    for (index, result) in summary.results.enumerated() {
+      let direction = FrameOrientation.allCases[index]
+      let actual = try TIFFCodec.read(url: XCTUnwrap(result.destination))
+      let size = direction.outputSize(sourceWidth: originalCrop.width, sourceHeight: originalCrop.height)
+      XCTAssertEqual(actual.width, size.width)
+      XCTAssertEqual(actual.height, size.height)
+      for y in 0..<actual.height {
+        for x in 0..<actual.width {
+          let from = direction.inversePixel(x: x, y: y,
+            sourceWidth: originalCrop.width, sourceHeight: originalCrop.height)
+          for channel in 0..<3 {
+            let expected = originalCrop.samples[(from.y * originalCrop.width + from.x) * 3 + channel]
+            let value = actual.samples[(y * actual.width + x) * 3 + channel]
+            XCTAssertLessThanOrEqual(abs(Int(value) - Int(expected)), 1,
+                                    "\(direction) pixel \(x),\(y) channel \(channel)")
+          }
+        }
+      }
+    }
+  }
+
   func testFailureContinuesConflictSuffixAndProtectsAllOriginals() async throws {
     let folder = try temporary()
     defer { try? FileManager.default.removeItem(at: folder) }

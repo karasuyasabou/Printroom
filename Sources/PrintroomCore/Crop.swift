@@ -15,17 +15,18 @@ public enum CropAspectRatio: String, CaseIterable, Codable, Sendable {
   }
 }
 
-/// Non-destructive geometry, independent of the density algorithm. Coordinates are
-/// normalized to the full image AFTER the user's D4 orientation. A positive angle
-/// rotates the photograph clockwise around its center in top-left, y-down space.
+/// Non-destructive geometry, independent of the density algorithm. Version 2 uses
+/// the TIFF-normalized original image BEFORE user D4 orientation, so one crop can
+/// be shared by frames with different directions. Positive angles rotate clockwise
+/// in this source basis. Version 1 is retained for old projects and displayed drafts.
 public struct FrameCrop: Codable, Equatable, Hashable, Sendable {
-  public static let currentGeometryVersion = 1
+  public static let currentGeometryVersion = 2
   public var geometryVersion: Int
   public var aspect: CropAspectRatio
   public var portrait: Bool
   public var centerX: Double
   public var centerY: Double
-  /// Width divided by the oriented full image width; height follows the ratio.
+  /// Width divided by full source width (v2), or oriented full width (legacy v1).
   public var width: Double
   public var angleDegrees: Double
   public var ratio: Double { portrait ? 1 / aspect.ratio : aspect.ratio }
@@ -45,7 +46,7 @@ public struct FrameCrop: Codable, Equatable, Hashable, Sendable {
   }
 
   public func validate() throws {
-    guard geometryVersion == Self.currentGeometryVersion,
+    guard [1, Self.currentGeometryVersion].contains(geometryVersion),
       centerX.isFinite, centerY.isFinite, width.isFinite, angleDegrees.isFinite,
       (-1...2).contains(centerX), (-1...2).contains(centerY), width > 0, width <= 2,
       (-10...10).contains(angleDegrees)
@@ -56,14 +57,49 @@ public struct FrameCrop: Codable, Equatable, Hashable, Sendable {
     sourceWidth: Int, sourceHeight: Int, orientation: FrameOrientation = .identity
   ) throws -> FrameCrop {
     try CropGeometry(crop: self, sourceWidth: sourceWidth, sourceHeight: sourceHeight,
-                     orientation: orientation).crop!
+                     orientation: geometryVersion == 2 ? .identity : orientation).crop!
   }
 
-  /// Conjugate the fine rotation by the direction change. Reflections reverse its
-  /// sign, quarter turns exchange the crop dimensions, and source content stays put.
+  /// Resolve an old displayed crop using its own frame direction before copying or
+  /// persisting it. A version 2 crop already describes the same original region for
+  /// every user direction; fitting it never depends on that direction.
+  public func sourceCoordinates(
+    sourceWidth: Int, sourceHeight: Int, orientation: FrameOrientation = .identity
+  ) throws -> FrameCrop {
+    try validate()
+    if geometryVersion == 2 {
+      return try constrained(sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+    }
+    var source = try transformed(from: orientation, to: .identity,
+                                 sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+    source.geometryVersion = 2
+    return source
+  }
+
+  /// UI-only version 1 draft. Conjugation changes angle sign for reflections and
+  /// exchanges ratio direction for quarter turns, while preserving the source crop.
+  /// Convert back with sourceCoordinates before persisting or synchronizing it.
+  public func displayCoordinates(
+    sourceWidth: Int, sourceHeight: Int, orientation: FrameOrientation = .identity
+  ) throws -> FrameCrop {
+    try validate()
+    if geometryVersion == 1 {
+      return try constrained(sourceWidth: sourceWidth, sourceHeight: sourceHeight,
+                              orientation: orientation)
+    }
+    var display = try constrained(sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+    display.geometryVersion = 1
+    return try display.transformed(from: .identity, to: orientation,
+                                    sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+  }
+
+  /// Source-coordinate crops do not change when the frame direction changes.
+  /// Legacy version 1 crops retain their compatibility transform until migrated.
   public func transformed(
     from old: FrameOrientation, to new: FrameOrientation, sourceWidth: Int, sourceHeight: Int
   ) throws -> FrameCrop {
+    try validate()
+    if geometryVersion == 2 { return self }
     let geometry = try CropGeometry(crop: self, sourceWidth: sourceWidth,
                                     sourceHeight: sourceHeight, orientation: old)
     let sourceCenter = old.inverseEdge(
@@ -87,7 +123,10 @@ public struct FrameCrop: Codable, Equatable, Hashable, Sendable {
 /// One geometry implementation is shared by UI, preview, original ROI and export.
 /// Mapping uses pixel-edge coordinates; the center of pixel (x,y) is (x+.5,y+.5).
 public struct CropGeometry: Sendable {
+  /// Fitted crop in the same version/basis as the caller supplied.
   public let crop: FrameCrop?
+  /// Direction-adjusted version 1 draft used by the rectangle and canvas angle.
+  public let displayCrop: FrameCrop?
   public let sourceWidth: Int
   public let sourceHeight: Int
   public let orientation: FrameOrientation
@@ -113,8 +152,25 @@ public struct CropGeometry: Sendable {
     orientedWidth = size.width
     orientedHeight = size.height
     let w = Double(size.width), h = Double(size.height)
-    guard var fitted = crop else {
+    var requested = crop
+    var fittedSource: FrameCrop?
+    if let crop, crop.geometryVersion == 2 {
+      // Fit in the original image basis. Re-expressing that geometry
+      // in the display basis makes the existing pixel/ROI paths equivalent to
+      // original crop + fine rotation, followed by the frame's lossless D4 edit.
+      var legacySource = crop
+      legacySource.geometryVersion = 1
+      var canonical = try legacySource.constrained(sourceWidth: sourceWidth,
+                                                    sourceHeight: sourceHeight)
+      legacySource = canonical
+      canonical.geometryVersion = 2
+      fittedSource = canonical
+      requested = try legacySource.transformed(from: .identity, to: orientation,
+        sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+    }
+    guard var fitted = requested else {
       self.crop = nil
+      displayCrop = nil
       outputWidth = size.width
       outputHeight = size.height
       rect = CGRect(x: 0, y: 0, width: w, height: h)
@@ -158,7 +214,8 @@ public struct CropGeometry: Sendable {
     fitted.centerX = (x + cw / 2) / w
     fitted.centerY = (y + ch / 2) / h
     fitted.width = cw / w
-    self.crop = fitted
+    self.crop = fittedSource ?? fitted
+    displayCrop = fitted
   }
 
   public func sourcePoint(outputX: Double, outputY: Double) -> SIMD2<Double> {

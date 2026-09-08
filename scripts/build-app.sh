@@ -4,8 +4,8 @@ cd "$(dirname "$0")/.."
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/ModuleCache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/ModuleCache"
 swift build -c release --disable-sandbox
-app="$PWD/output/${1:-Printroom-0.3.0}.app"
-if [[ "$app" == "$PWD/output/Printroom-0.1.0.app" || "$app" == "$PWD/output/Printroom-0.2.0.app" ]]; then
+app="$PWD/output/${1:-Printroom-0.3.1}.app"
+if [[ "$app" == "$PWD/output/Printroom-0.1.0.app" || "$app" == "$PWD/output/Printroom-0.2.0.app" || "$app" == "$PWD/output/Printroom-0.3.0.app" ]]; then
   echo "Refusing to replace a preserved older app; choose a separate bundle name." >&2
   exit 1
 fi
@@ -19,11 +19,11 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>Printroom</string>
-<key>CFBundleIdentifier</key><string>studio.printroom.local.v3</string>
+<key>CFBundleIdentifier</key><string>studio.printroom.local.v3.1</string>
 <key>CFBundleName</key><string>Printroom</string>
-<key>CFBundleDisplayName</key><string>Printroom 0.3.0</string>
+<key>CFBundleDisplayName</key><string>Printroom 0.3.1</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.3.0</string>
+<key>CFBundleShortVersionString</key><string>0.3.1</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSHighResolutionCapable</key><true/>

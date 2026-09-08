@@ -431,15 +431,15 @@ final class RollProjectTests: XCTestCase {
     XCTAssertEqual(state.anchorID, ids[1])
     state.click(ids[4], ordered: ids, shift: true)
     XCTAssertEqual(state.selectedFrameIDs, Set(ids[1...4]))
-    XCTAssertEqual(state.activeFrameID, ids[4])
+    XCTAssertEqual(state.activeFrameID, ids[1])
     XCTAssertEqual(state.anchorID, ids[1])
     state.click(ids[0], ordered: ids, command: true, shift: true)
     XCTAssertEqual(state.selectedFrameIDs, Set(ids[0...4]))
     XCTAssertEqual(state.anchorID, ids[1])
     state.click(ids[5], ordered: ids, command: true)
     XCTAssertEqual(state.selectedFrameIDs, Set(ids))
-    XCTAssertEqual(state.activeFrameID, ids[5])
-    XCTAssertEqual(state.anchorID, ids[5])
+    XCTAssertEqual(state.activeFrameID, ids[1])
+    XCTAssertEqual(state.anchorID, ids[1])
     state.click(ids[2], ordered: ids)
     state.selectAll(ids)
     XCTAssertEqual(state.selectedFrameIDs, Set(ids))
@@ -447,7 +447,7 @@ final class RollProjectTests: XCTestCase {
     XCTAssertEqual(state.anchorID, ids[2])
   }
 
-  func testCommandRemovalChoosesNearestWithEarlierTieAndRepairsAnchor() {
+  func testCommandTogglesTargetsAndKeepsActiveSelected() {
     let ids = (0..<5).map { _ in UUID() }
     var state = SelectionState()
     state.click(ids[1], ordered: ids)
@@ -458,29 +458,32 @@ final class RollProjectTests: XCTestCase {
     XCTAssertEqual(state.anchorID, ids[1])
     XCTAssertEqual(state.selectedFrameIDs, [ids[1], ids[3]])
     state.click(ids[1], ordered: ids, command: true)
-    XCTAssertEqual(state.activeFrameID, ids[3])
+    XCTAssertEqual(state.activeFrameID, ids[1])
+    XCTAssertEqual(state.selectedFrameIDs, [ids[1], ids[3]])
     state.click(ids[3], ordered: ids, command: true)
-    XCTAssertTrue(state.selectedFrameIDs.isEmpty)
-    XCTAssertNil(state.activeFrameID)
-    XCTAssertNil(state.anchorID)
+    XCTAssertEqual(state.selectedFrameIDs, [ids[1]])
+    XCTAssertEqual(state.activeFrameID, ids[1])
+    XCTAssertEqual(state.anchorID, ids[1])
+    state = SelectionState()
     state.click(ids[4], ordered: ids, command: true, shift: true)
     XCTAssertEqual(state.selectedFrameIDs, [ids[4]])
     XCTAssertEqual(state.activeFrameID, ids[4])
     XCTAssertEqual(state.anchorID, ids[4])
   }
 
-  func testRemovingNonactiveAnchorAndReorderingSelectionUsesStableIDs() {
+  func testRangeAnchorStaysOnActiveAndReorderingUsesStableIDs() {
     let ids = (0..<5).map { _ in UUID() }
     var state = SelectionState()
     state.click(ids[1], ordered: ids)
     state.click(ids[3], ordered: ids, shift: true)
     state.click(ids[1], ordered: ids, command: true)
-    XCTAssertEqual(state.activeFrameID, ids[3])
-    XCTAssertEqual(state.anchorID, ids[3])
+    XCTAssertEqual(state.activeFrameID, ids[1])
+    XCTAssertEqual(state.anchorID, ids[1])
     let reordered = [ids[0], ids[3], ids[4], ids[1], ids[2]]
     state.click(ids[2], ordered: reordered, shift: true)
-    XCTAssertEqual(state.selectedFrameIDs, Set(reordered[1...4]))
-    XCTAssertEqual(state.anchorID, ids[3])
+    XCTAssertEqual(state.selectedFrameIDs, Set(reordered[3...4]))
+    XCTAssertEqual(state.activeFrameID, ids[1])
+    XCTAssertEqual(state.anchorID, ids[1])
   }
 
   func testSelectionReconcilesUnavailableFramesAndEmptyOrder() {

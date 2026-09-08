@@ -120,6 +120,9 @@ import UniformTypeIdentifiers
     return try? CropGeometry(crop: cropDraft, sourceWidth: sourceWidth,
       sourceHeight: sourceHeight, orientation: orientation)
   }
+  /// Only controls and pointer gestures use the direction-adjusted copy. The
+  /// actual draft, project value and batch snapshot stay in original coordinates.
+  var displayedCropDraft: FrameCrop? { cropDraftGeometry?.displayCrop }
   var canSyncCrop: Bool { activeFrame != nil && selection.selectedFrameIDs.count > 1 }
   var exportSettings: ProjectExportSettings { project?.exportSettings ?? .init() }
   var matrix: PrintDensityMatrix { project?.calibration.matrix ?? .identity }
@@ -353,9 +356,11 @@ import UniformTypeIdentifiers
     let old = next
     next.frames[index].orientation = next.frames[index].orientation.applying(operation)
     do {
-      next.frames[index].crop = try next.frames[index].crop?.transformed(
-        from: old.frames[index].orientation, to: next.frames[index].orientation,
-        sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+      if next.frames[index].crop?.geometryVersion == 1 {
+        next.frames[index].crop = try next.frames[index].crop?.sourceCoordinates(
+          sourceWidth: sourceWidth, sourceHeight: sourceHeight,
+          orientation: old.frames[index].orientation)
+      }
     } catch { errorMessage = error.localizedDescription; return }
     guard next.frames != old.frames else { return }
     registerUndo(old: old, name: "调整方向")
@@ -372,11 +377,9 @@ import UniformTypeIdentifiers
     stopTimingKey()
     cancelSampling()
     sampling = false
-    let size = orientation.outputSize(sourceWidth: sourceWidth, sourceHeight: sourceHeight)
-    var initial = activeFrame?.crop ?? FrameCrop()
-    if activeFrame?.crop == nil { initial.portrait = size.height > size.width }
+    let initial = activeFrame?.crop ?? FrameCrop(portrait: sourceHeight > sourceWidth)
     do {
-      cropDraft = try initial.constrained(sourceWidth: sourceWidth,
+      cropDraft = try initial.sourceCoordinates(sourceWidth: sourceWidth,
         sourceHeight: sourceHeight, orientation: orientation)
       isCropping = true
       previewImage = nil
@@ -387,9 +390,12 @@ import UniformTypeIdentifiers
   func updateCropDraft(_ value: FrameCrop) {
     guard isCropping else { return }
     do {
-      cropDraft = try value.constrained(sourceWidth: sourceWidth,
+      cropDraft = try value.sourceCoordinates(sourceWidth: sourceWidth,
         sourceHeight: sourceHeight, orientation: orientation)
     } catch { errorMessage = error.localizedDescription }
+  }
+  func updateDisplayedCropDraft(_ value: FrameCrop) {
+    updateCropDraft(value)
   }
   func resetCropDraft() {
     guard isCropping else { return }
@@ -416,6 +422,8 @@ import UniformTypeIdentifiers
   private func applyCrop(_ crop: FrameCrop?, targets: Set<UUID>) {
     guard let old = project, let folder, !targets.isEmpty else { return }
     do {
+      let sourceCrop = try crop?.sourceCoordinates(sourceWidth: sourceWidth,
+        sourceHeight: sourceHeight, orientation: orientation)
       guard targets.isSubset(of: Set(old.frames.filter { !$0.isMissing }.map(\.id))) else {
         throw PrintroomError.invalid("裁剪同步包含不可用照片")
       }
@@ -425,8 +433,8 @@ import UniformTypeIdentifiers
       for index in next.frames.indices where targets.contains(next.frames[index].id) {
         let frame = next.frames[index]
         let metadata = try TIFFCodec.metadata(url: folder.appendingPathComponent(frame.filename))
-        next.frames[index].crop = try crop?.constrained(sourceWidth: metadata.width,
-          sourceHeight: metadata.height, orientation: frame.orientation)
+        next.frames[index].crop = try sourceCrop?.constrained(sourceWidth: metadata.width,
+          sourceHeight: metadata.height)
       }
       let changed = next.frames != old.frames
       if changed {
@@ -761,6 +769,13 @@ import UniformTypeIdentifiers
         next.frames[i].adjustments = source.adjustments
         next.frames[i].orientation = source.orientation
         next.frames[i].crop = source.crop
+        if let crop = source.crop, crop.geometryVersion == 1, !next.frames[i].isMissing,
+          let metadata = try? TIFFCodec.metadata(
+            url: folder.appendingPathComponent(next.frames[i].filename))
+        {
+          next.frames[i].crop = try crop.sourceCoordinates(sourceWidth: metadata.width,
+            sourceHeight: metadata.height, orientation: source.orientation)
+        }
       }
     }
     next.exportSettings = backup.exportSettings

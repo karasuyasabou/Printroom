@@ -109,6 +109,7 @@ final class CropTests: XCTestCase {
                                         orientation: old).render(source)
         let new = old.applying(operation)
         let next = try crop.transformed(from: old, to: new, sourceWidth: 120, sourceHeight: 80)
+        XCTAssertEqual(next, crop, "Direction edits never mutate a source-coordinate crop")
         let actual = try CropGeometry(crop: next, sourceWidth: 120, sourceHeight: 80,
                                       orientation: new).render(source)
         // Reset's relative transform is inverse(old); other operations are appended.
@@ -120,6 +121,126 @@ final class CropTests: XCTestCase {
         for index in actual.pixels.indices {
           for c in 0..<4 { XCTAssertEqual(actual.pixels[index][c], expected.pixels[index][c], accuracy: 2e-7) }
         }
+      }
+    }
+  }
+
+  func testSameSourceCropUnderAllDirectionsEqualsCroppingOriginalThenD4() throws {
+    let width = 120, height = 80
+    let pixels: [SIMD4<Float>] = (0..<(width * height)).map { index in
+      let red = Float((index * 71 + 103) % 65535) / 65535
+      let green = Float((index * 311 + 1703) % 65535) / 65535
+      let blue = Float((index * 37 + 3307) % 65535) / 65535
+      return SIMD4<Float>(red, green, blue, 1)
+    }
+    let source = PixelBuffer(width: width, height: height, pixels: pixels)
+    for angle in [-10.0, -3.17, -0.01, 0, 0.01, 3.17, 10] {
+      let crop = FrameCrop(aspect: .sevenSix, centerX: 0.27, centerY: 0.61,
+                           width: 0.35, angleDegrees: angle)
+      XCTAssertEqual(crop.geometryVersion, 2)
+      let original = try CropGeometry(crop: crop, sourceWidth: width, sourceHeight: height)
+      let croppedOriginal = try original.render(source)
+      if angle == 0 {
+        XCTAssertEqual(original.rect, CGRect(x: 11, y: 31, width: 42, height: 36))
+        XCTAssertEqual(croppedOriginal.pixels[0], source.pixels[31 * width + 11])
+      }
+      for orientation in FrameOrientation.allCases {
+        let geometry = try CropGeometry(crop: crop, sourceWidth: width, sourceHeight: height,
+                                         orientation: orientation)
+        XCTAssertEqual(geometry.crop, original.crop)
+        let actual = try geometry.render(source)
+        let expected = try orientation.transform(croppedOriginal)
+        XCTAssertEqual(actual.width, expected.width)
+        XCTAssertEqual(actual.height, expected.height)
+        if angle == 0 { XCTAssertEqual(actual.pixels, expected.pixels) }
+        else {
+          for index in actual.pixels.indices {
+            for channel in 0..<3 {
+              XCTAssertEqual(actual.pixels[index][channel], expected.pixels[index][channel],
+                             accuracy: 2e-7, "\(orientation) \(angle) sample \(index)")
+            }
+          }
+        }
+        // Independently reorder output coordinates, then require the same source
+        // location. Neither frame's orientation can change the selected original.
+        for p in [SIMD2(0, 0), SIMD2(actual.width / 2, actual.height / 2),
+                  SIMD2(actual.width - 1, actual.height - 1)] {
+          let unrotated = orientation.inversePixel(x: p.x, y: p.y,
+            sourceWidth: original.outputWidth, sourceHeight: original.outputHeight)
+          let a = geometry.sourcePoint(outputX: Double(p.x) + 0.5, outputY: Double(p.y) + 0.5)
+          let b = original.sourcePoint(outputX: Double(unrotated.x) + 0.5,
+                                        outputY: Double(unrotated.y) + 0.5)
+          XCTAssertEqual(a.x, b.x, accuracy: 1e-10)
+          XCTAssertEqual(a.y, b.y, accuracy: 1e-10)
+        }
+      }
+    }
+  }
+
+  func testLegacyDisplayCropMigrationPreservesAppearanceForEveryDirection() throws {
+    let source = ramp(width: 121, height: 83)
+    for orientation in FrameOrientation.allCases {
+      for angle in [-9.73, 0, 4.21] {
+        let old = FrameCrop(aspect: .fourThree, portrait: true, centerX: 0.32, centerY: 0.7,
+                             width: 0.47, angleDegrees: angle, geometryVersion: 1)
+        let before = try CropGeometry(crop: old, sourceWidth: 121, sourceHeight: 83,
+                                      orientation: orientation).render(source)
+        let migrated = try old.sourceCoordinates(sourceWidth: 121, sourceHeight: 83,
+                                                   orientation: orientation)
+        XCTAssertEqual(migrated.geometryVersion, 2)
+        let after = try CropGeometry(crop: migrated, sourceWidth: 121, sourceHeight: 83,
+                                     orientation: orientation).render(source)
+        XCTAssertEqual(after.width, before.width)
+        XCTAssertEqual(after.height, before.height)
+        if angle == 0 { XCTAssertEqual(after.pixels, before.pixels) }
+        else {
+          for index in before.pixels.indices {
+            for channel in 0..<3 {
+              XCTAssertEqual(after.pixels[index][channel], before.pixels[index][channel], accuracy: 2e-7)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  func testDisplayedDraftConversionPreservesSourceAndReflectsAngleAndAspect() throws {
+    let source = try FrameCrop(aspect: .sevenSix, centerX: 0.31, centerY: 0.66,
+                               width: 0.35, angleDegrees: 5.27)
+      .constrained(sourceWidth: 1400, sourceHeight: 1200)
+    for orientation in FrameOrientation.allCases {
+      let display = try source.displayCoordinates(sourceWidth: 1400, sourceHeight: 1200,
+                                                    orientation: orientation)
+      XCTAssertEqual(display.geometryVersion, 1)
+      XCTAssertEqual(display.portrait, orientation.swapsAxes)
+      let reflected = [FrameOrientation.flipHorizontal, .flipVertical, .transpose, .transverse]
+        .contains(orientation)
+      XCTAssertEqual(display.angleDegrees, reflected ? -5.27 : 5.27)
+      let restored = try display.sourceCoordinates(sourceWidth: 1400, sourceHeight: 1200,
+                                                      orientation: orientation)
+      XCTAssertEqual(restored.geometryVersion, 2)
+      XCTAssertEqual(restored.aspect, source.aspect)
+      XCTAssertEqual(restored.portrait, source.portrait)
+      XCTAssertEqual(restored.angleDegrees, source.angleDegrees)
+      XCTAssertEqual(restored.centerX, source.centerX, accuracy: 1e-12)
+      XCTAssertEqual(restored.centerY, source.centerY, accuracy: 1e-12)
+      XCTAssertEqual(restored.width, source.width, accuracy: 1e-12)
+    }
+  }
+
+  func testSourceCropSynchronizesAcrossDimensionsIndependentlyOfDestinationDirection() throws {
+    let original = try FrameCrop(aspect: .sevenSix, portrait: true, centerX: 0.3, centerY: 0.68,
+                                 width: 0.32, angleDegrees: -4.37)
+      .constrained(sourceWidth: 1400, sourceHeight: 1200)
+    for size in [(1400, 1200), (2800, 2400), (900, 1600)] {
+      let expected = try original.constrained(sourceWidth: size.0, sourceHeight: size.1)
+      for orientation in FrameOrientation.allCases {
+        let applied = try original.constrained(sourceWidth: size.0, sourceHeight: size.1,
+                                                orientation: orientation)
+        XCTAssertEqual(applied, expected)
+        XCTAssertEqual(applied.angleDegrees, original.angleDegrees)
+        XCTAssertEqual(applied.aspect, original.aspect)
+        XCTAssertEqual(applied.portrait, original.portrait)
       }
     }
   }
@@ -251,7 +372,7 @@ final class CropTests: XCTestCase {
       bad["frames"] = mutatedFrames
       XCTAssertThrowsError(try ProjectStore.decodeSnapshot(JSONSerialization.data(withJSONObject: bad)))
     }
-    for invalid in [FrameCrop(angleDegrees: 10.01), FrameCrop(width: 0), FrameCrop(geometryVersion: 2)] {
+    for invalid in [FrameCrop(angleDegrees: 10.01), FrameCrop(width: 0), FrameCrop(geometryVersion: 3)] {
       project.frames[0].crop = invalid
       XCTAssertThrowsError(try ProjectStore.decodeSnapshot(JSONEncoder().encode(project)))
     }

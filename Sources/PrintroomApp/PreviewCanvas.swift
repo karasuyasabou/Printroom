@@ -139,7 +139,7 @@ struct PreviewCanvas: NSViewRepresentable {
     guard let image = model?.previewImage else { return }
     let rect = imageRect
     context.saveGState()
-    if model?.isCropping == true, let crop = model?.cropDraft {
+    if model?.isCropping == true, let crop = model?.displayedCropDraft {
       context.translateBy(x: rect.midX, y: rect.midY)
       context.rotate(by: CGFloat(crop.angleDegrees) * .pi / 180)
       context.translateBy(x: -rect.midX, y: -rect.midY)
@@ -185,7 +185,8 @@ struct PreviewCanvas: NSViewRepresentable {
       let geometry = model.cropDraftGeometry {
       cropGesture = CropGesture(handle: handle, initialPoint: p, initialRect: geometry.rect,
         originalCrop: model.cropDraft,
-        draft: model.cropDraft ?? FrameCrop(portrait: model.displayHeight > model.displayWidth))
+        draft: model.displayedCropDraft ?? FrameCrop(
+          portrait: model.displayHeight > model.displayWidth, geometryVersion: 1))
     }
     if model?.sampling == true { selectionRect = CGRect(origin: p, size: .zero) }
   }
@@ -370,7 +371,7 @@ extension CanvasView {
     draft.centerX = min(2, max(-1, rect.midX / displaySize.width))
     draft.centerY = min(2, max(-1, rect.midY / displaySize.height))
     draft.width = min(2, max(1 / displaySize.width, rect.width / displaySize.width))
-    model.updateCropDraft(draft)
+    model.updateDisplayedCropDraft(draft)
   }
   static func resizedCropRect(_ initial: CGRect, handle: CropHandle, delta: CGPoint, ratio: Double) -> CGRect {
     if handle == .move { return initial.offsetBy(dx: delta.x, dy: delta.y) }

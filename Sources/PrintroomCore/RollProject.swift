@@ -236,6 +236,17 @@ public enum ProjectStore {
           merged[frame.filename] = frame
         }
         project.frames = merged.values.sorted { naturalLess($0.filename, $1.filename) }
+        // V1 crop coordinates depended on this frame's user orientation. Resolve
+        // available sources before saving/synchronizing; missing or unreadable
+        // originals keep their legacy value until they can be located again.
+        for index in project.frames.indices where !project.frames[index].isMissing {
+          let frame = project.frames[index]
+          if let crop = frame.crop, crop.geometryVersion == 1,
+            let metadata = try? TIFFCodec.metadata(url: folder.appendingPathComponent(frame.filename)) {
+            project.frames[index].crop = try crop.sourceCoordinates(sourceWidth: metadata.width,
+              sourceHeight: metadata.height, orientation: frame.orientation)
+          }
+        }
         if let sourceID = project.calibration.sourceFrameID,
           let frame = project.frames.first(where: { $0.id == sourceID })
         {
@@ -314,6 +325,15 @@ public enum ProjectStore {
             let backup = coordinated.deletingLastPathComponent().appendingPathComponent(
               ".printroom-schema\(header.schemaVersion)-\(UUID().uuidString).json")
             try original.write(to: backup, options: .withoutOverwriting)
+          } else if existing.frames.contains(where: { previous in
+            guard previous.crop?.geometryVersion == 1 else { return false }
+            return project.frames.first(where: { $0.id == previous.id })?.crop?.geometryVersion != 1
+          }) {
+            // Geometry v2 changes the coordinate contract while retaining schema
+            // 3. Keep the original v1 JSON before its first conversion or removal.
+            let backup = coordinated.deletingLastPathComponent().appendingPathComponent(
+              ".printroom-geometry-v1-\(UUID().uuidString).json")
+            try original.write(to: backup, options: .withoutOverwriting)
           }
         }
         try data.write(to: coordinated, options: .atomic)
@@ -356,7 +376,7 @@ public enum ProjectStore {
     }
     // Explicit reconnection must target a supported TIFF, not merely a readable file
     // with a TIFF extension. Discovery remains lightweight and reports bad sources separately.
-    _ = try TIFFCodec.metadata(url: sourceURL)
+    let metadata = try TIFFCodec.metadata(url: sourceURL)
     var updated = project
     let previous = project.frames[index]
     if previous.filename != source.filename,
@@ -378,6 +398,10 @@ public enum ProjectStore {
     reconnected.sourceSize = source.sourceSize
     reconnected.sourceModified = source.sourceModified
     reconnected.isMissing = false
+    if let crop = reconnected.crop, crop.geometryVersion == 1 {
+      reconnected.crop = try crop.sourceCoordinates(sourceWidth: metadata.width,
+        sourceHeight: metadata.height, orientation: reconnected.orientation)
+    }
     updated.frames[updated.frames.firstIndex(where: { $0.id == frameID })!] = reconnected
     updated.frames.sort { naturalLess($0.filename, $1.filename) }
     updated.sourceFolderURL = folder
@@ -597,34 +621,24 @@ public struct SelectionState: Sendable {
   ) {
     reconcile(ordered)
     guard let clickedIndex = ordered.firstIndex(of: id) else { return }
-    if shift, let anchorID, let anchorIndex = ordered.firstIndex(of: anchorID) {
-      let range = Set(ordered[min(anchorIndex, clickedIndex)...max(anchorIndex, clickedIndex)])
-      selectedFrameIDs = command ? selectedFrameIDs.union(range) : range
-      activeFrameID = id
-    } else if shift {
-      selectedFrameIDs = [id]
-      activeFrameID = id
-      self.anchorID = id
-    } else if command, selectedFrameIDs.contains(id) {
-      selectedFrameIDs.remove(id)
-      if activeFrameID == id {
-        activeFrameID =
-          ordered.enumerated().filter { selectedFrameIDs.contains($0.element) }.min {
-            let left = abs($0.offset - clickedIndex)
-            let right = abs($1.offset - clickedIndex)
-            return left == right ? $0.offset < $1.offset : left < right
-          }?.element
+    // Modified clicks only edit the batch target set. Keep the preview/editing
+    // source and the ordinary-click range anchor fixed, including crop drafts.
+    if (command || shift), let activeFrameID {
+      if shift {
+        let anchorIndex = ordered.firstIndex(of: anchorID ?? activeFrameID)
+          ?? ordered.firstIndex(of: activeFrameID)!
+        let range = Set(ordered[min(anchorIndex, clickedIndex)...max(anchorIndex, clickedIndex)])
+        selectedFrameIDs = command ? selectedFrameIDs.union(range) : range
+        selectedFrameIDs.insert(activeFrameID)
+      } else if id != activeFrameID {
+        if selectedFrameIDs.contains(id) { selectedFrameIDs.remove(id) }
+        else { selectedFrameIDs.insert(id) }
       }
-      if self.anchorID == id { self.anchorID = activeFrameID }
-      if selectedFrameIDs.isEmpty {
-        activeFrameID = nil
-        self.anchorID = nil
-      }
-    } else {
-      if command { selectedFrameIDs.insert(id) } else { selectedFrameIDs = [id] }
-      activeFrameID = id
-      self.anchorID = id
+      return
     }
+    selectedFrameIDs = [id]
+    activeFrameID = id
+    anchorID = id
   }
 
   public mutating func selectAll(_ ordered: [UUID]) {

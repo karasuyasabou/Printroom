@@ -122,7 +122,15 @@ struct CropEditingTests {
       #expect(crop.aspect == .sevenSix && !crop.portrait && crop.angleDegrees == 2.3)
       let geometry = try CropGeometry(crop: crop, sourceWidth: dimensions[index].0,
         sourceHeight: dimensions[index].1, orientation: frame.orientation)
-      #expect(geometry.outputWidth * 6 == geometry.outputHeight * 7)
+      #expect(crop.geometryVersion == 2)
+      if frame.orientation.swapsAxes {
+        #expect(geometry.outputWidth * 7 == geometry.outputHeight * 6)
+      } else {
+        #expect(geometry.outputWidth * 6 == geometry.outputHeight * 7)
+      }
+      let sourceCrop = try crop.constrained(sourceWidth: dimensions[index].0,
+        sourceHeight: dimensions[index].1)
+      #expect(sourceCrop == crop)
     }
     // An identical explicit sync must not add an otherwise invisible undo entry.
     model.syncCurrentCropToSelection()
