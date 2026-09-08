@@ -11,6 +11,7 @@ import UniformTypeIdentifiers
   @Published var selection = SelectionState()
   @Published var snapshot: ParameterSnapshot?
   @Published var previewImage: CGImage?
+  @Published private(set) var isPreviewPlaceholder = false
   @Published var histogram: HistogramStatistics?
   @Published var histogramChannel = -1
   @Published var isHistogramUpdating = false
@@ -19,10 +20,19 @@ import UniformTypeIdentifiers
   @Published var isDetailLoading = false
   @Published var nativeZoomToken = 0
   @Published var thumbnails: [UUID: CGImage] = [:]
-  @Published var stage: PipelineStage = .final { didSet { render() } }
+  @Published var stage: PipelineStage = .final {
+    didSet {
+      guard stage != oldValue else { return }
+      previewImage = nil
+      isPreviewPlaceholder = false
+      render()
+      showCachedPreview()
+    }
+  }
   @Published var sampling = false {
     didSet {
       guard sampling != oldValue else { return }
+      if sampling { cancelNeutralPicker() }
       let changesGeometry = activeFrame?.crop != nil || isCropping
       if sampling { isCropping = false; cropDraft = nil }
       guard changesGeometry else { return }
@@ -51,7 +61,8 @@ import UniformTypeIdentifiers
   @Published var sourceHeight = 0
   @Published var embeddedProfile = ""
   @Published var baseStatistics = ""
-  @Published var sampleReadout = "点击预览查看原始像素与当前阶段数值"
+  @Published private(set) var neutralPicking = false
+  @Published private(set) var isNeutralSampling = false
   @Published var undoRevision = 0
   let undoManager = UndoManager()
   let imageService = ImageService()
@@ -85,8 +96,11 @@ import UniformTypeIdentifiers
   private var pendingThumbnailIDs: Set<UUID> = []
   private var sampleTask: Task<Void, Never>?
   private var sampleRevision = 0
-  private var pixelTask: Task<Void, Never>?
-  private var pixelRevision = 0
+  private var neutralTask: Task<Void, Never>?
+  private var neutralRevision = 0
+  private var previewSourceStamp: PreviewSourceStamp?
+  private var presentationCache = PreviewPresentationCache()
+  private var thumbnailPresentationKeys: [UUID: PreviewPresentationKey] = [:]
   private var loadTask: Task<Void, Never>?
   private var histogramTask: Task<Void, Never>?
   private var detailTask: Task<Void, Never>?
@@ -106,7 +120,8 @@ import UniformTypeIdentifiers
   var canApply: Bool { snapshot != nil && !selection.selectedFrameIDs.isEmpty }
   var canUndo: Bool { undoManager.canUndo }
   var canRedo: Bool { undoManager.canRedo }
-  var hasImage: Bool { previewImage != nil && activeFrame != nil }
+  var hasImage: Bool { previewImage != nil && activeFrame != nil && !isPreviewPlaceholder && !isLoading }
+  var canPickNeutral: Bool { hasImage && !isCropping && !sampling && !isNeutralSampling && !isRendering }
   var orientation: FrameOrientation { activeFrame?.orientation ?? .identity }
   var displayedCrop: FrameCrop? { isCropping || sampling ? nil : activeFrame?.crop }
   var displayGeometry: CropGeometry? {
@@ -159,6 +174,8 @@ import UniformTypeIdentifiers
       let roll = try ProjectStore.open(folder: targetFolder, preferredFile: preferred)
       if folder != targetFolder { snapshot = nil }
       thumbnails = [:]
+      thumbnailPresentationKeys = [:]
+      presentationCache.clear()
       pendingThumbnailIDs = []
       baseStatistics = ""
       loadTask?.cancel()
@@ -223,8 +240,7 @@ import UniformTypeIdentifiers
     cropDraft = nil
     sampling = false
     cancelSampling()
-    pixelTask?.cancel()
-    pixelRevision += 1
+    cancelNeutralPicker()
     isRendering = false
     embeddedProfile = ""
     loadTask?.cancel()
@@ -238,10 +254,11 @@ import UniformTypeIdentifiers
     isHistogramUpdating = false
     invalidateDetail()
     previewImage = nil
+    isPreviewPlaceholder = false
+    previewSourceStamp = nil
     previewInput = nil
     sourceWidth = 0
     sourceHeight = 0
-    sampleReadout = "点击预览查看像素读数"
     guard let frame = activeFrame, let folder else {
       isLoading = false
       isRendering = false
@@ -249,10 +266,16 @@ import UniformTypeIdentifiers
     }
     isLoading = true
     let url = folder.appendingPathComponent(frame.filename)
+    previewSourceStamp = try? PreviewSourceStamp(url: url)
+    showCachedPreview()
     loadTask = Task {
       do {
         let result = try await imageService.preview(url)
         guard !Task.isCancelled, revision == loadRevision else { return }
+        let stamp = try PreviewSourceStamp(url: url)
+        guard stamp == previewSourceStamp else {
+          throw PrintroomError.invalid("读取期间源 TIFF 已改变，请重新打开照片")
+        }
         previewInput = result.0
         previewInputIdentity = UUID()
         sourceWidth = result.1
@@ -263,6 +286,8 @@ import UniformTypeIdentifiers
       } catch {
         if !Task.isCancelled && revision == loadRevision {
           isLoading = false
+          previewImage = nil
+          isPreviewPlaceholder = false
           errorMessage = error.localizedDescription
         }
       }
@@ -274,9 +299,36 @@ import UniformTypeIdentifiers
     pendingPreview = nil
     renderGeneration = UUID()
   }
+  private func presentationKey(stage: PipelineStage? = nil) -> PreviewPresentationKey? {
+    guard let source = previewSourceStamp, let frame = activeFrame, let project else { return nil }
+    return PreviewPresentationKey(source: source, frameID: frame.id,
+      calibration: project.calibration, adjustments: frame.adjustments,
+      orientation: frame.orientation, crop: displayedCrop, stage: stage ?? self.stage)
+  }
+  private func showCachedPreview() {
+    guard isLoading || isRendering, previewImage == nil || isPreviewPlaceholder,
+      let key = presentationKey() else { return }
+    if let entry = presentationCache.image(for: key) {
+      sourceWidth = entry.sourceWidth
+      sourceHeight = entry.sourceHeight
+      previewImage = entry.image
+      isPreviewPlaceholder = true
+    } else if stage == .final, thumbnailPresentationKeys[key.frameID] == key,
+      let image = thumbnails[key.frameID] {
+      previewImage = image
+      isPreviewPlaceholder = true
+    }
+  }
+  private func publishThumbnail(_ image: CGImage, key: PreviewPresentationKey) {
+    guard (try? PreviewSourceStamp(url: key.source.url)) == key.source else { return }
+    thumbnails[key.frameID] = image
+    thumbnailPresentationKeys[key.frameID] = key
+    if activeFrame?.id == key.frameID { showCachedPreview() }
+  }
   func render() {
+    cancelNeutralPicker()
     histogramTask?.cancel()
-    histogram = nil
+    if histogram?.stage != stage { histogram = nil }
     isHistogramUpdating = false
     invalidateDetail()
     renderRevision += 1
@@ -287,6 +339,7 @@ import UniformTypeIdentifiers
     // Geometry/source/stage changes invalidate in-flight work. Ordinary edits keep
     // the current job alive and replace the single pending snapshot instead.
     if context != previewContext {
+      histogram = nil
       cancelPreviewWorker()
       previewContext = context
     }
@@ -311,6 +364,15 @@ import UniformTypeIdentifiers
           // while input continues faster than rendering. The next job reads only
           // the latest pending edit; an older result cannot overwrite a newer one.
           previewImage = result.image
+          isPreviewPlaceholder = false
+          if let source = previewSourceStamp {
+            let key = PreviewPresentationKey(source: source, frameID: request.context.frameID,
+              calibration: request.context.calibration, adjustments: request.adjustments,
+              orientation: request.context.orientation, crop: request.context.crop,
+              stage: request.context.stage)
+            presentationCache.store(.init(key: key, image: result.image,
+              sourceWidth: request.context.sourceWidth, sourceHeight: request.context.sourceHeight))
+          }
           if request.revision == renderRevision {
             isRendering = false
             if !isCropping {
@@ -373,7 +435,8 @@ import UniformTypeIdentifiers
     scheduleSave(immediate: true)
   }
   func beginCrop() {
-    guard !isCropping, activeFrame != nil, sourceWidth > 0, sourceHeight > 0 else { return }
+    guard !isCropping, !isLoading, !isPreviewPlaceholder, activeFrame != nil,
+      sourceWidth > 0, sourceHeight > 0 else { return }
     stopTimingKey()
     cancelSampling()
     sampling = false
@@ -498,6 +561,7 @@ import UniformTypeIdentifiers
         if !Task.isCancelled && revision == detailRevision {
           isDetailLoading = false
           status = "原始像素区域读取失败：\(error.localizedDescription)"
+          errorMessage = status
         }
       }
     }
@@ -506,11 +570,60 @@ import UniformTypeIdentifiers
     do { sampleBase(try orientation.inverseRect(rect, sourceWidth: sourceWidth, sourceHeight: sourceHeight)) }
     catch { errorMessage = error.localizedDescription }
   }
-  func readDisplayedPixel(x: Int, y: Int) {
-    guard let geometry = displayGeometry else { return }
+  func toggleNeutralPicker() {
+    if neutralPicking || isNeutralSampling { cancelNeutralPicker(); return }
+    guard canPickNeutral else { return }
+    stopTimingKey()
+    neutralPicking = true
+  }
+  func cancelNeutralPicker() {
+    neutralTask?.cancel()
+    neutralTask = nil
+    neutralRevision += 1
+    neutralPicking = false
+    isNeutralSampling = false
+  }
+  func pickNeutralDisplayed(x: Int, y: Int) {
+    guard neutralPicking, canPickNeutral, let geometry = displayGeometry,
+      let frame = activeFrame, let project, let folder,
+      x >= 0, y >= 0, x < geometry.outputWidth, y < geometry.outputHeight else { return }
     let point = geometry.sourcePoint(outputX: Double(x) + 0.5, outputY: Double(y) + 0.5)
-    readPixel(x: max(0, min(sourceWidth - 1, Int(floor(point.x)))),
-      y: max(0, min(sourceHeight - 1, Int(floor(point.y)))))
+    let sx = max(0, min(sourceWidth - 1, Int(floor(point.x))))
+    let sy = max(0, min(sourceHeight - 1, Int(floor(point.y))))
+    // An 11×11 source-pixel neighbourhood, trimmed at the source edges.
+    let left = max(0, sx - 5), top = max(0, sy - 5)
+    let rect = PixelRect(x: left, y: top, width: min(sourceWidth, sx + 6) - left,
+      height: min(sourceHeight, sy + 6) - top)
+    neutralPicking = false
+    isNeutralSampling = true
+    let token = neutralRevision, revision = renderRevision, loadID = loadRevision
+    let stamp = previewSourceStamp
+    let url = folder.appendingPathComponent(frame.filename)
+    neutralTask = Task {
+      defer {
+        if token == neutralRevision { isNeutralSampling = false; neutralTask = nil }
+      }
+      do {
+        guard try PreviewSourceStamp(url: url) == stamp else {
+          throw PrintroomError.invalid("源 TIFF 已改变，请重新打开照片后取样")
+        }
+        let samples = try await imageService.region(url, rect: rect)
+        try Task.checkCancellation()
+        guard try PreviewSourceStamp(url: url) == stamp else {
+          throw PrintroomError.invalid("取样期间源 TIFF 已改变，请重新打开照片")
+        }
+        guard token == neutralRevision, revision == renderRevision, loadID == loadRevision,
+          activeFrame?.id == frame.id, self.project?.id == project.id,
+          self.project?.calibration == project.calibration, adjustments == frame.adjustments else { return }
+        let result = try NeutralTiming.solve(samples, calibration: project.calibration,
+          adjustments: frame.adjustments)
+        // edit() is the same atomic frame transaction used by manual controls.
+        edit(actionName: "吸取中性点") { $0 = result }
+      } catch {
+        if !Task.isCancelled, token == neutralRevision, revision == renderRevision,
+          loadID == loadRevision, activeFrame?.id == frame.id { errorMessage = error.localizedDescription }
+      }
+    }
   }
   func beginAdjustment() { if gestureBefore == nil { gestureBefore = project } }
   func endAdjustment() {
@@ -521,7 +634,7 @@ import UniformTypeIdentifiers
     gestureBefore = nil
     scheduleSave(immediate: true)
   }
-  func edit(_ mutate: (inout FrameAdjustments) -> Void) {
+  func edit(actionName: String = "调整参数", _ mutate: (inout FrameAdjustments) -> Void) {
     guard var next = project,
       let index = next.frames.firstIndex(where: { $0.id == selection.activeFrameID })
     else { return }
@@ -532,7 +645,7 @@ import UniformTypeIdentifiers
       return
     }
     guard next.frames[index].adjustments != old.frames[index].adjustments else { return }
-    if gestureBefore == nil { registerUndo(old: old, name: "调整参数") }
+    if gestureBefore == nil { registerUndo(old: old, name: actionName) }
     project = next
     dirty = true
     render()
@@ -632,6 +745,7 @@ import UniformTypeIdentifiers
     } catch { errorMessage = error.localizedDescription }
   }
   private func cancelSampling() {
+    cancelNeutralPicker()
     sampleTask?.cancel()
     sampleRevision += 1
   }
@@ -667,33 +781,6 @@ import UniformTypeIdentifiers
           errorMessage = error.localizedDescription
           status = "片基采样未完成"
         }
-      }
-    }
-  }
-  func readPixel(x: Int, y: Int) {
-    guard let folder, let frame = activeFrame, let project, let assets else { return }
-    pixelTask?.cancel()
-    pixelRevision += 1
-    let pixelID = pixelRevision
-    let selectedStage = stage
-    let revision = renderRevision
-    pixelTask = Task {
-      do {
-        let p = try await imageService.pixel(
-          folder.appendingPathComponent(frame.filename), x: x, y: y)
-        let v = try Pipeline.process(
-          p, calibration: project.calibration, adjustments: frame.adjustments, lut: assets.lut,
-          stage: selectedStage)
-        guard !Task.isCancelled, pixelID == pixelRevision, activeFrame?.id == frame.id, stage == selectedStage, revision == renderRevision else { return }
-        let values = String(format: "R %.5f  G %.5f  B %.5f", v.x, v.y, v.z)
-        sampleReadout = "(\(x), \(y)) · 原片 · \(selectedStage.label)  \(values)"
-        if [.d0, .d1, .d2, .d3].contains(selectedStage) {
-          sampleReadout += String(
-            format: " · CV %.2f / %.2f / %.2f", v.x * 1024, v.y * 1024, v.z * 1024)
-        }
-      } catch {
-        if !Task.isCancelled, pixelID == pixelRevision, activeFrame?.id == frame.id,
-          stage == selectedStage, revision == renderRevision { errorMessage = error.localizedDescription }
       }
     }
   }
@@ -879,6 +966,8 @@ import UniformTypeIdentifiers
     thumbnailTask?.cancel()
     thumbnailGeneration = UUID()
     thumbnails = [:]
+    thumbnailPresentationKeys = [:]
+    presentationCache.clear()
     let cache = DiskThumbnailCache(directory: folder.appendingPathComponent(".printroom-cache"))
     Task {
       do {
@@ -901,6 +990,7 @@ import UniformTypeIdentifiers
     pendingThumbnailIDs.formIntersection(available)
     if thumbnails.keys.contains(where: { !available.contains($0) }) {
       thumbnails = thumbnails.filter { available.contains($0.key) }
+      thumbnailPresentationKeys = thumbnailPresentationKeys.filter { available.contains($0.key) }
     }
     thumbnailTask?.cancel()
     thumbnailGeneration = UUID()
@@ -915,6 +1005,10 @@ import UniformTypeIdentifiers
         guard !Task.isCancelled, generation == thumbnailGeneration else { return }
         do {
           let sourceURL = folder.appendingPathComponent(frame.filename)
+          let stamp = try PreviewSourceStamp(url: sourceURL)
+          let presentationKey = PreviewPresentationKey(source: stamp, frameID: frame.id,
+            calibration: project.calibration, adjustments: frame.adjustments,
+            orientation: frame.orientation, crop: frame.crop, stage: .final)
           let attributes = try FileManager.default.attributesOfItem(atPath: sourceURL.path)
           let encoder = JSONEncoder()
           encoder.outputFormatting = .sortedKeys
@@ -933,7 +1027,7 @@ import UniformTypeIdentifiers
           let key = SHA256.hash(data: keyData).map { String(format: "%02x", $0) }.joined()
           if let cg = try? await cache.image(for: key) {
             guard !Task.isCancelled, generation == thumbnailGeneration else { return }
-            thumbnails[frame.id] = cg
+            publishThumbnail(cg, key: presentationKey)
             pendingThumbnailIDs.remove(frame.id)
             continue
           }
@@ -943,7 +1037,7 @@ import UniformTypeIdentifiers
             assets: assets, orientation: frame.orientation, crop: frame.crop,
             sourceWidth: source.1, sourceHeight: source.2)
           guard !Task.isCancelled, generation == thumbnailGeneration else { return }
-          thumbnails[frame.id] = output.image
+          publishThumbnail(output.image, key: presentationKey)
           // Expendable disk cache failures never prevent editing or project save.
           try? await cache.store(output.image, for: key)
           guard !Task.isCancelled, generation == thumbnailGeneration else { return }
@@ -1012,70 +1106,5 @@ import UniformTypeIdentifiers
     let dimension: Int
     let presentationVersion: String
   }
-  private var timingTask: Task<Void, Never>?
-  private var heldTimingKey: String?
-
-  func stopTimingKey(_ key: String? = nil) {
-    guard let held = heldTimingKey, key == nil || key?.lowercased() == held else { return }
-    timingTask?.cancel()
-    timingTask = nil
-    heldTimingKey = nil
-    endAdjustment()
-  }
-
-  func startTimingKey(_ key: String, shift: Bool, isRepeat: Bool,
-                      canContinue: @escaping @MainActor () -> Bool) {
-    let key = key.lowercased()
-    guard !isRepeat, key.count == 1, "qeadzcws".contains(key), activeFrame != nil else { return }
-    stopTimingKey()
-    beginAdjustment()
-    heldTimingKey = key
-    handleTimingKey(key, step: shift ? 10 : 1)
-    let frameID = selection.activeFrameID
-    let clock = ContinuousClock()
-    let start = clock.now
-    timingTask = Task { [weak self] in
-      // Accumulate integer CV at 20 Hz while leaving time for preview rendering.
-      do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
-      var applied = 0
-      while !Task.isCancelled {
-        guard let self else { return }
-        guard self.selection.activeFrameID == frameID, canContinue(),
-          self.errorMessage == nil, !self.showExportSummary else {
-          self.stopTimingKey()
-          return
-        }
-        let elapsed = start.duration(to: clock.now).components
-        let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
-        let total = Self.heldTimingCV(elapsed: seconds)
-        if total > applied {
-          self.handleTimingKey(key, step: total - applied)
-          applied = total
-        }
-        do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
-      }
-    }
-  }
-
-  static func heldTimingCV(elapsed: Double) -> Int {
-    Int((max(0, elapsed - 0.4) * 50 + 1e-9).rounded(.down))
-  }
-
-  func handleTimingKey(_ key: String, step: Int = 1) {
-    guard activeFrame != nil else { return }
-    let step = max(0, min(TimingParameters.range.count - 1, step))
-    edit { a in
-      switch key.lowercased() {
-      case "q": a.timing.red = max(TimingParameters.range.lowerBound, a.timing.red - step)
-      case "e": a.timing.red = min(TimingParameters.range.upperBound, a.timing.red + step)
-      case "a": a.timing.green = max(TimingParameters.range.lowerBound, a.timing.green - step)
-      case "d": a.timing.green = min(TimingParameters.range.upperBound, a.timing.green + step)
-      case "z": a.timing.blue = max(TimingParameters.range.lowerBound, a.timing.blue - step)
-      case "c": a.timing.blue = min(TimingParameters.range.upperBound, a.timing.blue + step)
-      case "w": a.timing.master = min(TimingParameters.range.upperBound, a.timing.master + step)
-      case "s": a.timing.master = max(TimingParameters.range.lowerBound, a.timing.master - step)
-      default: break
-      }
-    }
-  }
+  let adjustmentKeyboard = AdjustmentKeyboard()
 }

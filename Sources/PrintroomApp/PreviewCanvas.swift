@@ -178,7 +178,7 @@ struct PreviewCanvas: NSViewRepresentable {
       resetViewport()
       return
     }
-    if model?.sampling == true && !imageRect.contains(p) { return }
+    if (model?.sampling == true || model?.neutralPicking == true) && !imageRect.contains(p) { return }
     start = p
     previous = p
     if let model, model.isCropping, let rect = cropRect, let handle = cropHandle(at: p, rect: rect),
@@ -205,7 +205,7 @@ struct PreviewCanvas: NSViewRepresentable {
         x: min(start.x, p.x), y: min(start.y, p.y), width: abs(start.x - p.x),
         height: abs(start.y - p.y)
       ).intersection(imageRect).intersection(bounds)
-    } else if let previous {
+    } else if model?.neutralPicking != true, let previous {
       pan.x += p.x - previous.x
       pan.y += p.y - previous.y
     }
@@ -249,11 +249,11 @@ struct PreviewCanvas: NSViewRepresentable {
       let right = min(model.displayWidth, Int(ceil(b.x)))
       let bottom = min(model.displayHeight, Int(ceil(b.y)))
       model.sampleDisplayedBase(PixelRect(x: x, y: y, width: right - x, height: bottom - y))
-    } else if !model.sampling, display.contains(p), let start,
+    } else if model.neutralPicking, model.canPickNeutral, display.contains(p), let start,
       hypot(p.x - start.x, p.y - start.y) < 4
     {
       let q = point(p)
-      model.readDisplayedPixel(x: Int(q.x), y: Int(q.y))
+      model.pickNeutralDisplayed(x: Int(q.x), y: Int(q.y))
     }
   }
   override func magnify(with event: NSEvent) {
@@ -279,24 +279,8 @@ struct PreviewCanvas: NSViewRepresentable {
     scheduleDetail()
     needsDisplay = true
   }
-  override func keyDown(with event: NSEvent) {
-    if event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
-      let key = event.charactersIgnoringModifiers, "qeadzcws".contains(key.lowercased()),
-      key.count == 1
-    {
-      let targetWindow = window
-      model?.startTimingKey(key, shift: event.modifierFlags.contains(.shift),
-        isRepeat: event.isARepeat) { [weak self, weak targetWindow] in
-          guard let self, let targetWindow else { return false }
-          return targetWindow.isKeyWindow && targetWindow.firstResponder === self
-            && targetWindow.attachedSheet == nil && NSApp.modalWindow == nil && NSApp.isActive
-        }
-    } else {
-      super.keyDown(with: event)
-    }
-  }
   override func resetCursorRects() {
-    addCursorRect(bounds, cursor: model?.sampling == true ? .crosshair : .openHand)
+    addCursorRect(bounds, cursor: model?.sampling == true || model?.neutralPicking == true ? .crosshair : .openHand)
     guard model?.isCropping == true, let rect = cropRect else { return }
     func cursor(_ area: CGRect, _ cursor: NSCursor) {
       let visible = area.intersection(bounds)

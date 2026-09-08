@@ -5,11 +5,12 @@ import SwiftUI
 struct EditorView: View {
   @ObservedObject var model: EditorModel
   @State private var resetToken = 0
-  @FocusState private var filmstripFocused: Bool
+  @State private var showPreviewLoadingHint = false
   private let accent = Color(red: 0.84, green: 0.71, blue: 0.44)
   var body: some View {
     VStack(spacing: 0) {
       topBar
+      if model.saveFailure || model.isExporting { operationStatus }
       Divider()
       HStack(spacing: 0) {
         VStack(spacing: 0) {
@@ -23,10 +24,6 @@ struct EditorView: View {
               PreviewCanvas(model: model, resetToken: resetToken)
                 .frame(width: viewport.size.width, height: viewport.size.height)
               if model.project == nil { emptyState }
-              if model.isLoading {
-                ProgressView("正在读取原始 TIFF…").padding(18).background(
-                  .regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-              }
               if model.sampling {
                 VStack {
                   Spacer()
@@ -43,39 +40,24 @@ struct EditorView: View {
                   .padding(12)
               }
             }
+            .overlay(alignment: .bottomLeading) {
+              if showPreviewLoadingHint {
+                Text("正在加载预览…")
+                  .font(.caption2).foregroundStyle(.secondary)
+                  .padding(8).background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 6))
+                  .padding(12).allowsHitTesting(false)
+              }
+            }
             .clipped()
             .contentShape(Rectangle())
           }
           .clipped()
-          HStack {
-            Text(model.sampleReadout).font(.system(size: 10, design: .monospaced)).lineLimit(2)
-            Spacer()
-            if model.isDetailLoading { Text("读取 1:1 区域…").font(.caption2) }
-            else if model.detailImage != nil { Text("原始像素 1:1").font(.caption2) }
-            if model.isRendering { ProgressView().controlSize(.mini) }
-          }.foregroundStyle(.secondary).padding(.horizontal, 12).frame(height: 35)
         }
         Divider()
         inspector.frame(width: 306)
       }
       Divider()
       filmstrip.frame(height: 153)
-      Divider()
-      HStack {
-        Circle().fill(model.dirty ? Color.orange : Color.green).frame(width: 5, height: 5)
-        Text(model.dirty ? "未保存" : "已保存").font(.caption)
-        if model.dirty { Button("重试保存") { model.flushSave() }.buttonStyle(.link).font(.caption) }
-        Text(model.status).font(.caption).lineLimit(1)
-        Spacer()
-        if model.isExporting {
-          Text(model.exportDetail).font(.caption2).lineLimit(1)
-          ProgressView(value: model.exportProgress).frame(width: 110)
-          Text(model.exportProgress, format: .percent.precision(.fractionLength(0))).font(.caption)
-          Button("取消") { model.cancelExport() }
-        }
-        Text("P3 D65 · γ 2.6").font(.system(size: 10, design: .monospaced)).foregroundStyle(
-          .secondary)
-      }.padding(.horizontal, 14).frame(height: 30)
     }
     .frame(minWidth: 1060, minHeight: 720)
     .background(Color(nsColor: .windowBackgroundColor))
@@ -97,24 +79,56 @@ struct EditorView: View {
     }
     .sheet(isPresented: $model.showExportSummary) { ExportSummaryView(model: model) }
     .onOpenURL { model.open($0) }
+    .task(id: previewIsWaiting) {
+      showPreviewLoadingHint = false
+      guard previewIsWaiting else { return }
+      do { try await Task.sleep(for: .milliseconds(600)) } catch { return }
+      guard !Task.isCancelled, previewIsWaiting else { return }
+      showPreviewLoadingHint = true
+    }
+  }
+  private var previewIsWaiting: Bool {
+    model.project != nil && model.previewImage == nil && (model.isLoading || model.isRendering)
+  }
+  private var operationStatus: some View {
+    HStack(spacing: 10) {
+      if model.saveFailure {
+        Label("设置未保存", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+        Button("重试保存") { model.flushSave() }.buttonStyle(.link)
+      }
+      Spacer(minLength: 10)
+      if model.isExporting {
+        Text(model.exportDetail).lineLimit(1)
+        ProgressView(value: model.exportProgress).frame(width: 110)
+        Text(model.exportProgress, format: .percent.precision(.fractionLength(0)))
+          .monospacedDigit().frame(width: 34, alignment: .trailing)
+        Button("取消导出") { model.cancelExport() }.controlSize(.small)
+      }
+    }.font(.caption2).padding(.horizontal, 18).padding(.bottom, 8)
   }
   private var topBar: some View {
-    HStack(spacing: 14) {
+    HStack(spacing: 10) {
       Image(systemName: "square.stack.3d.down.right").font(.title2).foregroundStyle(accent)
       VStack(alignment: .leading, spacing: 1) {
         Text("PRINTROOM").font(.system(size: 15, weight: .semibold, design: .monospaced)).tracking(
           3)
         Text(model.folder?.lastPathComponent ?? "NEGATIVE → PRINT").font(
           .system(size: 10, design: .monospaced)
-        ).foregroundStyle(.secondary)
-      }
-      Spacer()
+        ).foregroundStyle(.secondary).lineLimit(1)
+      }.frame(maxWidth: 190, alignment: .leading)
+      Spacer(minLength: 10)
       Button {
         model.openPanel()
       } label: {
         Label("打开胶卷", systemImage: "folder")
       }.disabled(model.isExporting)
       Divider().frame(height: 20)
+      Button {
+        model.resetAdjustments()
+      } label: {
+        Label("重置参数", systemImage: "arrow.counterclockwise")
+      }.disabled(model.activeFrame == nil)
+        .help("重置当前照片的 Timing 与 Contrast · 可撤销")
       Button {
         model.copyParameters()
       } label: {
@@ -173,6 +187,9 @@ struct EditorView: View {
       }.labelsHidden().frame(width: 95)
       Button("1:1") { model.inspectNativeResolution() }.controlSize(.small)
         .disabled(!model.hasImage || model.isCropping)
+        .foregroundStyle(model.detailImage == nil ? Color.primary : accent)
+        .opacity(model.isDetailLoading ? 0.5 : 1)
+        .help(model.isDetailLoading ? "正在读取原始分辨率区域" : "查看原始分辨率 · ⌘1")
       Button("适应窗口") { resetToken += 1 }.controlSize(.small)
     }.padding(.horizontal, 12).frame(height: 38)
   }
@@ -218,7 +235,20 @@ struct EditorView: View {
         }
         Divider()
         VStack(alignment: .leading, spacing: 10) {
-          heading("03", "COLOR TIMING")
+          HStack(spacing: 8) {
+            heading("03", "COLOR TIMING")
+            Button {
+              model.toggleNeutralPicker()
+            } label: {
+              Image(systemName: "eyedropper")
+                .foregroundStyle(model.neutralPicking ? accent : Color.secondary)
+                .opacity(model.isNeutralSampling ? 0.4 : 1)
+                .frame(width: 24, height: 20)
+            }.buttonStyle(.plain)
+              .disabled(!model.canPickNeutral || model.isNeutralSampling)
+              .help(model.neutralPicking ? "点击照片吸取中性点 · Esc 取消" : "吸取中性点 · 调整 RGB Timing")
+              .accessibilityLabel(model.neutralPicking ? "取消中性点吸管" : "吸取中性点")
+          }
           timingRow("Master", \.master, color: .white)
           timingRow("Red", \.red, color: ChannelColors.red)
           timingRow("Green", \.green, color: ChannelColors.green)
@@ -231,24 +261,9 @@ struct EditorView: View {
           contrastRow("Red", \.red, color: ChannelColors.red)
           contrastRow("Green", \.green, color: ChannelColors.green)
           contrastRow("Blue", \.blue, color: ChannelColors.blue)
-          Button("重置当前照片参数") { model.resetAdjustments() }.font(.caption)
         }.disabled(model.activeFrame == nil)
       }.padding(16)
     }.background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-      .onKeyPress(phases: [.down, .repeat]) { press in
-        guard !(NSApp.keyWindow?.firstResponder is NSTextView),
-          press.modifiers.intersection([.command, .control, .option]).isEmpty,
-          press.characters.count == 1, "qeadzcws".contains(press.characters.lowercased())
-        else { return .ignored }
-        let window = NSApp.keyWindow
-        let responder = window?.firstResponder
-        model.startTimingKey(press.characters, shift: press.modifiers.contains(.shift),
-          isRepeat: press.phase == .repeat) { [weak window, weak responder] in
-            window?.isKeyWindow == true && window?.firstResponder === responder
-              && window?.attachedSheet == nil && NSApp.modalWindow == nil && NSApp.isActive
-          }
-        return .handled
-      }
   }
   private func timingRow(
     _ title: String, _ path: WritableKeyPath<TimingParameters, Int>, color: Color
@@ -298,8 +313,9 @@ struct EditorView: View {
                 }
               } else {
                 Button {
-                  filmstripFocused = true
                   let flags = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+                  // Commit a numeric field before switching photos, without a separate Filmstrip mode.
+                  NSApp.keyWindow?.makeFirstResponder(nil)
                   model.select(frame.id, command: flags.contains(.command), shift: flags.contains(.shift))
                 } label: {
                   thumbnail(frame, index: index).contentShape(Rectangle())
@@ -307,14 +323,7 @@ struct EditorView: View {
               }
             }
           }.padding(.vertical, 2)
-        }.focusable().focused($filmstripFocused)
-          .onKeyPress(phases: .down) { press in
-            if press.characters.lowercased() == "a" && press.modifiers.contains(.command) {
-              model.selectAll()
-              return .handled
-            }
-            return .ignored
-          }
+        }
           .onChange(of: model.selection.activeFrameID) { _, id in
             if let id { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id) } }
           }

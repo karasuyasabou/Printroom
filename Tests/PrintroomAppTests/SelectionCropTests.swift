@@ -156,7 +156,9 @@ struct SelectionCropTests {
     #expect(model.selection.selectedFrameIDs == Set([ids[4]]))
     #expect(model.selection.activeFrameID == ids[4] && model.selection.anchorID == ids[4])
     #expect(!model.isCropping && model.cropDraft == nil)
-    #expect(model.previewImage == nil)
+    if let placeholder = model.previewImage {
+      #expect(model.isPreviewPlaceholder && placeholder === model.thumbnails[ids[4]])
+    }
     #expect(model.project?.frames.allSatisfy { $0.crop == nil } == true)
     try await until("new source preview", { model.histogram != nil })
     let nextPreview = try #require(model.previewImage)

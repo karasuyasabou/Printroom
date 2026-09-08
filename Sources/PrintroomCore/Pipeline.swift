@@ -236,7 +236,7 @@ public enum Pipeline {
 
   public static func process(
     _ rgb: SIMD3<Float>, calibration: FilmCalibration, adjustments: FrameAdjustments,
-    lut: CubeLUT, stage: PipelineStage = .final
+    lut: CubeLUT? = nil, stage: PipelineStage = .final
   ) throws -> SIMD3<Float> {
     try Prepared(calibration: calibration, adjustments: adjustments).process(
       rgb, lut: lut, stage: stage)
@@ -244,7 +244,7 @@ public enum Pipeline {
 
   public static func render(
     _ input: PixelBuffer, calibration: FilmCalibration, adjustments: FrameAdjustments,
-    lut: CubeLUT, stage: PipelineStage = .final
+    lut: CubeLUT? = nil, stage: PipelineStage = .final
   ) throws -> PixelBuffer {
     let count = try checkedPixelCount(width: input.width, height: input.height)
     guard input.pixels.count == count else {
@@ -303,7 +303,7 @@ public enum Pipeline {
       contrast = SIMD3(c.red, c.green, c.blue) * c.master
     }
 
-    func process(_ rgb: SIMD3<Float>, lut: CubeLUT, stage: PipelineStage) throws -> SIMD3<Float> {
+    func process(_ rgb: SIMD3<Float>, lut: CubeLUT?, stage: PipelineStage) throws -> SIMD3<Float> {
       let l0 = try checked(rgb, stage: .l0)
       if stage == .l0 { return l0 }
       let l1 = try checked(l0 * gain, stage: .l1)
@@ -317,6 +317,7 @@ public enum Pipeline {
       let d3 = try checked(
         SIMD3(repeating: pivot) + contrast * (d2 - SIMD3(repeating: pivot)), stage: .d3)
       if stage == .d3 { return d3 }
+      guard let lut else { throw PrintroomError.invalid("Final 阶段需要 2383 LUT。") }
       return try checked(lut.sample(d3), stage: .final)
     }
   }

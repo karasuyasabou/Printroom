@@ -57,12 +57,12 @@ struct PreviewCanvasTests {
       let canvas = try #require(canvasIn(host))
       let initial = canvas.convert(canvas.bounds, to: host)
       #expect(abs(initial.minX) < 1)
-      // Reserve inspector, preview toolbar, pixel readout, Filmstrip, status and dividers.
+      // Reserve inspector, preview toolbar, Filmstrip and dividers.
       #expect(abs(initial.maxX - (host.bounds.width - 307)) <= 1)
       let top = host.isFlipped ? initial.minY : host.bounds.height - initial.maxY
       let bottom = host.isFlipped ? host.bounds.height - initial.maxY : initial.minY
       #expect(abs(top - 104) <= 2)
-      #expect(abs(bottom - 220) <= 2)
+      #expect(abs(bottom - 154) <= 2)
       canvas.zoom = 16
       canvas.pan = CGPoint(x: -1200, y: 900)
       canvas.needsDisplay = true
@@ -216,7 +216,7 @@ struct PreviewCanvasTests {
     }
   }
 
-  @Test func clippedZoomedClickReadsOriginalResolutionPixelAndOutsideReleaseDoesNot() async throws {
+  @Test func zoomedClicksOnlySampleWithNeutralToolAndOutsideReleaseDoesNotCommit() async throws {
     let model = EditorModel()
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent(
       "PrintroomViewport-\(UUID())")
@@ -227,17 +227,15 @@ struct PreviewCanvasTests {
       url: folder.appendingPathComponent("frame.tiff"), width: 120, height: 80,
       profile: assets.profile
     ) { rows in
-      Array(repeating: UInt16(32768), count: rows.count * 120 * 3)
+      (0..<(rows.count * 120)).flatMap { _ in [UInt16(26000), 32768, 41000] }
     }
-    var project = RollProject()
-    let frame = FrameRecord(filename: "frame.tiff")
-    project.frames = [frame]
-    model.project = project
-    model.folder = folder
-    model.selection.click(frame.id, ordered: [frame.id])
-    model.sourceWidth = 120
-    model.sourceHeight = 80
-    // A 10× smaller preview must still read coordinates in the full source.
+    model.open(folder)
+    for _ in 0..<100 where !model.canPickNeutral {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(model.canPickNeutral)
+    let frame = try #require(model.activeFrame)
+    // A 10× smaller preview must still map tools to the full source.
     model.previewImage = try image(width: 12, height: 8)
     let canvas = CanvasView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
     canvas.model = model
@@ -247,19 +245,28 @@ struct PreviewCanvasTests {
     let point = CGPoint(
       x: rect.minX + rect.width * 60.5 / 120,
       y: rect.minY + rect.height * 40.5 / 80)
+    let originalAdjustments = model.adjustments
     try canvas.mouseDown(with: mouse(.leftMouseDown, point, in: canvas))
     try canvas.mouseUp(with: mouse(.leftMouseUp, point, in: canvas))
-    for _ in 0..<100 where !model.sampleReadout.hasPrefix("(60, 40)") {
-      try await Task.sleep(for: .milliseconds(10))
-    }
-    #expect(model.sampleReadout.hasPrefix("(60, 40)"))
-    model.sampleReadout = "unchanged"
+    #expect(model.adjustments == originalAdjustments)
+    #expect(!model.neutralPicking && !model.isNeutralSampling)
+    model.toggleNeutralPicker()
+    #expect(model.neutralPicking)
     let edge = CGPoint(x: 399, y: 150)
     try canvas.mouseDown(with: mouse(.leftMouseDown, edge, in: canvas))
     // Less than click threshold, still on the enlarged image, but outside the viewport.
     try canvas.mouseUp(with: mouse(.leftMouseUp, CGPoint(x: 401, y: 150), in: canvas))
     try await Task.sleep(for: .milliseconds(100))
-    #expect(model.sampleReadout == "unchanged")
+    #expect(model.adjustments == originalAdjustments)
+    #expect(model.neutralPicking && !model.isNeutralSampling)
+    try canvas.mouseDown(with: mouse(.leftMouseDown, point, in: canvas))
+    try canvas.mouseUp(with: mouse(.leftMouseUp, point, in: canvas))
+    #expect(!model.neutralPicking)
+    for _ in 0..<100 where model.isNeutralSampling || model.isRendering {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(model.adjustments != originalAdjustments)
+    #expect(model.errorMessage == nil)
 
     let roiStart = CGPoint(
       x: rect.minX + rect.width * 50.25 / 120,

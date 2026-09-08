@@ -144,9 +144,6 @@ struct EditingV2Tests {
     let expected = try Pipeline.calibrate(image: TIFFCodec.read(url: url), rect: original,
       matrix: .identity, sourceFrameID: model.activeFrame?.id)
     #expect(calibration == expected)
-    let sourcePoint = model.orientation.inversePixel(x: 2, y: 4, sourceWidth: width, sourceHeight: height)
-    model.readDisplayedPixel(x: 2, y: 4)
-    try await until("mapped pixel readout", { model.sampleReadout.contains("(\(sourcePoint.x), \(sourcePoint.y))") })
     model.undo()
     #expect(model.project?.calibration.isCalibrated == false)
     #expect(model.orientation == .transverse)
@@ -202,24 +199,6 @@ struct EditingV2Tests {
     #expect(model.project?.calibration.isCalibrated == false)
     #expect(try ProjectStore.open(folder: folder).calibration.isCalibrated == false)
     #expect(model.errorMessage == nil)
-  }
-
-  @Test func previousFrameReadFailureCannotShowOnNextFrame() async throws {
-    let model = EditorModel()
-    let assets = try #require(model.assets)
-    let folder = try fixture("PrintroomStaleReadFailure")
-    defer { try? FileManager.default.removeItem(at: folder) }
-    for name in ["A.tif", "B.tif"] { try write(name, folder: folder, profile: assets.profile) }
-    model.open(folder)
-    let frames = try #require(model.project?.frames)
-    try await until("readout initial preview", { model.histogram != nil })
-    model.readPixel(x: 100, y: 100)
-    model.select(frames[1].id)
-    try await until("new frame preview", { model.histogram != nil })
-    try await Task.sleep(for: .milliseconds(100))
-    #expect(model.activeFrame?.id == frames[1].id)
-    #expect(model.errorMessage == nil)
-    #expect(!model.sampleReadout.contains("(100, 100)"))
   }
 
   @Test func failedNextFrameLoadClearsCancelledRenderingState() async throws {

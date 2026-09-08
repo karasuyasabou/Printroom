@@ -23,7 +23,7 @@ import SwiftUI
           guard converted.count == 3 else { throw PrintroomError.invalid("输出 profile 冒烟检查失败") }
         }
         print(
-          "Printroom 0.3.1: bundled ICC/LUT and four output profiles verified; Metal \(assets.gpu.deviceName) rendered successfully; \(DisplayImage.presentationVersion) preview verified"
+          "Printroom 0.3.2: bundled ICC/LUT and four output profiles verified; Metal \(assets.gpu.deviceName) rendered successfully; \(DisplayImage.presentationVersion) preview verified"
         )
         exit(0)
       } catch {
@@ -33,7 +33,7 @@ import SwiftUI
     }
   }
   var body: some Scene {
-    Window("Printroom 0.3.1", id: "editor") {
+    Window("Printroom 0.3.2", id: "editor") {
       EditorView(model: model).onAppear { delegate.model = model }
     }.defaultSize(width: 1360, height: 900)
       .commands {

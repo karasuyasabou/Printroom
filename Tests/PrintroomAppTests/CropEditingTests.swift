@@ -327,8 +327,6 @@ struct CropEditingTests {
     try await until("cropped native tile", { model.detailImage != nil && !model.isDetailLoading })
     #expect(model.detailImage?.width == 12 && model.detailImage?.height == 10)
     #expect(model.histogram == histogram)
-    model.readDisplayedPixel(x: 0, y: 0)
-    try await until("crop readout maps to original", { model.sampleReadout.hasPrefix("(15, 9)") })
     model.sampling = true
     #expect(model.displayWidth == 60 && model.displayHeight == 48)
     #expect(model.detailImage == nil)
