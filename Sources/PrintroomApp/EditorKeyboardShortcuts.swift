@@ -53,10 +53,28 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
     let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
     let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
     if modifiers == [.command], key == "f" {
-      model.changeOrientation(.flipHorizontal)
+      if !model.isCropping { model.changeOrientation(.flipHorizontal) }
       return true
     }
     guard modifiers.isEmpty else { return false }
+    if key == "r" {
+      if !event.isARepeat && !model.isCropping { model.beginCrop() }
+      return true
+    }
+    if model.isCropping {
+      switch event.keyCode {
+      case 36, 76:
+        if !event.isARepeat { model.commitCrop() }
+        return true
+      case 53:
+        model.cancelCrop()
+        return true
+      // Keep the crop draft and its source fixed until completion or cancellation.
+      case 123...126: return true
+      default: break
+      }
+      if ["[", "【", "]", "】"].contains(key) { return true }
+    }
     switch event.keyCode {
     case 123: model.selectAdjacentFrame(-1); return true
     case 124: model.selectAdjacentFrame(1); return true

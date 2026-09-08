@@ -14,6 +14,10 @@ struct EditorView: View {
       HStack(spacing: 0) {
         VStack(spacing: 0) {
           previewToolbar
+          if model.isCropping {
+            CropControlsView(model: model)
+            Divider()
+          }
           GeometryReader { viewport in
             ZStack {
               PreviewCanvas(model: model, resetToken: resetToken)
@@ -33,7 +37,7 @@ struct EditorView: View {
             }
             .frame(width: viewport.size.width, height: viewport.size.height)
             .overlay(alignment: .topTrailing) {
-              if model.activeFrame != nil {
+              if model.activeFrame != nil && !model.isCropping {
                 HistogramView(model: model)
                   .frame(width: 248)
                   .padding(12)
@@ -129,7 +133,8 @@ struct EditorView: View {
         }
       } label: {
         Label("导出 TIFF", systemImage: "square.and.arrow.up")
-      }.menuStyle(.borderlessButton).fixedSize().disabled(model.project == nil || model.isExporting)
+      }.menuStyle(.borderlessButton).fixedSize()
+        .disabled(model.project == nil || model.isExporting || model.isCropping)
       Menu {
         Button("清理本卷缩略图缓存") { model.clearThumbnailCache() }
       } label: {
@@ -148,6 +153,20 @@ struct EditorView: View {
           .tertiary)
       }
       Spacer()
+      Button {
+        model.beginCrop()
+      } label: {
+        Label("裁剪", systemImage: "crop")
+      }.controlSize(.small).disabled(!model.hasImage || model.isCropping)
+        .help("裁剪与精细角度 · R")
+      Menu {
+        Button("同步当前裁剪到所选 \(model.selection.selectedFrameIDs.count) 张") {
+          model.syncCurrentCropToSelection()
+        }.disabled(!model.canSyncCrop)
+      } label: {
+        Text("同步")
+      }.menuStyle(.borderlessButton).fixedSize().disabled(!model.hasImage || model.isCropping)
+        .help("同步裁剪").accessibilityLabel("同步裁剪菜单")
       Menu("方向") {
         Button("顺时针 90°") { model.changeOrientation(.rotateClockwise) }
         Button("逆时针 90°") { model.changeOrientation(.rotateCounterclockwise) }
@@ -155,11 +174,13 @@ struct EditorView: View {
         Button("水平翻转 · 当前画面") { model.changeOrientation(.flipHorizontal) }
         Button("垂直翻转 · 当前画面") { model.changeOrientation(.flipVertical) }
         Button("重置方向") { model.changeOrientation(.reset) }
-      }.menuStyle(.borderlessButton).foregroundStyle(.primary).fixedSize().disabled(!model.hasImage)
+      }.menuStyle(.borderlessButton).foregroundStyle(.primary).fixedSize()
+        .disabled(!model.hasImage || model.isCropping)
       Picker("阶段", selection: $model.stage) {
         ForEach(PipelineStage.allCases, id: \.self) { Text($0.label).tag($0) }
       }.labelsHidden().frame(width: 95)
-      Button("1:1") { model.inspectNativeResolution() }.controlSize(.small).disabled(!model.hasImage)
+      Button("1:1") { model.inspectNativeResolution() }.controlSize(.small)
+        .disabled(!model.hasImage || model.isCropping)
       Button("适应窗口") { resetToken += 1 }.controlSize(.small)
     }.padding(.horizontal, 12).frame(height: 38)
   }
@@ -190,7 +211,7 @@ struct EditorView: View {
             model.sampling.toggle()
           } label: {
             Label(model.sampling ? "取消框选" : "框选片基", systemImage: "viewfinder")
-          }.frame(maxWidth: .infinity).disabled(!model.hasImage)
+          }.frame(maxWidth: .infinity).disabled(!model.hasImage || model.isCropping)
           if model.project?.calibrationNeedsReview == true {
             Label("片基来源变化 · 请重新采样", systemImage: "exclamationmark.triangle")
               .foregroundStyle(accent).font(.caption)
@@ -325,7 +346,7 @@ struct EditorView: View {
             Text(String(format: "%02d", index + 1)).font(.system(size: 9, design: .monospaced))
               .padding(3).background(.black.opacity(0.65))
             Spacer()
-            if frame.adjustments != FrameAdjustments() || frame.orientation != .identity {
+            if frame.adjustments != FrameAdjustments() || frame.orientation != .identity || frame.crop != nil {
               Circle().fill(accent).frame(width: 5, height: 5).padding(5)
             }
           }

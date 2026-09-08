@@ -27,7 +27,10 @@ final class ProjectMigrationRelocationTests: XCTestCase {
     var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(project)) as? [String: Any])
     object["schemaVersion"] = 1
     var frames = object["frames"] as! [[String: Any]]
-    for index in frames.indices { frames[index].removeValue(forKey: "orientation") }
+    for index in frames.indices {
+      frames[index].removeValue(forKey: "orientation")
+      frames[index].removeValue(forKey: "crop")
+    }
     object["frames"] = frames
     var settings = object["exportSettings"] as! [String: Any]
     settings.removeValue(forKey: "profile")
@@ -46,7 +49,7 @@ final class ProjectMigrationRelocationTests: XCTestCase {
     let url = root.appendingPathComponent(ProjectStore.filename)
     try original.write(to: url)
     let migrated = try ProjectStore.open(folder: root)
-    XCTAssertEqual(migrated.schemaVersion, 2)
+    XCTAssertEqual(migrated.schemaVersion, 3)
     XCTAssertEqual(migrated.algorithmVersion, project.algorithmVersion)
     XCTAssertEqual(migrated.id, project.id)
     XCTAssertEqual(migrated.frames, project.frames)
@@ -58,9 +61,9 @@ final class ProjectMigrationRelocationTests: XCTestCase {
     try ProjectStore.save(migrated, folder: root, expectedModification: migrated.loadedModificationDate)
     let reopened = try ProjectStore.open(folder: root)
     XCTAssertEqual(reopened.frames, migrated.frames)
-    XCTAssertEqual(reopened.schemaVersion, 2)
+    XCTAssertEqual(reopened.schemaVersion, 3)
     let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-    XCTAssertEqual(saved["schemaVersion"] as? Int, 2)
+    XCTAssertEqual(saved["schemaVersion"] as? Int, 3)
     XCTAssertNotNil((saved["frames"] as? [[String: Any]])?[0]["orientation"])
   }
 
@@ -133,6 +136,7 @@ final class ProjectMigrationRelocationTests: XCTestCase {
     var project = try ProjectStore.open(folder: root)
     project.frames[0].adjustments.timing.red = 77
     project.frames[0].orientation = .rotate90CW
+    project.frames[0].crop = FrameCrop(aspect: .square, width: 0.5)
     let preserved = project.frames[0]
     try ProjectStore.save(project, folder: root, expectedModification: nil)
     let renamed = root.appendingPathComponent("renamed.tif")
@@ -145,6 +149,7 @@ final class ProjectMigrationRelocationTests: XCTestCase {
     XCTAssertEqual(relocated.frames[0].filename, "renamed.tif")
     XCTAssertEqual(relocated.frames[0].adjustments, preserved.adjustments)
     XCTAssertEqual(relocated.frames[0].orientation, preserved.orientation)
+    XCTAssertEqual(relocated.frames[0].crop, preserved.crop)
     XCTAssertFalse(relocated.frames[0].isMissing)
     XCTAssertEqual(relocated.lastActiveFrameID, preserved.id)
     try ProjectStore.save(relocated, folder: root, expectedModification: discovered.loadedModificationDate)
@@ -165,6 +170,9 @@ final class ProjectMigrationRelocationTests: XCTestCase {
     XCTAssertThrowsError(try ProjectStore.relocate(project, frameID: oldID, to: new, folder: root))
     project.frames[destinationIndex].orientation = .identity
     project.frames[destinationIndex].adjustments.contrast.master = 1.1
+    XCTAssertThrowsError(try ProjectStore.relocate(project, frameID: oldID, to: new, folder: root))
+    project.frames[destinationIndex].adjustments = .init()
+    project.frames[destinationIndex].crop = FrameCrop(aspect: .square, width: 0.5)
     XCTAssertThrowsError(try ProjectStore.relocate(project, frameID: oldID, to: new, folder: root))
     let outside = try source("external.tif", in: folder())
     XCTAssertThrowsError(try ProjectStore.relocate(project, frameID: oldID, to: outside, folder: root))

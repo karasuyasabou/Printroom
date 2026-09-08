@@ -20,7 +20,20 @@ import UniformTypeIdentifiers
   @Published var nativeZoomToken = 0
   @Published var thumbnails: [UUID: CGImage] = [:]
   @Published var stage: PipelineStage = .final { didSet { render() } }
-  @Published var sampling = false
+  @Published var sampling = false {
+    didSet {
+      guard sampling != oldValue else { return }
+      let changesGeometry = activeFrame?.crop != nil || isCropping
+      if sampling { isCropping = false; cropDraft = nil }
+      guard changesGeometry else { return }
+      previewImage = nil
+      cropViewportToken += 1
+      render()
+    }
+  }
+  @Published private(set) var isCropping = false
+  @Published var cropDraft: FrameCrop?
+  @Published var cropViewportToken = 0
   @Published var status = "打开一张 TIFF，开始整卷调色"
   @Published var errorMessage: String?
   @Published var isLoading = false
@@ -55,6 +68,9 @@ import UniformTypeIdentifiers
     let calibration: FilmCalibration
     let stage: PipelineStage
     let orientation: FrameOrientation
+    let crop: FrameCrop?
+    let sourceWidth: Int
+    let sourceHeight: Int
   }
   private struct PreviewRequest {
     let input: PixelBuffer
@@ -92,8 +108,19 @@ import UniformTypeIdentifiers
   var canRedo: Bool { undoManager.canRedo }
   var hasImage: Bool { previewImage != nil && activeFrame != nil }
   var orientation: FrameOrientation { activeFrame?.orientation ?? .identity }
-  var displayWidth: Int { orientation.outputSize(sourceWidth: sourceWidth, sourceHeight: sourceHeight).width }
-  var displayHeight: Int { orientation.outputSize(sourceWidth: sourceWidth, sourceHeight: sourceHeight).height }
+  var displayedCrop: FrameCrop? { isCropping || sampling ? nil : activeFrame?.crop }
+  var displayGeometry: CropGeometry? {
+    try? CropGeometry(crop: displayedCrop, sourceWidth: sourceWidth,
+      sourceHeight: sourceHeight, orientation: orientation)
+  }
+  var displayWidth: Int { displayGeometry?.outputWidth ?? 0 }
+  var displayHeight: Int { displayGeometry?.outputHeight ?? 0 }
+  var cropDraftGeometry: CropGeometry? {
+    guard isCropping else { return nil }
+    return try? CropGeometry(crop: cropDraft, sourceWidth: sourceWidth,
+      sourceHeight: sourceHeight, orientation: orientation)
+  }
+  var canSyncCrop: Bool { activeFrame != nil && selection.selectedFrameIDs.count > 1 }
   var exportSettings: ProjectExportSettings { project?.exportSettings ?? .init() }
   var matrix: PrintDensityMatrix { project?.calibration.matrix ?? .identity }
 
@@ -189,6 +216,9 @@ import UniformTypeIdentifiers
     if before != selection.activeFrameID { loadActive() }
   }
   func loadActive() {
+    isCropping = false
+    cropDraft = nil
+    sampling = false
     cancelSampling()
     pixelTask?.cancel()
     pixelRevision += 1
@@ -249,7 +279,8 @@ import UniformTypeIdentifiers
     renderRevision += 1
     guard let input = previewInput, let project, let frame = activeFrame, let assets else { return }
     let context = PreviewContext(source: previewInputIdentity, frameID: frame.id,
-      calibration: project.calibration, stage: stage, orientation: frame.orientation)
+      calibration: project.calibration, stage: stage, orientation: frame.orientation,
+      crop: displayedCrop, sourceWidth: sourceWidth, sourceHeight: sourceHeight)
     // Geometry/source/stage changes invalidate in-flight work. Ordinary edits keep
     // the current job alive and replace the single pending snapshot instead.
     if context != previewContext {
@@ -268,7 +299,9 @@ import UniformTypeIdentifiers
           let result = try await previewRenderer.render(request.input,
             calibration: request.context.calibration, adjustments: request.adjustments,
             assets: request.assets, stage: request.context.stage,
-            orientation: request.context.orientation, inputIdentity: request.context.source)
+            orientation: request.context.orientation, inputIdentity: request.context.source,
+            crop: request.context.crop, sourceWidth: request.context.sourceWidth,
+            sourceHeight: request.context.sourceHeight)
           guard !Task.isCancelled, generation == renderGeneration,
             previewContext == request.context, activeFrame?.id == request.context.frameID else { return }
           // One serial worker publishes snapshots in increasing order, including
@@ -277,8 +310,10 @@ import UniformTypeIdentifiers
           previewImage = result.image
           if request.revision == renderRevision {
             isRendering = false
-            updateHistogram(result.pixels, stage: request.context.stage,
-              revision: request.revision, frameID: request.context.frameID)
+            if !isCropping {
+              updateHistogram(result.pixels, stage: request.context.stage,
+                revision: request.revision, frameID: request.context.frameID)
+            }
           }
         } catch {
           guard !Task.isCancelled, generation == renderGeneration else { return }
@@ -313,9 +348,15 @@ import UniformTypeIdentifiers
     }
   }
   func changeOrientation(_ operation: OrientationOperation) {
+    guard !isCropping else { return }
     guard var next = project, let index = next.frames.firstIndex(where: { $0.id == selection.activeFrameID }) else { return }
     let old = next
     next.frames[index].orientation = next.frames[index].orientation.applying(operation)
+    do {
+      next.frames[index].crop = try next.frames[index].crop?.transformed(
+        from: old.frames[index].orientation, to: next.frames[index].orientation,
+        sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+    } catch { errorMessage = error.localizedDescription; return }
     guard next.frames != old.frames else { return }
     registerUndo(old: old, name: "调整方向")
     cancelSampling()
@@ -326,7 +367,86 @@ import UniformTypeIdentifiers
     refreshThumbnails(affectedIDs: [next.frames[index].id])
     scheduleSave(immediate: true)
   }
-  func inspectNativeResolution() { nativeZoomToken += 1 }
+  func beginCrop() {
+    guard !isCropping, activeFrame != nil, sourceWidth > 0, sourceHeight > 0 else { return }
+    stopTimingKey()
+    cancelSampling()
+    sampling = false
+    let size = orientation.outputSize(sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+    var initial = activeFrame?.crop ?? FrameCrop()
+    if activeFrame?.crop == nil { initial.portrait = size.height > size.width }
+    do {
+      cropDraft = try initial.constrained(sourceWidth: sourceWidth,
+        sourceHeight: sourceHeight, orientation: orientation)
+      isCropping = true
+      previewImage = nil
+      cropViewportToken += 1
+      render()
+    } catch { errorMessage = error.localizedDescription }
+  }
+  func updateCropDraft(_ value: FrameCrop) {
+    guard isCropping else { return }
+    do {
+      cropDraft = try value.constrained(sourceWidth: sourceWidth,
+        sourceHeight: sourceHeight, orientation: orientation)
+    } catch { errorMessage = error.localizedDescription }
+  }
+  func resetCropDraft() {
+    guard isCropping else { return }
+    cropDraft = nil
+  }
+  func cancelCrop() {
+    guard isCropping else { return }
+    isCropping = false
+    cropDraft = nil
+    previewImage = nil
+    cropViewportToken += 1
+    render()
+  }
+  func commitCrop(syncSelection: Bool = false) {
+    guard isCropping, let id = activeFrame?.id else { return }
+    let targets = syncSelection ? selection.selectedFrameIDs : [id]
+    applyCrop(cropDraft, targets: targets)
+  }
+  func syncCurrentCropToSelection() {
+    guard canSyncCrop, let frame = activeFrame else { return }
+    if isCropping { commitCrop(syncSelection: true) }
+    else { applyCrop(frame.crop, targets: selection.selectedFrameIDs) }
+  }
+  private func applyCrop(_ crop: FrameCrop?, targets: Set<UUID>) {
+    guard let old = project, let folder, !targets.isEmpty else { return }
+    do {
+      guard targets.isSubset(of: Set(old.frames.filter { !$0.isMissing }.map(\.id))) else {
+        throw PrintroomError.invalid("裁剪同步包含不可用照片")
+      }
+      var next = old
+      // Validate and fit every captured target before changing any frame. The
+      // saved normalized crop is a value snapshot, independent of later edits.
+      for index in next.frames.indices where targets.contains(next.frames[index].id) {
+        let frame = next.frames[index]
+        let metadata = try TIFFCodec.metadata(url: folder.appendingPathComponent(frame.filename))
+        next.frames[index].crop = try crop?.constrained(sourceWidth: metadata.width,
+          sourceHeight: metadata.height, orientation: frame.orientation)
+      }
+      let changed = next.frames != old.frames
+      if changed {
+        registerUndo(old: old, name: targets.count > 1 ? "同步裁剪到 \(targets.count) 张" : "裁剪照片")
+        project = next
+        dirty = true
+      }
+      isCropping = false
+      cropDraft = nil
+      previewImage = nil
+      cropViewportToken += 1
+      render()
+      if changed {
+        refreshThumbnails(affectedIDs: targets)
+        scheduleSave(immediate: true)
+      }
+      status = changed ? "已应用裁剪到 \(targets.count) 张" : "所选照片裁剪已相同"
+    } catch { errorMessage = error.localizedDescription }
+  }
+  func inspectNativeResolution() { if !isCropping { nativeZoomToken += 1 } }
   func invalidateDetail() {
     detailTask?.cancel()
     detailRevision += 1
@@ -340,7 +460,7 @@ import UniformTypeIdentifiers
       if requestedDetailRect != nil { invalidateDetail() }
       return
     }
-    guard rect != requestedDetailRect, !isRendering, !isLoading,
+    guard rect != requestedDetailRect, !isRendering, !isLoading, !isCropping,
       let frame = activeFrame, let project, let folder, let assets,
       rect.width > 0, rect.height > 0 else { return }
     detailTask?.cancel()
@@ -351,15 +471,17 @@ import UniformTypeIdentifiers
     detailImage = nil
     detailRect = nil
     isDetailLoading = true
-    let width = sourceWidth, height = sourceHeight, stage = stage
+    let width = sourceWidth, height = sourceHeight, stage = stage, crop = displayedCrop
     detailTask = Task {
       do {
         try await Task.sleep(for: .milliseconds(80))
-        let sourceRect = try frame.orientation.inverseRect(rect, sourceWidth: width, sourceHeight: height)
-        let input = try await imageService.region(folder.appendingPathComponent(frame.filename), rect: sourceRect)
+        let geometry = try CropGeometry(crop: crop, sourceWidth: width,
+          sourceHeight: height, orientation: frame.orientation)
+        let input = try await imageService.transformedRegion(
+          folder.appendingPathComponent(frame.filename), geometry: geometry, rect: rect)
         try Task.checkCancellation()
         let result = try await detailRenderer.render(input, calibration: project.calibration,
-          adjustments: frame.adjustments, assets: assets, stage: stage, orientation: frame.orientation)
+          adjustments: frame.adjustments, assets: assets, stage: stage)
         guard !Task.isCancelled, revision == detailRevision, renderID == renderRevision, activeFrame?.id == frame.id else { return }
         detailImage = result.image
         detailRect = rect
@@ -377,8 +499,10 @@ import UniformTypeIdentifiers
     catch { errorMessage = error.localizedDescription }
   }
   func readDisplayedPixel(x: Int, y: Int) {
-    let point = orientation.inversePixel(x: x, y: y, sourceWidth: sourceWidth, sourceHeight: sourceHeight)
-    readPixel(x: point.x, y: point.y)
+    guard let geometry = displayGeometry else { return }
+    let point = geometry.sourcePoint(outputX: Double(x) + 0.5, outputY: Double(y) + 0.5)
+    readPixel(x: max(0, min(sourceWidth - 1, Int(floor(point.x)))),
+      y: max(0, min(sourceHeight - 1, Int(floor(point.y)))))
   }
   func beginAdjustment() { if gestureBefore == nil { gestureBefore = project } }
   func endAdjustment() {
@@ -419,7 +543,15 @@ import UniformTypeIdentifiers
     guard let old = project else { return }
     registerUndo(old: old, name: name)
     cancelSampling()
-    if old.frames.first(where: { $0.id == selection.activeFrameID })?.orientation != value.frames.first(where: { $0.id == selection.activeFrameID })?.orientation { previewImage = nil }
+    sampling = false
+    isCropping = false
+    cropDraft = nil
+    let oldFrame = old.frames.first(where: { $0.id == selection.activeFrameID })
+    let newFrame = value.frames.first(where: { $0.id == selection.activeFrameID })
+    if oldFrame?.orientation != newFrame?.orientation || oldFrame?.crop != newFrame?.crop {
+      previewImage = nil
+      cropViewportToken += 1
+    }
     project = value
     let available = value.frames.filter { !$0.isMissing }.map(\.id)
     if let id = selection.activeFrameID, !available.contains(id) {
@@ -437,15 +569,17 @@ import UniformTypeIdentifiers
   }
   func undo() {
     stopTimingKey()
+    if isCropping { cancelCrop(); return }
     undoManager.undo()
     undoRevision += 1
-    status = "已撤销调色操作"
+    status = "已撤销操作"
   }
   func redo() {
     stopTimingKey()
+    if isCropping { cancelCrop(); return }
     undoManager.redo()
     undoRevision += 1
-    status = "已重做调色操作"
+    status = "已重做操作"
   }
   func resetAdjustments() { edit { $0 = .init() } }
   func copyParameters() {
@@ -544,7 +678,7 @@ import UniformTypeIdentifiers
           stage: selectedStage)
         guard !Task.isCancelled, pixelID == pixelRevision, activeFrame?.id == frame.id, stage == selectedStage, revision == renderRevision else { return }
         let values = String(format: "R %.5f  G %.5f  B %.5f", v.x, v.y, v.z)
-        sampleReadout = "(\(x), \(y)) · \(selectedStage.label)  \(values)"
+        sampleReadout = "(\(x), \(y)) · 原片 · \(selectedStage.label)  \(values)"
         if [.d0, .d1, .d2, .d3].contains(selectedStage) {
           sampleReadout += String(
             format: " · CV %.2f / %.2f / %.2f", v.x * 1024, v.y * 1024, v.z * 1024)
@@ -626,6 +760,7 @@ import UniformTypeIdentifiers
       if let source = backup.frames.first(where: { $0.id == next.frames[i].id }) {
         next.frames[i].adjustments = source.adjustments
         next.frames[i].orientation = source.orientation
+        next.frames[i].crop = source.crop
       }
     }
     next.exportSettings = backup.exportSettings
@@ -640,7 +775,11 @@ import UniformTypeIdentifiers
     let saved = try ProjectStore.save(
       next, folder: folder, expectedModification: next.loadedModificationDate)
     cancelSampling()
+    isCropping = false
+    cropDraft = nil
+    sampling = false
     previewImage = nil
+    cropViewportToken += 1
     registerUndo(old: previous, name: "恢复设置副本")
     project = next
     expectedModification = saved
@@ -652,7 +791,7 @@ import UniformTypeIdentifiers
     status = "已恢复本卷设置副本"
   }
   func exportPanel() {
-    guard let project, let frame = activeFrame, let folder, !isExporting else { return }
+    guard let project, let frame = activeFrame, let folder, !isExporting, !isCropping else { return }
     let panel = NSSavePanel()
     panel.allowedContentTypes = [.tiff]
     panel.nameFieldStringValue = URL(fileURLWithPath: frame.filename).deletingPathExtension().lastPathComponent + "_Printroom.tiff"
@@ -667,7 +806,7 @@ import UniformTypeIdentifiers
     startExport(targetIDs: [frame.id], directory: destination.deletingLastPathComponent(), explicitDestination: destination)
   }
   func batchExportPanel(allFrames: Bool) {
-    guard let project, !isExporting else { return }
+    guard let project, !isExporting, !isCropping else { return }
     let targets = allFrames ? Set(project.frames.map(\.id)) : selection.selectedFrameIDs
     guard !targets.isEmpty else { return }
     let panel = NSOpenPanel()
@@ -772,6 +911,7 @@ import UniformTypeIdentifiers
               inode: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0,
               calibration: project.calibration, adjustments: frame.adjustments,
               orientation: frame.orientation,
+              crop: frame.crop,
               algorithm: algorithmVersion, icc: ProjectAssetIdentity.expectedICCSHA256,
               lut: ProjectAssetIdentity.expectedLUTSHA256, dimension: 240,
               presentationVersion: DisplayImage.presentationVersion))
@@ -782,10 +922,11 @@ import UniformTypeIdentifiers
             pendingThumbnailIDs.remove(frame.id)
             continue
           }
-          let input = try await thumbnailService.thumbnail(sourceURL)
-          let output = try await thumbnailRenderer.render(input,
+          let source = try await thumbnailService.thumbnailSource(sourceURL)
+          let output = try await thumbnailRenderer.render(source.0,
             calibration: project.calibration, adjustments: frame.adjustments,
-            assets: assets, orientation: frame.orientation)
+            assets: assets, orientation: frame.orientation, crop: frame.crop,
+            sourceWidth: source.1, sourceHeight: source.2)
           guard !Task.isCancelled, generation == thumbnailGeneration else { return }
           thumbnails[frame.id] = output.image
           // Expendable disk cache failures never prevent editing or project save.
@@ -849,6 +990,7 @@ import UniformTypeIdentifiers
     let calibration: FilmCalibration
     let adjustments: FrameAdjustments
     let orientation: FrameOrientation
+    let crop: FrameCrop?
     let algorithm: String
     let icc: String
     let lut: String

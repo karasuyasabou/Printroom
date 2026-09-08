@@ -226,6 +226,74 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
     }
   }
 
+  func testCropExportSnapshotAllICCCompressionsAndAnalyticLinearSampling() async throws {
+    let folder = try temporary()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let source = folder.appendingPathComponent("crop-source.tiff")
+    let profile = try p3()
+    // An affine UInt16 field has an independent exact bilinear solution. Its
+    // three unequal channels also catch accidental input ICC/gamma conversion.
+    try TIFFCodec.write(url: source, width: 120, height: 80, profile: profile) { rows in
+      var samples: [UInt16] = []
+      for y in rows {
+        for x in 0..<120 {
+          for c in 0..<3 { samples.append(UInt16(20000 + 100 * x + 150 * y + 3000 * c)) }
+        }
+      }
+      return samples
+    }
+    let original = try Data(contentsOf: source)
+    var project = try ProjectStore.open(folder: folder)
+    let lut = try identityLUT()
+    let engine = ExportEngine(useCPUReference: true)
+    for angle in [0.0, 6.73] {
+      let crop = FrameCrop(width: 0.5, angleDegrees: angle)
+      project.frames[0].crop = crop
+      let radians = angle * .pi / 180
+      var analytic: [SIMD4<Float>] = []
+      for y in 0..<40 {
+        for x in 0..<60 {
+          let dx = Double(x) + 0.5 - 30, dy = Double(y) + 0.5 - 20
+          let sx = cos(radians) * dx + sin(radians) * dy + 60 - 0.5
+          let sy = -sin(radians) * dx + cos(radians) * dy + 40 - 0.5
+          var color = SIMD4<Float>(repeating: 1)
+          for c in 0..<3 {
+            let linear = (20000 + 100 * sx + 150 * sy + 3000 * Double(c)) / 65535
+            color[c] = Float(-log10(linear) / 2.048)
+          }
+          analytic.append(color)
+        }
+      }
+      for output in OutputColorProfile.allCases {
+        for compression in TIFFCompression.allCases {
+          project.exportSettings = .init(profile: output, compression: compression)
+          let request = try ExportRequest(project: project, targetIDs: [project.frames[0].id],
+                                          destinationDirectory: folder)
+          var edited = project
+          edited.frames[0].crop = FrameCrop(aspect: .square, angleDegrees: -10)
+          XCTAssertEqual(request.frames[0].crop, crop)
+          XCTAssertNotEqual(request.frames[0].crop, edited.frames[0].crop)
+          let summary = try await engine.run(request, lut: lut, p3Profile: profile)
+          XCTAssertEqual(summary.completedCount, 1, summary.results.first?.error ?? "")
+          let destination = try XCTUnwrap(summary.results[0].destination)
+          let image = try TIFFCodec.read(url: destination)
+          XCTAssertEqual(image.width, 60)
+          XCTAssertEqual(image.height, 40)
+          let converter = try OutputColorConverter(p3Profile: profile, output: output)
+          let expected = try converter.quantized(PixelBuffer(width: 60, height: 40, pixels: analytic))
+          for index in expected.indices {
+            XCTAssertLessThanOrEqual(abs(Int(image.samples[index]) - Int(expected[index])), 1,
+                                    "\(output) \(compression) angle \(angle) sample \(index)")
+          }
+          let bytes = try Data(contentsOf: destination)
+          XCTAssertEqual(tiffTag(bytes, 34675), converter.outputProfile)
+          XCTAssertEqual(tiffTag(bytes, 274), Data([1, 0]))
+        }
+      }
+    }
+    XCTAssertEqual(try Data(contentsOf: source), original)
+  }
+
   func testFailureContinuesConflictSuffixAndProtectsAllOriginals() async throws {
     let folder = try temporary()
     defer { try? FileManager.default.removeItem(at: folder) }

@@ -15,6 +15,9 @@ final class PivotMigrationTests: XCTestCase {
     var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(project)) as? [String: Any])
     json["algorithmVersion"] = "printroom-density-v1"
     json["schemaVersion"] = schema
+    var legacyFrames = json["frames"] as! [[String: Any]]
+    for index in legacyFrames.indices { legacyFrames[index].removeValue(forKey: "crop") }
+    json["frames"] = legacyFrames
     if schema == 1 {
       var frames = json["frames"] as! [[String: Any]]
       for index in frames.indices { frames[index].removeValue(forKey: "orientation") }
@@ -44,7 +47,7 @@ final class PivotMigrationTests: XCTestCase {
       try original.write(to: url)
       let migrated = try ProjectStore.open(folder: root)
       XCTAssertEqual(migrated.algorithmVersion, "printroom-density-v2")
-      XCTAssertEqual(migrated.schemaVersion, 2)
+      XCTAssertEqual(migrated.schemaVersion, 3)
       XCTAssertEqual(migrated.id, project.id)
       XCTAssertEqual(migrated.frames, project.frames)
       XCTAssertEqual(migrated.calibration, project.calibration)
@@ -56,7 +59,7 @@ final class PivotMigrationTests: XCTestCase {
       XCTAssertEqual(try Data(contentsOf: backup), original)
       let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
       XCTAssertEqual(saved["algorithmVersion"] as? String, "printroom-density-v2")
-      XCTAssertEqual(saved["schemaVersion"] as? Int, 2)
+      XCTAssertEqual(saved["schemaVersion"] as? Int, 3)
       try ProjectStore.save(migrated, folder: root, expectedModification: savedDate)
       XCTAssertEqual(try backups(in: root), [backup])
       XCTAssertEqual(try Data(contentsOf: backup), original)

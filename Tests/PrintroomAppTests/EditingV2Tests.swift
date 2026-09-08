@@ -68,7 +68,7 @@ struct EditingV2Tests {
     #expect(reopened.frames == applied.frames)
     #expect(reopened.exportSettings.profile == .proPhoto)
     #expect(reopened.exportSettings.compression == .deflate)
-    #expect(reopened.schemaVersion == 2)
+    #expect(reopened.schemaVersion == 3)
     try await until("oriented preview", { model.histogram != nil && !model.isRendering })
     #expect(model.previewImage?.width == 8 && model.previewImage?.height == 12)
     #expect(model.histogram?.pixelCount == 96)

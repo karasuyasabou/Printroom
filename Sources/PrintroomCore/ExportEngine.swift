@@ -7,6 +7,7 @@ public struct ExportFrameSnapshot: Sendable {
   public let sourceURL: URL
   public let adjustments: FrameAdjustments
   public let orientation: FrameOrientation
+  public let crop: FrameCrop?
   public let sourceSize: Int64
   public let sourceModified: Double
 
@@ -16,6 +17,7 @@ public struct ExportFrameSnapshot: Sendable {
     sourceURL = folder.appendingPathComponent(frame.filename)
     adjustments = frame.adjustments
     orientation = frame.orientation
+    crop = frame.crop
     sourceSize = frame.sourceSize
     sourceModified = frame.sourceModified
   }
@@ -57,7 +59,7 @@ public struct ExportRequest: Sendable {
   public init(
     source: URL, destination: URL, calibration: FilmCalibration,
     adjustments: FrameAdjustments, orientation: FrameOrientation = .identity,
-    settings: ProjectExportSettings = .init()
+    settings: ProjectExportSettings = .init(), crop: FrameCrop? = nil
   ) throws {
     let attributes = try FileManager.default.attributesOfItem(atPath: source.path)
     guard source.isFileURL, destination.isFileURL,
@@ -68,6 +70,7 @@ public struct ExportRequest: Sendable {
       filename: source.lastPathComponent, adjustments: adjustments,
       sourceSize: size, sourceModified: date.timeIntervalSince1970)
     frame.orientation = orientation
+    frame.crop = crop
     id = UUID()
     frames = [ExportFrameSnapshot(frame: frame, folder: source.deletingLastPathComponent())]
     self.calibration = calibration
@@ -201,7 +204,9 @@ public actor ExportEngine {
     }
     let image = try TIFFCodec.read(url: frame.sourceURL)
     try validateSource(frame)
-    let size = frame.orientation.outputSize(sourceWidth: image.width, sourceHeight: image.height)
+    let geometry = try CropGeometry(crop: frame.crop, sourceWidth: image.width,
+                                    sourceHeight: image.height, orientation: frame.orientation)
+    let size = (width: geometry.outputWidth, height: geometry.outputHeight)
     progress(0.08)
     let initial =
       request.explicitDestination
@@ -226,17 +231,7 @@ public actor ExportEngine {
           profile: converter.outputProfile, compression: request.settings.compression
         ) { rows in
           try Task.checkCancellation()
-          var pixels = [SIMD4<Float>]()
-          pixels.reserveCapacity(rows.count * size.width)
-          for y in rows {
-            for x in 0..<size.width {
-              let source = frame.orientation.inversePixel(
-                x: x, y: y,
-                sourceWidth: image.width, sourceHeight: image.height)
-              pixels.append(SIMD4(image.pixel(x: source.x, y: source.y), 1))
-            }
-          }
-          let input = PixelBuffer(width: size.width, height: rows.count, pixels: pixels)
+          let input = try geometry.renderRows(image, rows: rows)
           let final: PixelBuffer
           if let gpu {
             final = try gpu.render(

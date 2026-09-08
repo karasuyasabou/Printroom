@@ -3,6 +3,7 @@ import Foundation
 private let projectAlgorithmVersion = algorithmVersion
 private let legacyAlgorithmVersion = "printroom-density-v1"
 private let migratingSchemaOne = CodingUserInfoKey(rawValue: "printroom.migratingSchemaOne")!
+private let migratingLegacyCrop = CodingUserInfoKey(rawValue: "printroom.migratingLegacyCrop")!
 
 public struct FrameRecord: Identifiable, Codable, Equatable, Sendable {
   public var id: UUID
@@ -10,6 +11,8 @@ public struct FrameRecord: Identifiable, Codable, Equatable, Sendable {
   public var adjustments: FrameAdjustments
   /// User edit applied after TIFF orientation normalization; independent of Timing/Contrast.
   public var orientation: FrameOrientation
+  /// nil retains the original full-frame image and exact original sampling path.
+  public var crop: FrameCrop?
   public var isMissing: Bool
   public var sourceSize: Int64
   /// Source modification time, in seconds since 1970. Used with size for cache invalidation.
@@ -18,19 +21,20 @@ public struct FrameRecord: Identifiable, Codable, Equatable, Sendable {
   public init(
     id: UUID = UUID(), filename: String, adjustments: FrameAdjustments = .init(),
     isMissing: Bool = false, sourceSize: Int64 = 0, sourceModified: Double = 0,
-    orientation: FrameOrientation = .identity
+    orientation: FrameOrientation = .identity, crop: FrameCrop? = nil
   ) {
     self.id = id
     self.filename = filename
     self.adjustments = adjustments
     self.orientation = orientation
+    self.crop = crop
     self.isMissing = isMissing
     self.sourceSize = sourceSize
     self.sourceModified = sourceModified
   }
 
   private enum CodingKeys: String, CodingKey {
-    case id, filename, adjustments, orientation, isMissing, sourceSize, sourceModified
+    case id, filename, adjustments, orientation, crop, isMissing, sourceSize, sourceModified
   }
 
   public init(from decoder: Decoder) throws {
@@ -51,6 +55,31 @@ public struct FrameRecord: Identifiable, Codable, Equatable, Sendable {
     } else {
       orientation = try values.decode(FrameOrientation.self, forKey: .orientation)
     }
+    if decoder.userInfo[migratingLegacyCrop] as? Bool == true {
+      guard !values.contains(.crop) else {
+        throw ProjectStoreError.invalidProject("旧 schema 含有未定义的裁剪设置")
+      }
+      crop = nil
+    } else {
+      // A missing required key is damaged schema 3; explicit null means full image.
+      guard values.contains(.crop) else {
+        throw ProjectStoreError.invalidProject("schema 3 缺少裁剪设置")
+      }
+      crop = try values.decodeIfPresent(FrameCrop.self, forKey: .crop)
+      try crop?.validate()
+    }
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var values = encoder.container(keyedBy: CodingKeys.self)
+    try values.encode(id, forKey: .id)
+    try values.encode(filename, forKey: .filename)
+    try values.encode(adjustments, forKey: .adjustments)
+    try values.encode(orientation, forKey: .orientation)
+    try values.encode(crop, forKey: .crop)
+    try values.encode(isMissing, forKey: .isMissing)
+    try values.encode(sourceSize, forKey: .sourceSize)
+    try values.encode(sourceModified, forKey: .sourceModified)
   }
 }
 
@@ -117,7 +146,7 @@ public struct ProjectExportSettings: Codable, Equatable, Sendable {
 }
 
 public struct RollProject: Codable, Sendable {
-  public static let currentSchemaVersion = 2
+  public static let currentSchemaVersion = 3
 
   public var schemaVersion = currentSchemaVersion
   public var algorithmVersion = projectAlgorithmVersion
@@ -279,6 +308,12 @@ public enum ProjectStore {
             let backup = coordinated.deletingLastPathComponent().appendingPathComponent(
               ".printroom-density-v1-\(UUID().uuidString).json")
             try original.write(to: backup, options: .withoutOverwriting)
+          } else if header.schemaVersion < RollProject.currentSchemaVersion {
+            // Older app packages cannot read schema 3. Preserve their exact settings
+            // before the first migrated save, with the same conflict/atomicity rules.
+            let backup = coordinated.deletingLastPathComponent().appendingPathComponent(
+              ".printroom-schema\(header.schemaVersion)-\(UUID().uuidString).json")
+            try original.write(to: backup, options: .withoutOverwriting)
           }
         }
         try data.write(to: coordinated, options: .atomic)
@@ -331,9 +366,9 @@ public enum ProjectStore {
     }
     if let collision = project.frames.first(where: { $0.filename == source.filename && $0.id != frameID }) {
       guard collision.adjustments == FrameAdjustments(), collision.orientation == .identity,
-        project.calibration.sourceFrameID != collision.id
+        collision.crop == nil, project.calibration.sourceFrameID != collision.id
       else {
-        throw ProjectStoreError.invalidProject("目标照片已有调色、方向或片基来源设置，不能合并")
+        throw ProjectStoreError.invalidProject("目标照片已有调色、方向、裁剪或片基来源设置，不能合并")
       }
       updated.frames.removeAll { $0.id == collision.id }
       if updated.lastActiveFrameID == collision.id { updated.lastActiveFrameID = frameID }
@@ -360,13 +395,14 @@ public enum ProjectStore {
     do {
       let decoder = JSONDecoder()
       let header = try decoder.decode(Header.self, from: data)
-      guard [1, RollProject.currentSchemaVersion].contains(header.schemaVersion) else {
+      guard [1, 2, RollProject.currentSchemaVersion].contains(header.schemaVersion) else {
         throw ProjectStoreError.unsupportedSchema(header.schemaVersion)
       }
       guard [legacyAlgorithmVersion, projectAlgorithmVersion].contains(header.algorithmVersion) else {
         throw ProjectStoreError.incompatibleAlgorithm(header.algorithmVersion)
       }
       decoder.userInfo[migratingSchemaOne] = header.schemaVersion == 1
+      decoder.userInfo[migratingLegacyCrop] = header.schemaVersion < 3
       var project = try decoder.decode(RollProject.self, from: data)
       project.schemaVersion = RollProject.currentSchemaVersion
       project.algorithmVersion = projectAlgorithmVersion
@@ -412,6 +448,7 @@ public enum ProjectStore {
         throw ProjectStoreError.invalidProject("照片源文件指纹无效")
       }
       try validateAdjustments(frame.adjustments)
+      try frame.crop?.validate()
     }
     if let active = project.lastActiveFrameID, !ids.contains(active) {
       throw ProjectStoreError.invalidProject("当前照片 ID 不属于项目")

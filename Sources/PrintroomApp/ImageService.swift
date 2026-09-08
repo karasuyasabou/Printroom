@@ -76,6 +76,23 @@ actor ImageService {
   func thumbnail(_ url: URL, maxDimension: Int = 240) throws -> PixelBuffer {
     try previewEntry(url, maxDimension: maxDimension).pixels
   }
+  func thumbnailSource(_ url: URL) throws -> (PixelBuffer, Int, Int) {
+    let entry = try previewEntry(url, maxDimension: 240)
+    return (entry.pixels, entry.width, entry.height)
+  }
+
+  /// Read only the bounding source tile required by the final crop viewport,
+  /// including interpolation neighbours. Geometry runs before density processing.
+  func transformedRegion(_ url: URL, geometry: CropGeometry, rect: PixelRect) throws -> PixelBuffer {
+    guard rect.width > 0, rect.height > 0, rect.width <= 8_388_608 / rect.height else {
+      throw PrintroomError.invalid("1:1 检查区域超过 8 百万像素，请缩小检查视口")
+    }
+    let sourceRect = try geometry.sourceRegion(for: rect)
+    let input = try region(url, rect: sourceRect)
+    return try geometry.render(input, sourceRegion: sourceRect, outputRegion: rect,
+      maxDimension: max(rect.width, rect.height),
+      cancelled: { Task.isCancelled })
+  }
 
   /// A native-resolution tile in source coordinates. Regions are transient and
   /// cannot evict the small input previews needed for continuous adjustment.
