@@ -105,6 +105,10 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
       model.cancelNeutralPicker()
       return true
     }
+    if key == "i" {
+      if !event.isARepeat { model.toggleNeutralPicker() }
+      return true
+    }
     if key == "r" {
       if !event.isARepeat && !model.isCropping { model.beginCrop() }
       return true

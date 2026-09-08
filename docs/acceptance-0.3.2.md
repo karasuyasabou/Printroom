@@ -1,6 +1,6 @@
 # Printroom 0.3.2 验收记录
 
-日期：2026-09-08。本机 Apple M4、macOS 26.6.2（25G83）、Swift 6.3.3、arm64。独立 `output/Printroom-0.3.2.app`，构建号 1，bundle ID `studio.printroom.local.v3.2`。算法 `printroom-density-v2`、schema 3、几何版本 2、展示格式 `sdr-uint16-v1` 不变。此记录随实现一并提交，本地提交可通过 `git log -1` 查看。
+日期：2026-09-08。本机 Apple M4、macOS 26.6.2（25G83）、Swift 6.3.3、arm64。独立 `output/Printroom-0.3.2.app`，初版构建号 1，当前构建号 2 的增量验证见末节；bundle ID `studio.printroom.local.v3.2`。算法 `printroom-density-v2`、schema 3、几何版本 2、展示格式 `sdr-uint16-v1` 不变。此记录随实现一并提交，本地提交可通过 `git log -1` 查看。
 
 ## 交付范围
 
@@ -54,3 +54,19 @@
 - 用户实际吸管选点效果、连续长按手感、其他 macOS/Intel/显示设备未人工验收。
 
 交付核对：既有 0.2.0、0.3.0、0.3.1 应用仍在 output/；原始 TIFF/ICC/LUT 未改写或上传。本轮无远端、推送或发布。
+
+## 构建号 2：工具指针与 I 快捷键
+
+吸管显示黑色白描边图标，尖端为热点；片基框选显示系统十字。预览使用 AppKit tracking area 处理移入、移动和 cursorUpdate，工具状态更新后主动刷新静止指针。刷新避开 SwiftUI 更新过程，排除直方图等覆盖控件；取消、取样结束和移出预览恢复正常指针。I 开启/取消，自动重复不切换，保留文本/弹窗/失焦与片基/裁剪互斥规则。
+
+| 命令/证据 | 本次结果 |
+| --- | --- |
+| `scripts/test.sh -c release --filter 'EditorKeyboardRoutingTests\|PreviewCanvasTests\|EditorRefinementTests'`；`scratch/cursor-shortcut-tests-final.log` | 16 项相关测试通过，覆盖路由边界、预览手势、吸管原片映射/撤销与过期取样保护 |
+| `bash scripts/editor-window-qa.sh --release --skip-build --keyboard` 编译；本机运行 `scratch/editor-ui-qa/window-qa --keyboard`；`scratch/cursor-shortcut-window-final.log` | 自有真实 EditorView 窗口的事件队列验证通过：按钮与 I 开启、I/Esc 取消、长按不重复、静止指针更新、预览移出/重入、实际吸取后恢复、片基十字/取消与互斥、输入框接收 I；既有 W/Option 调色回归通过 |
+| `scripts/build-app.sh`；`scratch/cursor-shortcut-build.log` | release 编译、打包与签名完成；资源自检因受限环境无法创建 Metal 而退出，随后单独本机运行新版 `--verify-resources` 通过，日志 `scratch/cursor-shortcut-resources.log` |
+| `codesign --verify --deep --strict --verbose=2 output/Printroom-0.3.2.app`；`plutil -lint output/Printroom-0.3.2.app/Contents/Info.plist` | 通过；构建号 2 |
+| `shasum -a 256 -c assets/SHA256SUMS`；`scratch/cursor-shortcut-assets.log` | 12/12 原始资产通过 |
+
+初次实际窗口检查暴露同步 hitTest 引起的 SwiftUI 布局循环日志，已改为界面更新结束后刷新；最终窗口日志无此循环。最终截图 `scratch/editor-ui-qa/04-keyboard-regression.png` 和指针图 `scratch/editor-ui-qa/05-neutral-cursor.png` 已查看。受限运行无法访问 Metal/文件协调服务的失败不计为通过；上述图像与窗口结果来自本机权限运行。
+
+保留原构建 `output/Printroom-0.3.2-build1.app` 与所有既有旧版。本次仅修改工具指针、快捷键与帮助文字；未重跑全尺寸导出/CPU-Metal 全套数值或性能量测，跨设备及用户手感仍待试用。

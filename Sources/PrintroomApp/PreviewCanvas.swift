@@ -27,7 +27,8 @@ struct PreviewCanvas: NSViewRepresentable {
     view.model = model
     view.needsDisplay = true
     view.scheduleDetail()
-    view.window?.invalidateCursorRects(for: view)
+    // Hit-testing can ask SwiftUI to lay out overlays; do it after this update finishes.
+    Task { @MainActor [weak view] in view?.refreshCursor() }
   }
 }
 @MainActor final class CanvasView: NSView {
@@ -43,6 +44,40 @@ struct PreviewCanvas: NSViewRepresentable {
   var previous: CGPoint?
   var selectionRect: CGRect?
   var cropGesture: CropGesture?
+  private var cursorTrackingArea: NSTrackingArea?
+  // Draw an outlined pipette with an exact tip/hotspot, visible on light and dark photos.
+  static let neutralCursor: NSCursor = {
+    let image = NSImage(size: NSSize(width: 26, height: 26), flipped: true) { _ in
+      let tube = NSBezierPath()
+      tube.move(to: NSPoint(x: 3, y: 22))
+      tube.line(to: NSPoint(x: 3, y: 18))
+      tube.line(to: NSPoint(x: 12, y: 9))
+      tube.line(to: NSPoint(x: 16, y: 13))
+      tube.line(to: NSPoint(x: 7, y: 22))
+      tube.close()
+      let bulb = NSBezierPath()
+      bulb.move(to: NSPoint(x: 10, y: 8))
+      bulb.line(to: NSPoint(x: 13, y: 5))
+      bulb.line(to: NSPoint(x: 15, y: 7))
+      bulb.line(to: NSPoint(x: 18, y: 4))
+      bulb.curve(to: NSPoint(x: 22, y: 8), controlPoint1: NSPoint(x: 22, y: 0),
+        controlPoint2: NSPoint(x: 26, y: 4))
+      bulb.line(to: NSPoint(x: 19, y: 11))
+      bulb.line(to: NSPoint(x: 21, y: 13))
+      bulb.line(to: NSPoint(x: 18, y: 16))
+      bulb.close()
+      for path in [tube, bulb] {
+        path.lineJoinStyle = .round
+        path.lineWidth = 2.5
+        NSColor.white.setStroke()
+        path.stroke()
+        NSColor.black.setFill()
+        path.fill()
+      }
+      return true
+    }
+    return NSCursor(image: image, hotSpot: NSPoint(x: 3, y: 22))
+  }()
   override init(frame frameRect: NSRect) {
     super.init(frame: frameRect)
     // macOS 14 no longer clips NSView drawing to bounds by default.
@@ -279,22 +314,41 @@ struct PreviewCanvas: NSViewRepresentable {
     scheduleDetail()
     needsDisplay = true
   }
-  override func resetCursorRects() {
-    addCursorRect(bounds, cursor: model?.sampling == true || model?.neutralPicking == true ? .crosshair : .openHand)
-    guard model?.isCropping == true, let rect = cropRect else { return }
-    func cursor(_ area: CGRect, _ cursor: NSCursor) {
-      let visible = area.intersection(bounds)
-      if !visible.isNull && !visible.isEmpty { addCursorRect(visible, cursor: cursor) }
+  override func updateTrackingAreas() {
+    super.updateTrackingAreas()
+    if let cursorTrackingArea { removeTrackingArea(cursorTrackingArea) }
+    let area = NSTrackingArea(rect: .zero,
+      options: [.inVisibleRect, .activeInKeyWindow, .cursorUpdate, .mouseMoved, .mouseEnteredAndExited],
+      owner: self, userInfo: nil)
+    addTrackingArea(area)
+    cursorTrackingArea = area
+  }
+  func cursor(at point: CGPoint) -> NSCursor {
+    guard bounds.contains(point), let model, model.previewImage != nil else { return .arrow }
+    if model.sampling { return .crosshair }
+    if model.neutralPicking { return Self.neutralCursor }
+    if model.isCropping, let rect = cropRect, let handle = cropHandle(at: point, rect: rect) {
+      if handle.x != 0 && handle.y != 0 { return .crosshair }
+      if handle.x != 0 { return .resizeLeftRight }
+      if handle.y != 0 { return .resizeUpDown }
     }
-    for x in [rect.minX, rect.maxX] {
-      cursor(CGRect(x: x - 6, y: rect.minY, width: 12, height: rect.height), .resizeLeftRight)
-    }
-    for y in [rect.minY, rect.maxY] {
-      cursor(CGRect(x: rect.minX, y: y - 6, width: rect.width, height: 12), .resizeUpDown)
-    }
-    for point in cropCorners(rect) {
-      cursor(CGRect(x: point.x - 9, y: point.y - 9, width: 18, height: 18), .crosshair)
-    }
+    return .openHand
+  }
+  func refreshCursor() {
+    // A tool can change under a stationary pointer (I, Esc, or completed sampling).
+    // Only claim the pointer when the canvas is actually hit, excluding SwiftUI overlays.
+    guard let window, window.isKeyWindow, window.attachedSheet == nil,
+      NSApp.modalWindow == nil, let content = window.contentView else { return }
+    let location = window.mouseLocationOutsideOfEventStream
+    let hit = content.hitTest(content.convert(location, from: nil))
+    guard hit === self || hit?.isDescendant(of: self) == true else { return }
+    cursor(at: convert(location, from: nil)).set()
+  }
+  override func cursorUpdate(with event: NSEvent) { refreshCursor() }
+  override func mouseEntered(with event: NSEvent) { refreshCursor() }
+  override func mouseMoved(with event: NSEvent) { refreshCursor() }
+  override func mouseExited(with event: NSEvent) {
+    NSCursor.arrow.set()
   }
 }
 

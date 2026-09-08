@@ -246,7 +246,7 @@ struct EditorView: View {
                 .frame(width: 24, height: 20)
             }.buttonStyle(.plain)
               .disabled(!model.canPickNeutral || model.isNeutralSampling)
-              .help(model.neutralPicking ? "点击照片吸取中性点 · Esc 取消" : "吸取中性点 · 调整 RGB Timing")
+              .help(model.neutralPicking ? "点击照片吸取中性点 · I / Esc 取消" : "吸取中性点 (I) · 调整 RGB Timing")
               .accessibilityLabel(model.neutralPicking ? "取消中性点吸管" : "吸取中性点")
           }
           timingRow("Master", \.master, color: .white)
