@@ -5,7 +5,6 @@ import Foundation
 public struct CubeLUT: Sendable {
   public let size: Int
   public let values: [SIMD4<Float>]
-
   public init(size: Int, values: [SIMD4<Float>]) throws {
     let expectedCount = try Self.entryCount(size: size)
     guard values.count == expectedCount else {
@@ -127,7 +126,7 @@ public struct CalibrationDiagnostics: Equatable, Sendable {
   public var saturatedFraction: Double { Double(saturatedPixelCount) / Double(pixelCount) }
 }
 
-/// Float32 reference implementation of printroom-density-v2; no ICC or gamma transforms.
+/// Float32 reference implementation of printroom-density-v6; no ICC or gamma transforms.
 public enum Pipeline {
   private static let cvScale: Float = 1024
   private static let densityScale: Float = 2.048
@@ -137,20 +136,12 @@ public enum Pipeline {
   private static let pivot: Float = Float(contrastPivotCV) / 1024
 
   public static func matrix(_ rgb: SIMD3<Float>, _ matrix: PrintDensityMatrix) -> SIMD3<Float> {
-    switch matrix {
-    case .identity:
-      return rgb
-    case .ledLightSource:
-      return SIMD3(
-        1.0584 * rgb.x - 0.0204 * rgb.y + 0.0023 * rgb.z,
-        0.0753 * rgb.x + 1.0120 * rgb.y - 0.0693 * rgb.z,
-        -0.0147 * rgb.x + 0.1420 * rgb.y + 0.7774 * rgb.z
-      )
-    }
+    matrix.coefficients.apply(rgb)
   }
 
   public static func calibrate(
-    image: LinearImage, rect: PixelRect, matrix: PrintDensityMatrix, sourceFrameID: UUID?
+    image: LinearImage, rect: PixelRect, matrix: PrintDensityMatrix, sourceFrameID: UUID?,
+    cmosMatrix: MatrixPreset = .identity
   ) throws -> FilmCalibration {
     let count = try checkedSelectionPixelCount(image: image, rect: rect)
     guard count >= 16 else { throw PrintroomError.invalid("片基选区至少需要 16 个有效 RGB 像素。") }
@@ -164,7 +155,7 @@ public enum Pipeline {
     // Keep finite zero/saturated samples in the median; do not sample the preview.
     for y in rect.y..<(rect.y + rect.height) {
       for x in rect.x..<(rect.x + rect.width) {
-        let rgb = image.pixel(x: x, y: y)
+        let rgb = try checked(cmosMatrix.coefficients.apply(image.pixel(x: x, y: y)), stage: .l1)
         red.append(rgb.x)
         green.append(rgb.y)
         blue.append(rgb.z)
@@ -182,6 +173,8 @@ public enum Pipeline {
     }
     var calibration = FilmCalibration()
     calibration.matrix = matrix
+    calibration.cmosMatrix = cmosMatrix
+    calibration.sampledCMOSMatrix = cmosMatrix
     calibration.baseRGB = base
     calibration.gainRGB = SIMD3(repeating: baseTarget) / base
     calibration.sourceFrameID = sourceFrameID
@@ -218,6 +211,7 @@ public enum Pipeline {
   ) throws -> FilmCalibration {
     var result = calibration
     result.matrix = matrix
+    result.sampledDensityMatrix = matrix
     guard let base = calibration.baseRGB else {
       result.gainRGB = SIMD3(repeating: 1)
       result.filmBaseOffsetCV = SIMD3(repeating: 0)
@@ -225,7 +219,7 @@ public enum Pipeline {
     }
     try requirePositive(base, label: "片基")
     try requirePositive(calibration.gainRGB, label: "Linear Gain")
-    let baseL1 = try checked(base * calibration.gainRGB, stage: .l1)
+    let baseL1 = try checked(base * calibration.gainRGB, stage: .l2)
     let baseD1 = try checked(Self.matrix(normalizedDensity(baseL1), matrix), stage: .d1)
     result.filmBaseOffsetCV = SIMD3(repeating: baseTargetCV) - cvScale * baseD1
     guard isFinite(result.filmBaseOffsetCV) else {
@@ -282,6 +276,7 @@ public enum Pipeline {
   private struct Prepared {
     let gain: SIMD3<Float>
     let densityMatrix: PrintDensityMatrix
+    let cmosMatrix: RGBMatrix
     let offsetNormalizedDensity: SIMD3<Float>
     let contrast: SIMD3<Float>
 
@@ -294,6 +289,7 @@ public enum Pipeline {
       }
       gain = calibration.gainRGB
       densityMatrix = calibration.matrix
+      cmosMatrix = calibration.cmosMatrix.coefficients
       let timing = adjustments.timing
       let effectiveCV =
         calibration.filmBaseOffsetCV + SIMD3(repeating: Float(timing.master))
@@ -306,9 +302,11 @@ public enum Pipeline {
     func process(_ rgb: SIMD3<Float>, lut: CubeLUT?, stage: PipelineStage) throws -> SIMD3<Float> {
       let l0 = try checked(rgb, stage: .l0)
       if stage == .l0 { return l0 }
-      let l1 = try checked(l0 * gain, stage: .l1)
+      let l1 = try checked(cmosMatrix.apply(l0), stage: .l1)
       if stage == .l1 { return l1 }
-      let d0 = try checked(normalizedDensity(l1), stage: .d0)
+      let l2 = try checked(l1 * gain, stage: .l2)
+      if stage == .l2 { return l2 }
+      let d0 = try checked(normalizedDensity(l2), stage: .d0)
       if stage == .d0 { return d0 }
       let d1 = try checked(matrix(d0, densityMatrix), stage: .d1)
       if stage == .d1 { return d1 }
@@ -317,7 +315,7 @@ public enum Pipeline {
       let d3 = try checked(
         SIMD3(repeating: pivot) + contrast * (d2 - SIMD3(repeating: pivot)), stage: .d3)
       if stage == .d3 { return d3 }
-      guard let lut else { throw PrintroomError.invalid("Final 阶段需要 2383 LUT。") }
+      guard let lut else { throw PrintroomError.invalid("Final 阶段需要 Cineon Log LUT。") }
       return try checked(lut.sample(d3), stage: .final)
     }
   }

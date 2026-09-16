@@ -30,6 +30,137 @@ struct CropEditingTests {
     guard ready() else { throw PrintroomError.invalid(message) }
   }
 
+  @Test func cropTransitionsKeepVisibleImageAndGeometryUntilReplacement() async throws {
+    let model = EditorModel()
+    let assets = try #require(model.assets)
+    let folder = try fixture()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    _ = try write("A.tif", folder: folder, width: 120, height: 80, profile: assets.profile)
+    model.open(folder)
+    try await until("full preview", { !model.isRendering && model.hasImage })
+    let canvas = CanvasView(frame: CGRect(x: 0, y: 0, width: 753, height: 460))
+    canvas.model = model
+    canvas.zoom = 2
+    canvas.pan = CGPoint(x: 12, y: -8)
+    let originalRect = canvas.imageRect
+    let originalImage = model.previewImage
+    model.beginCrop()
+    #expect(model.previewImage === originalImage)
+    #expect(canvas.imageRect == originalRect)
+    #expect(!canvas.presentsCrop)
+    #expect(!model.hasImage) // Old geometry cannot be used for precise tools.
+    try await until("crop full preview", { !model.isRendering })
+    #expect(model.cropPreviewTransition == nil && canvas.presentsCrop)
+    model.updateCropDraft(FrameCrop(aspect: .square, width: 0.5, angleDegrees: 3.27))
+    let cropRect = canvas.cropRect
+    let angle = canvas.presentedCropGeometry?.displayCrop?.angleDegrees
+    let fullImage = model.previewImage
+    model.commitCrop()
+    #expect(model.previewImage === fullImage)
+    #expect(canvas.displaySize == CGSize(width: 120, height: 80))
+    #expect(canvas.cropRect == cropRect)
+    #expect(canvas.presentedCropGeometry?.displayCrop?.angleDegrees == angle)
+    try await until("committed preview", { !model.isRendering })
+    #expect(canvas.displaySize == CGSize(width: 60, height: 60))
+    #expect(!canvas.presentsCrop && model.hasImage)
+    let committedImage = model.previewImage
+    model.beginCrop()
+    #expect(model.previewImage === committedImage)
+    #expect(canvas.displaySize == CGSize(width: 60, height: 60))
+    try await until("reopened crop", { !model.isRendering })
+    model.resetCropDraft()
+    let resetImage = model.previewImage
+    model.cancelCrop()
+    #expect(model.previewImage === resetImage)
+    #expect(canvas.displaySize == CGSize(width: 120, height: 80))
+    try await until("cancelled crop", { !model.isRendering })
+    #expect(canvas.displaySize == CGSize(width: 60, height: 60))
+    #expect(model.activeFrame?.crop?.angleDegrees == 3.27)
+    #expect(model.errorMessage == nil)
+  }
+
+  @Test func unifiedSyncUsesCurrentSettingsAndCommitsBothInOneUndo() async throws {
+    let model = EditorModel()
+    let assets = try #require(model.assets)
+    let folder = try fixture()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    for name in ["A.tif", "B.tif", "C.tif"] {
+      _ = try write(name, folder: folder, width: 120, height: 80, profile: assets.profile)
+    }
+    model.open(folder)
+    try await until("loaded", { model.histogram != nil })
+    model.copyParameters()
+    var project = try #require(model.project)
+    project.frames[0].adjustments.timing.red = 23
+    project.frames[0].crop = FrameCrop(aspect: .square, width: 0.5, angleDegrees: 2, geometryVersion: 2)
+    project.frames[1].adjustments.timing.blue = -12
+    project.frames[1].orientation = .rotate90CW
+    project.frames[2].adjustments.contrast.master = 1.2
+    model.project = project
+    model.selectAll()
+    model.beginSync()
+    #expect(!model.hasSyncSelection)
+    #expect(model.syncTargetIDs.count == 2)
+    #expect(!model.syncCurrentSettings())
+    #expect(model.project?.frames == project.frames)
+    model.syncTiming = true; model.syncContrast = true; model.syncLUT = true
+    model.syncCrop = true
+    #expect(model.syncCurrentSettings())
+    let applied = try #require(model.project)
+    #expect(applied.frames[0] == project.frames[0])
+    for i in 1...2 {
+      #expect(applied.frames[i].adjustments == project.frames[0].adjustments)
+      #expect(applied.frames[i].crop == project.frames[0].crop)
+      #expect(applied.frames[i].orientation == project.frames[i].orientation)
+    }
+    #expect(applied.calibration == project.calibration)
+    model.undo()
+    #expect(model.project?.frames == project.frames)
+    model.redo()
+    #expect(model.project?.frames == applied.frames)
+    model.beginSync()
+    #expect(!model.hasSyncSelection)
+    model.syncTiming = true; model.syncContrast = true; model.syncLUT = true
+    model.syncCrop = true
+    #expect(model.syncCurrentSettings())
+    model.undo()
+    #expect(model.project?.frames == project.frames)
+    // A corrupt last target must reject the combined transaction, including color.
+    try Data("invalid TIFF".utf8).write(to: folder.appendingPathComponent("C.tif"))
+    model.beginSync()
+    model.syncTiming = true; model.syncContrast = true; model.syncLUT = true
+    model.syncCrop = true
+    #expect(!model.syncCurrentSettings())
+    #expect(model.project?.frames == project.frames)
+    model.errorMessage = nil
+    model.beginSync()
+    model.syncTiming = true; model.syncContrast = true; model.syncLUT = true
+    #expect(model.syncCurrentSettings())
+    #expect(model.project?.frames[1].crop == project.frames[1].crop)
+    model.undo()
+    // A full-frame source clears only target crops.
+    var full = project
+    full.frames[0].crop = nil
+    full.frames[1].crop = project.frames[0].crop
+    model.project = full
+    try FileManager.default.removeItem(at: folder.appendingPathComponent("C.tif"))
+    _ = try write("C.tif", folder: folder, width: 120, height: 80, profile: assets.profile)
+    model.beginSync()
+    model.syncCrop = true
+    #expect(model.syncCurrentSettings())
+    #expect(model.project?.frames[1].crop == nil)
+    #expect(model.project?.frames[1].adjustments == full.frames[1].adjustments)
+    #expect(model.flushSave())
+    let reopened = try ProjectStore.open(folder: folder)
+    let saved = try #require(model.project)
+    for (actual, expected) in zip(reopened.frames, saved.frames) {
+      #expect(actual.id == expected.id)
+      #expect(actual.adjustments == expected.adjustments)
+      #expect(actual.crop == expected.crop)
+      #expect(actual.orientation == expected.orientation)
+    }
+  }
+
   @Test func draftCancelAndCommitAreReversibleAndPersistWithoutChangingSource() async throws {
     let model = EditorModel()
     let assets = try #require(model.assets)
@@ -75,7 +206,7 @@ struct CropEditingTests {
     #expect(model.flushSave())
     let reopened = try ProjectStore.open(folder: folder)
     #expect(reopened.frames == committed.frames)
-    #expect(reopened.schemaVersion == 3)
+    #expect(reopened.schemaVersion == RollProject.currentSchemaVersion)
     #expect(try Data(contentsOf: url) == sourceBytes)
     try await until("committed crop preview", { model.histogram?.pixelCount == 3600 })
     #expect(model.previewImage?.width == 60 && model.previewImage?.height == 60)
@@ -369,11 +500,14 @@ struct CropEditingTests {
         width: 0.6, angleDegrees: Double(index)))
       model.commitCrop()
       if let visible = model.previewImage {
-        #expect(visible.width * model.displayHeight == visible.height * model.displayWidth)
+        let size = model.cropPreviewTransition?.size
+          ?? CGSize(width: model.displayWidth, height: model.displayHeight)
+        #expect(CGFloat(visible.width) * size.height == CGFloat(visible.height) * size.width)
       }
     }
     model.select(frames[1].id)
     try await until("race source B loaded", { model.histogram?.pixelCount == 84 * 72 })
+    let sourceHistogram = try #require(model.histogram)
     model.beginCrop()
     model.updateCropDraft(FrameCrop(aspect: .sevenSix, width: 0.5))
     model.commitCrop()
@@ -384,7 +518,13 @@ struct CropEditingTests {
     #expect(model.activeFrame?.id == frames[1].id)
     #expect(model.displayWidth == 42 && model.displayHeight == 36)
     #expect(model.previewImage?.width == 42 && model.previewImage?.height == 36)
-    #expect(result.channels.allSatisfy { $0.bins[192] == 42 * 36 && $0.bins.reduce(0, +) == 42 * 36 })
+    // Histogram stage is independent of the l0 photo preview (defaults to Final).
+    // A uniform B must retain its own channel distribution after cropping.
+    #expect(result.stage == sourceHistogram.stage)
+    for (channel, source) in zip(result.channels, sourceHistogram.channels) {
+      #expect(channel.bins == source.bins.map { $0 * (42 * 36) / (84 * 72) })
+      #expect(channel.bins.reduce(0, +) == 42 * 36)
+    }
     try await Task.sleep(for: .milliseconds(200))
     #expect(model.histogram == result)
     #expect(model.previewImage?.width == 42 && model.previewImage?.height == 36)

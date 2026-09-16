@@ -6,7 +6,9 @@ import Testing
 @Suite(.serialized) @MainActor
 struct TimingKeyboardTests {
   private func model() -> EditorModel {
-    let model = EditorModel()
+    let defaults = UserDefaults(suiteName: "Printroom.TimingKeyboardTests.\(UUID())")!
+    defaults.set("rgb", forKey: TimingMode.preferenceKey)
+    let model = EditorModel(timingDefaults: defaults)
     var roll = RollProject()
     roll.frames = [FrameRecord(filename: "one.tiff"), FrameRecord(filename: "two.tiff")]
     model.project = roll
@@ -18,15 +20,17 @@ struct TimingKeyboardTests {
   @Test func fixedRateContract() {
     #expect(EditorModel.heldTimingCV(elapsed: 0.399) == 0)
     #expect(EditorModel.heldTimingCV(elapsed: 0.4) == 0)
-    #expect(EditorModel.heldTimingCV(elapsed: 0.45) == 2)
-    #expect(EditorModel.heldTimingCV(elapsed: 0.9) == 25)
-    #expect(EditorModel.heldTimingCV(elapsed: 1.4) == 50)
-    #expect(EditorModel.heldTimingCV(elapsed: 2.4) == 100)
+    #expect(EditorModel.heldTimingCV(elapsed: 0.439) == 0)
+    #expect(EditorModel.heldTimingCV(elapsed: 0.44) == 1)
+    #expect(EditorModel.heldTimingCV(elapsed: 0.9) == 12)
+    #expect(EditorModel.heldTimingCV(elapsed: 1.4) == 25)
+    #expect(EditorModel.heldTimingCV(elapsed: 2.4) == 50)
     #expect(EditorModel.heldContrastSteps(elapsed: 0.399) == 0)
     #expect(EditorModel.heldContrastSteps(elapsed: 0.4) == 0)
-    #expect(EditorModel.heldContrastSteps(elapsed: 0.45) == 1)
-    #expect(EditorModel.heldContrastSteps(elapsed: 0.9) == 10)
-    #expect(EditorModel.heldContrastSteps(elapsed: 1.4) == 20)
+    #expect(EditorModel.heldContrastSteps(elapsed: 0.499) == 0)
+    #expect(EditorModel.heldContrastSteps(elapsed: 0.5) == 1)
+    #expect(EditorModel.heldContrastSteps(elapsed: 0.9) == 5)
+    #expect(EditorModel.heldContrastSteps(elapsed: 1.4) == 10)
   }
 
   @Test func tapShiftAndSystemRepeat() async throws {

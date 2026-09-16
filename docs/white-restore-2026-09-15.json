@@ -1,0 +1,1294 @@
+[
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "CF378540-75BD-4F19-90D8-1B1FB643B1D3",
+    "filename": "DSC07079.ARW",
+    "before": {
+      "blue": 25,
+      "green": -17,
+      "master": 80,
+      "red": -4
+    },
+    "after": {
+      "blue": 89,
+      "green": -61,
+      "master": 80,
+      "red": 19
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "17A3FC6C-39AD-43C5-B15E-A81AC4A26BCD",
+    "filename": "DSC07080.ARW",
+    "before": {
+      "blue": 48,
+      "green": -41,
+      "master": 138,
+      "red": -3
+    },
+    "after": {
+      "blue": 112,
+      "green": -85,
+      "master": 138,
+      "red": 20
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "2104DA8A-0E29-46A5-865C-4C80B2731F1C",
+    "filename": "DSC07081.ARW",
+    "before": {
+      "blue": 53,
+      "green": -33,
+      "master": 94,
+      "red": 9
+    },
+    "after": {
+      "blue": 117,
+      "green": -77,
+      "master": 94,
+      "red": 32
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "E33E9ABB-E176-4095-BC84-D486DD29C1FD",
+    "filename": "DSC07082.ARW",
+    "before": {
+      "blue": 41,
+      "green": -41,
+      "master": 94,
+      "red": 4
+    },
+    "after": {
+      "blue": 105,
+      "green": -85,
+      "master": 94,
+      "red": 27
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "90CFFD75-1A2D-42F2-BB9E-267736FFB6A2",
+    "filename": "DSC07083.ARW",
+    "before": {
+      "blue": 41,
+      "green": -41,
+      "master": 94,
+      "red": 4
+    },
+    "after": {
+      "blue": 105,
+      "green": -85,
+      "master": 94,
+      "red": 27
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "0526AC9B-D644-4BAF-A08E-53F50D9FA446",
+    "filename": "DSC07084.ARW",
+    "before": {
+      "blue": 41,
+      "green": -41,
+      "master": 94,
+      "red": 4
+    },
+    "after": {
+      "blue": 105,
+      "green": -85,
+      "master": 94,
+      "red": 27
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "E572C2FD-AAEC-4EF1-8A20-F4906F7C95F3",
+    "filename": "DSC07085.ARW",
+    "before": {
+      "blue": 41,
+      "green": -41,
+      "master": 94,
+      "red": 4
+    },
+    "after": {
+      "blue": 105,
+      "green": -85,
+      "master": 94,
+      "red": 27
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "0F4E1E92-34FF-4210-960F-41EBF0623389",
+    "filename": "DSC07086.ARW",
+    "before": {
+      "blue": -17,
+      "green": -48,
+      "master": 185,
+      "red": 17
+    },
+    "after": {
+      "blue": 47,
+      "green": -92,
+      "master": 185,
+      "red": 40
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "54E926DE-7B8C-4869-93B7-5E790030430E",
+    "filename": "DSC07087.ARW",
+    "before": {
+      "blue": 58,
+      "green": -32,
+      "master": 48,
+      "red": 17
+    },
+    "after": {
+      "blue": 122,
+      "green": -76,
+      "master": 48,
+      "red": 40
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "D0464A24-0386-4DB2-9489-4884FB3424C3",
+    "filename": "DSC07088.ARW",
+    "before": {
+      "blue": 49,
+      "green": -35,
+      "master": 74,
+      "red": 9
+    },
+    "after": {
+      "blue": 113,
+      "green": -79,
+      "master": 74,
+      "red": 32
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "C548A471-33D3-4D04-9C29-CF865231B5E0",
+    "filename": "DSC07089.ARW",
+    "before": {
+      "blue": 114,
+      "green": -13,
+      "master": 153,
+      "red": -36
+    },
+    "after": {
+      "blue": 178,
+      "green": -57,
+      "master": 153,
+      "red": -13
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "5DB898B1-76AB-431C-AEB4-78BD4E497C66",
+    "filename": "DSC07090.ARW",
+    "before": {
+      "blue": 74,
+      "green": -22,
+      "master": 187,
+      "red": 0
+    },
+    "after": {
+      "blue": 138,
+      "green": -66,
+      "master": 187,
+      "red": 23
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "017C5761-4674-4F1B-89D0-0EC08F44E83E",
+    "filename": "DSC07091.ARW",
+    "before": {
+      "blue": 79,
+      "green": -36,
+      "master": 111,
+      "red": -3
+    },
+    "after": {
+      "blue": 143,
+      "green": -80,
+      "master": 111,
+      "red": 20
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "0045F2F1-46CA-4761-B349-60C72548EEA9",
+    "filename": "DSC07092.ARW",
+    "before": {
+      "blue": 69,
+      "green": -36,
+      "master": 101,
+      "red": 7
+    },
+    "after": {
+      "blue": 133,
+      "green": -80,
+      "master": 101,
+      "red": 30
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "FBF030E0-C990-4FD3-AA5D-C3F5AF4C6B00",
+    "filename": "DSC07093.ARW",
+    "before": {
+      "blue": 36,
+      "green": -50,
+      "master": 39,
+      "red": 8
+    },
+    "after": {
+      "blue": 100,
+      "green": -94,
+      "master": 39,
+      "red": 31
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "C1AED6EE-FCD4-4509-A071-7728DAA20E5B",
+    "filename": "DSC07094.ARW",
+    "before": {
+      "blue": 50,
+      "green": -18,
+      "master": 113,
+      "red": 22
+    },
+    "after": {
+      "blue": 114,
+      "green": -62,
+      "master": 113,
+      "red": 45
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "B0D048D2-112D-4EC2-94CA-C6072C6C9F1B",
+    "filename": "DSC07095.ARW",
+    "before": {
+      "blue": 46,
+      "green": -24,
+      "master": 178,
+      "red": 9
+    },
+    "after": {
+      "blue": 110,
+      "green": -68,
+      "master": 178,
+      "red": 32
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "4F8F9EE1-C371-411B-A53F-25E3D82FD50F",
+    "filename": "DSC07096.ARW",
+    "before": {
+      "blue": 25,
+      "green": -18,
+      "master": 131,
+      "red": -1
+    },
+    "after": {
+      "blue": 89,
+      "green": -62,
+      "master": 131,
+      "red": 22
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "CF52B600-6F6F-4469-B5BC-477D52755136",
+    "filename": "DSC07097.ARW",
+    "before": {
+      "blue": 30,
+      "green": -12,
+      "master": 141,
+      "red": -3
+    },
+    "after": {
+      "blue": 94,
+      "green": -56,
+      "master": 141,
+      "red": 20
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "FE3FE73F-CC30-4A16-A04C-28BFC4574553",
+    "filename": "DSC07098.ARW",
+    "before": {
+      "blue": 27,
+      "green": -16,
+      "master": 115,
+      "red": -1
+    },
+    "after": {
+      "blue": 91,
+      "green": -60,
+      "master": 115,
+      "red": 22
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "9CA62CAC-C655-4BF8-9BFA-EBD43285FC8E",
+    "filename": "DSC07099.ARW",
+    "before": {
+      "blue": 12,
+      "green": -16,
+      "master": 73,
+      "red": 27
+    },
+    "after": {
+      "blue": 76,
+      "green": -60,
+      "master": 73,
+      "red": 50
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "ACBE009F-14DF-4112-B63A-B19A177F51CF",
+    "filename": "DSC07100.ARW",
+    "before": {
+      "blue": 23,
+      "green": -46,
+      "master": 70,
+      "red": 2
+    },
+    "after": {
+      "blue": 87,
+      "green": -90,
+      "master": 70,
+      "red": 25
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "F304B8BD-96DC-4F11-AC08-AAD0C89DE6BF",
+    "filename": "DSC07101.ARW",
+    "before": {
+      "blue": 15,
+      "green": -26,
+      "master": 132,
+      "red": -6
+    },
+    "after": {
+      "blue": 79,
+      "green": -70,
+      "master": 132,
+      "red": 17
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "40DE27C9-5FA8-45C1-9D4A-75B2B3561BDD",
+    "filename": "DSC07102.ARW",
+    "before": {
+      "blue": 39,
+      "green": -14,
+      "master": 122,
+      "red": -8
+    },
+    "after": {
+      "blue": 103,
+      "green": -58,
+      "master": 122,
+      "red": 15
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "8D8C68E4-8B20-40B2-A447-19E88C80629F",
+    "filename": "DSC07103.ARW",
+    "before": {
+      "blue": 44,
+      "green": -10,
+      "master": 109,
+      "red": -8
+    },
+    "after": {
+      "blue": 108,
+      "green": -54,
+      "master": 109,
+      "red": 15
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "1D3BD271-3D50-497E-A9C9-B4F571B94C39",
+    "filename": "DSC07104.ARW",
+    "before": {
+      "blue": 40,
+      "green": -20,
+      "master": 120,
+      "red": -3
+    },
+    "after": {
+      "blue": 104,
+      "green": -64,
+      "master": 120,
+      "red": 20
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "EC8F5730-163C-4639-90E5-93DFEE1ECB18",
+    "filename": "DSC07105.ARW",
+    "before": {
+      "blue": 84,
+      "green": -26,
+      "master": 79,
+      "red": -28
+    },
+    "after": {
+      "blue": 148,
+      "green": -70,
+      "master": 79,
+      "red": -5
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "062493AD-423F-42D8-BE77-1D2EA4624BF9",
+    "filename": "DSC07106.ARW",
+    "before": {
+      "blue": 37,
+      "green": -26,
+      "master": 111,
+      "red": -8
+    },
+    "after": {
+      "blue": 101,
+      "green": -70,
+      "master": 111,
+      "red": 15
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "D79F0D9C-4AF5-4D3F-9204-FDF44366EBDA",
+    "filename": "DSC07107.ARW",
+    "before": {
+      "blue": 13,
+      "green": -32,
+      "master": 48,
+      "red": 10
+    },
+    "after": {
+      "blue": 77,
+      "green": -76,
+      "master": 48,
+      "red": 33
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "27B309D9-C661-478E-A822-AE2724CB67D4",
+    "filename": "DSC07108.ARW",
+    "before": {
+      "blue": -16,
+      "green": -44,
+      "master": 114,
+      "red": -8
+    },
+    "after": {
+      "blue": 48,
+      "green": -88,
+      "master": 114,
+      "red": 15
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "FE6DB0A7-B1C5-4293-A383-2559A9D47941",
+    "filename": "DSC07109.ARW",
+    "before": {
+      "blue": 16,
+      "green": -55,
+      "master": 100,
+      "red": -2
+    },
+    "after": {
+      "blue": 80,
+      "green": -99,
+      "master": 100,
+      "red": 21
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "500A0159-A906-40A6-939C-C6E452750677",
+    "filename": "DSC07110.ARW",
+    "before": {
+      "blue": 12,
+      "green": -14,
+      "master": 40,
+      "red": 3
+    },
+    "after": {
+      "blue": 76,
+      "green": -58,
+      "master": 40,
+      "red": 26
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "56727B08-AAB5-4546-A048-275ABE41EB6A",
+    "filename": "DSC07111.ARW",
+    "before": {
+      "blue": 37,
+      "green": -8,
+      "master": 90,
+      "red": 26
+    },
+    "after": {
+      "blue": 101,
+      "green": -52,
+      "master": 90,
+      "red": 49
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "34F96343-2646-4DF3-BEA2-AE0AE49B7404",
+    "filename": "DSC07112.ARW",
+    "before": {
+      "blue": 22,
+      "green": -63,
+      "master": 72,
+      "red": -17
+    },
+    "after": {
+      "blue": 86,
+      "green": -107,
+      "master": 72,
+      "red": 6
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "24734C91-9A35-4B46-9F9F-638E0370F902",
+    "filename": "DSC07113.ARW",
+    "before": {
+      "blue": 48,
+      "green": -3,
+      "master": 77,
+      "red": 26
+    },
+    "after": {
+      "blue": 112,
+      "green": -47,
+      "master": 77,
+      "red": 49
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-1/RAW",
+    "id": "48EAB22C-8601-4B2A-9DA5-EB1E6110C2ED",
+    "filename": "DSC07114.ARW",
+    "before": {
+      "blue": 78,
+      "green": -4,
+      "master": 86,
+      "red": 14
+    },
+    "after": {
+      "blue": 142,
+      "green": -48,
+      "master": 86,
+      "red": 37
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "844E19D2-89C3-4A12-A3B3-48DE895DC5EE",
+    "filename": "DSC07115.ARW",
+    "before": {
+      "blue": -128,
+      "green": -33,
+      "master": 126,
+      "red": 27
+    },
+    "after": {
+      "blue": -54,
+      "green": -73,
+      "master": 126,
+      "red": 50
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "2A94540B-1DEB-4D6F-8795-A232A55356E5",
+    "filename": "DSC07116.ARW",
+    "before": {
+      "blue": -115,
+      "green": -27,
+      "master": 194,
+      "red": 6
+    },
+    "after": {
+      "blue": -81,
+      "green": -58,
+      "master": 194,
+      "red": 39
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "224391DE-8AB4-4EEE-9B06-033A033C2AAF",
+    "filename": "DSC07117.ARW",
+    "before": {
+      "blue": -132,
+      "green": -26,
+      "master": 101,
+      "red": 24
+    },
+    "after": {
+      "blue": -94,
+      "green": -60,
+      "master": 101,
+      "red": 60
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "CE4F6D74-0DA4-46E5-9E6D-E73A990FD8F8",
+    "filename": "DSC07118.ARW",
+    "before": {
+      "blue": -109,
+      "green": -19,
+      "master": 269,
+      "red": -8
+    },
+    "after": {
+      "blue": -76,
+      "green": -48,
+      "master": 269,
+      "red": 23
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "5EA23F50-4D0A-4C46-A0D6-6DF11D05E4F4",
+    "filename": "DSC07119.ARW",
+    "before": {
+      "blue": -123,
+      "green": -5,
+      "master": 236,
+      "red": 13
+    },
+    "after": {
+      "blue": -89,
+      "green": -36,
+      "master": 236,
+      "red": 46
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "814822B4-2FE7-4DB8-8A7F-71002B4B57BF",
+    "filename": "DSC07120.ARW",
+    "before": {
+      "blue": -106,
+      "green": -5,
+      "master": 236,
+      "red": -4
+    },
+    "after": {
+      "blue": -72,
+      "green": -36,
+      "master": 236,
+      "red": 29
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "5C706F13-27BF-4162-A128-FF818B1AB661",
+    "filename": "DSC07121.ARW",
+    "before": {
+      "blue": -135,
+      "green": -20,
+      "master": 127,
+      "red": 15
+    },
+    "after": {
+      "blue": -101,
+      "green": -51,
+      "master": 127,
+      "red": 48
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "A6DAF012-5B5D-4E31-AAA7-2CF919918947",
+    "filename": "DSC07122.ARW",
+    "before": {
+      "blue": -78,
+      "green": -6,
+      "master": 174,
+      "red": 0
+    },
+    "after": {
+      "blue": -44,
+      "green": -37,
+      "master": 174,
+      "red": 33
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "F403548F-B866-479E-A9E3-1FF49DC4AEBF",
+    "filename": "DSC07123.ARW",
+    "before": {
+      "blue": -77,
+      "green": -3,
+      "master": 204,
+      "red": -3
+    },
+    "after": {
+      "blue": -43,
+      "green": -34,
+      "master": 204,
+      "red": 30
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "183F8DBE-AFAE-48C7-ABDF-FFF1508DF36C",
+    "filename": "DSC07124.ARW",
+    "before": {
+      "blue": -109,
+      "green": 9,
+      "master": 178,
+      "red": 17
+    },
+    "after": {
+      "blue": -75,
+      "green": -22,
+      "master": 178,
+      "red": 50
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "A219C970-E9D6-463C-97E4-5CCBEA16B4F2",
+    "filename": "DSC07125.ARW",
+    "before": {
+      "blue": -89,
+      "green": 5,
+      "master": 185,
+      "red": 1
+    },
+    "after": {
+      "blue": -55,
+      "green": -26,
+      "master": 185,
+      "red": 34
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "30C98DC4-3B0F-47D2-A626-C0EDD1960A15",
+    "filename": "DSC07126.ARW",
+    "before": {
+      "blue": -96,
+      "green": 1,
+      "master": 208,
+      "red": 6
+    },
+    "after": {
+      "blue": -62,
+      "green": -30,
+      "master": 208,
+      "red": 39
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "4A2E908B-8DE8-4C3B-8FA1-D0C1A935CF6A",
+    "filename": "DSC07127.ARW",
+    "before": {
+      "blue": -97,
+      "green": 5,
+      "master": 198,
+      "red": 9
+    },
+    "after": {
+      "blue": -63,
+      "green": -26,
+      "master": 198,
+      "red": 42
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "A3CDD804-E800-4DED-9763-F5010A705FCD",
+    "filename": "DSC07128.ARW",
+    "before": {
+      "blue": -100,
+      "green": -17,
+      "master": 235,
+      "red": -36
+    },
+    "after": {
+      "blue": -66,
+      "green": -48,
+      "master": 235,
+      "red": -3
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "BF3F9938-4BA6-45F5-B31C-C1450DEDB47E",
+    "filename": "DSC07129.ARW",
+    "before": {
+      "blue": -107,
+      "green": -18,
+      "master": 148,
+      "red": -2
+    },
+    "after": {
+      "blue": -73,
+      "green": -49,
+      "master": 148,
+      "red": 31
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "29346EAD-4D4C-41BF-ADA8-F6436337E502",
+    "filename": "DSC07130.ARW",
+    "before": {
+      "blue": -92,
+      "green": -5,
+      "master": 115,
+      "red": 14
+    },
+    "after": {
+      "blue": -58,
+      "green": -36,
+      "master": 115,
+      "red": 47
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "AA4B4E57-1703-4193-8F7B-4A2F07CA7A12",
+    "filename": "DSC07131.ARW",
+    "before": {
+      "blue": -84,
+      "green": -1,
+      "master": 228,
+      "red": 2
+    },
+    "after": {
+      "blue": -50,
+      "green": -32,
+      "master": 228,
+      "red": 35
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "0F067AF2-F661-41F4-B1B7-7724E6D013FB",
+    "filename": "DSC07132.ARW",
+    "before": {
+      "blue": -98,
+      "green": 15,
+      "master": 169,
+      "red": 0
+    },
+    "after": {
+      "blue": -64,
+      "green": -16,
+      "master": 169,
+      "red": 33
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "F9C1B866-FE32-4E43-97DF-2236EAA61805",
+    "filename": "DSC07133.ARW",
+    "before": {
+      "blue": -66,
+      "green": 0,
+      "master": 257,
+      "red": 8
+    },
+    "after": {
+      "blue": -33,
+      "green": -30,
+      "master": 257,
+      "red": 40
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "4E324807-B425-4D40-9522-017686F0D98C",
+    "filename": "DSC07134.ARW",
+    "before": {
+      "blue": -85,
+      "green": -1,
+      "master": 186,
+      "red": 3
+    },
+    "after": {
+      "blue": -51,
+      "green": -32,
+      "master": 186,
+      "red": 36
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "3AB60C0F-0730-44C5-93AB-662B296E7E5D",
+    "filename": "DSC07135.ARW",
+    "before": {
+      "blue": -96,
+      "green": -3,
+      "master": 295,
+      "red": -9
+    },
+    "after": {
+      "blue": -62,
+      "green": -34,
+      "master": 295,
+      "red": 24
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "5F438F2C-510B-42C2-B430-EDD595122F66",
+    "filename": "DSC07136.ARW",
+    "before": {
+      "blue": -144,
+      "green": -44,
+      "master": 213,
+      "red": -23
+    },
+    "after": {
+      "blue": -112,
+      "green": -73,
+      "master": 213,
+      "red": 7
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "F4CCF88D-4AC5-4C0E-A22D-4ECFAAC8A1E1",
+    "filename": "DSC07137.ARW",
+    "before": {
+      "blue": -153,
+      "green": -59,
+      "master": 58,
+      "red": -18
+    },
+    "after": {
+      "blue": -110,
+      "green": -98,
+      "master": 58,
+      "red": 23
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "A9F532D1-788E-44B7-97D7-5483B72517D4",
+    "filename": "DSC07138.ARW",
+    "before": {
+      "blue": -141,
+      "green": -50,
+      "master": 220,
+      "red": -8
+    },
+    "after": {
+      "blue": -109,
+      "green": -79,
+      "master": 220,
+      "red": 22
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "E19E1811-42DC-4606-A24E-047F8961FEF2",
+    "filename": "DSC07139.ARW",
+    "before": {
+      "blue": -155,
+      "green": -61,
+      "master": 234,
+      "red": -37
+    },
+    "after": {
+      "blue": -121,
+      "green": -92,
+      "master": 234,
+      "red": -4
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "BFB25C6C-48AF-4353-B704-EC492370EED6",
+    "filename": "DSC07140.ARW",
+    "before": {
+      "blue": -165,
+      "green": -54,
+      "master": 227,
+      "red": -19
+    },
+    "after": {
+      "blue": -131,
+      "green": -85,
+      "master": 227,
+      "red": 14
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "F627C219-AAA6-432E-A96D-BD2AE30D1DA2",
+    "filename": "DSC07141.ARW",
+    "before": {
+      "blue": -122,
+      "green": -34,
+      "master": 276,
+      "red": -18
+    },
+    "after": {
+      "blue": -88,
+      "green": -65,
+      "master": 276,
+      "red": 15
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "0FB2DB0B-F3F6-4686-98C7-0322A0C75BDF",
+    "filename": "DSC07142.ARW",
+    "before": {
+      "blue": -140,
+      "green": -47,
+      "master": 149,
+      "red": -27
+    },
+    "after": {
+      "blue": -106,
+      "green": -78,
+      "master": 149,
+      "red": 6
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "DF49F10D-7C39-4207-B6B5-F9049DF66CCA",
+    "filename": "DSC07143.ARW",
+    "before": {
+      "blue": -194,
+      "green": -59,
+      "master": 230,
+      "red": -6
+    },
+    "after": {
+      "blue": -163,
+      "green": -87,
+      "master": 230,
+      "red": 24
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "28201F15-B546-4A26-9773-66490DDE42A4",
+    "filename": "DSC07144.ARW",
+    "before": {
+      "blue": -101,
+      "green": -22,
+      "master": 288,
+      "red": -21
+    },
+    "after": {
+      "blue": -70,
+      "green": -50,
+      "master": 288,
+      "red": 9
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "2850094C-EF2C-484A-AFCE-AB91F80EF1AA",
+    "filename": "DSC07145.ARW",
+    "before": {
+      "blue": -143,
+      "green": -34,
+      "master": 296,
+      "red": -19
+    },
+    "after": {
+      "blue": -109,
+      "green": -65,
+      "master": 296,
+      "red": 14
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "1EC030EC-C3CD-40C0-B42A-D90825A9B717",
+    "filename": "DSC07146.ARW",
+    "before": {
+      "blue": -152,
+      "green": -65,
+      "master": 300,
+      "red": -48
+    },
+    "after": {
+      "blue": -118,
+      "green": -96,
+      "master": 300,
+      "red": -15
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "FDE5B397-C556-445D-8B9B-196E48E5682A",
+    "filename": "DSC07147.ARW",
+    "before": {
+      "blue": -114,
+      "green": -44,
+      "master": 260,
+      "red": -26
+    },
+    "after": {
+      "blue": -80,
+      "green": -75,
+      "master": 260,
+      "red": 7
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "45588462-E460-4B95-8AD5-A37D4B10A564",
+    "filename": "DSC07148.ARW",
+    "before": {
+      "blue": -144,
+      "green": -30,
+      "master": 315,
+      "red": -37
+    },
+    "after": {
+      "blue": -110,
+      "green": -61,
+      "master": 315,
+      "red": -4
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "3B6437D7-3523-4910-B220-9B6F084E4E4D",
+    "filename": "DSC07149.ARW",
+    "before": {
+      "blue": -98,
+      "green": -24,
+      "master": 310,
+      "red": 0
+    },
+    "after": {
+      "blue": -66,
+      "green": -53,
+      "master": 310,
+      "red": 30
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "FEB9D1E7-EEBA-49C5-A5FA-9AE45A20F5F3",
+    "filename": "DSC07150.ARW",
+    "before": {
+      "blue": -113,
+      "green": -22,
+      "master": 243,
+      "red": -9
+    },
+    "after": {
+      "blue": -79,
+      "green": -53,
+      "master": 243,
+      "red": 24
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "35C68B47-A094-43B6-8233-D68D099B2BEF",
+    "filename": "DSC07151.ARW",
+    "before": {
+      "blue": -116,
+      "green": -36,
+      "master": 298,
+      "red": -8
+    },
+    "after": {
+      "blue": -86,
+      "green": -64,
+      "master": 298,
+      "red": 21
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "8AA4398E-D5F2-44DB-BDDD-154E13D9CA24",
+    "filename": "DSC07152.ARW",
+    "before": {
+      "blue": -108,
+      "green": -23,
+      "master": 326,
+      "red": -18
+    },
+    "after": {
+      "blue": -78,
+      "green": -50,
+      "master": 326,
+      "red": 11
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "7A68F1DA-EF16-427A-8A6F-71B3646E3378",
+    "filename": "DSC07153.ARW",
+    "before": {
+      "blue": -161,
+      "green": -32,
+      "master": 180,
+      "red": 2
+    },
+    "after": {
+      "blue": -127,
+      "green": -63,
+      "master": 180,
+      "red": 35
+    }
+  },
+  {
+    "roll": "/Users/bao/Library/CloudStorage/SynologyDrive-BaoNAS/Photos/Film/2026-09-01-2/RAW",
+    "id": "B328A3A5-86A2-4FEE-B20C-0AE59D8F343C",
+    "filename": "DSC07154.ARW",
+    "before": {
+      "blue": -160,
+      "green": -36,
+      "master": 203,
+      "red": 5
+    },
+    "after": {
+      "blue": -126,
+      "green": -67,
+      "master": 203,
+      "red": 38
+    }
+  }
+]

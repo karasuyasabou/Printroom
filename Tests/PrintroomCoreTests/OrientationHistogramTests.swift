@@ -196,7 +196,7 @@ final class OrientationHistogramTests: XCTestCase {
       XCTAssertEqual(histogram.stage, stage)
       XCTAssertFalse(histogram.isPreview)
       switch stage {
-      case .l0, .l1: XCTAssertTrue(histogram.unit.contains("线性"))
+      case .l0, .l1, .l2: XCTAssertTrue(histogram.unit.contains("线性"))
       case .d0, .d1, .d2, .d3: XCTAssertTrue(histogram.unit.contains("1024"))
       case .final: XCTAssertTrue(histogram.unit.contains("P3-D65 Gamma 2.6"))
       }

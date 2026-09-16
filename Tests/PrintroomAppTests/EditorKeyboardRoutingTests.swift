@@ -58,6 +58,28 @@ struct EditorKeyboardRoutingTests {
     #expect(window.firstResponder === thumbnails)
   }
 
+  @Test func wsadNudgesCropDraftOnlyWhileCropping() throws {
+    let (model, window, router, _) = fixture()
+    defer { router.stopMonitoring(); window.close() }
+    model.sourceWidth = 200
+    model.sourceHeight = 200
+    var project = try #require(model.project)
+    project.frames[0].crop = FrameCrop(aspect: .square, centerX: 0.5, centerY: 0.5, width: 0.5)
+    model.project = project
+    model.beginCrop()
+    #expect(model.isCropping)
+    #expect(router.handle(try key(13, "w", window: window), from: window))
+    #expect(model.displayedCropDraft?.centerY == 0.495)
+    #expect(router.handle(try key(0, "a", window: window), from: window))
+    #expect(model.displayedCropDraft?.centerX == 0.495)
+    #expect(router.handle(try key(1, "s", window: window, repeatKey: true), from: window))
+    #expect(router.handle(try key(2, "d", window: window), from: window))
+    #expect(model.displayedCropDraft?.centerX == 0.5)
+    #expect(model.displayedCropDraft?.centerY == 0.5)
+    #expect(model.project?.frames[0].crop?.centerX == 0.5)
+    #expect(model.project?.frames[0].crop?.centerY == 0.5)
+  }
+
   @Test func commandCopyCapturesSnapshotWithoutAdjustingBlue() throws {
     let (model, window, router, _) = fixture()
     defer { router.stopMonitoring(); window.close() }

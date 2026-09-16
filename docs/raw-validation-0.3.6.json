@@ -1,0 +1,81 @@
+{
+  "batchCroppedExportSeconds" : 0.39732396602630615,
+  "frames" : [
+    {
+      "cachedFullReadSeconds" : 0.019865989685058594,
+      "cachedProxySeconds" : 0.10643696784973145,
+      "firstPrecisionSeconds" : 0.27474498748779297,
+      "firstProxySeconds" : 1.5559409856796265,
+      "frame" : "DSC07119",
+      "rgbMatchesReference" : true,
+      "rgbSHA256" : "f2cc1e1c2ee79c209c89d8ef0ab888a210fc809c1c3ccb156c078c30af1eea0f"
+    },
+    {
+      "cachedFullReadSeconds" : 0.020475029945373535,
+      "cachedProxySeconds" : 0.10670304298400879,
+      "firstPrecisionSeconds" : 0.26703000068664551,
+      "firstProxySeconds" : 1.4882369041442871,
+      "frame" : "DSC07120",
+      "rgbMatchesReference" : true,
+      "rgbSHA256" : "6feecbee3b9e6f105c448ab08b9d68fd0fe64a34cfb5671f9889bd835ada84b5"
+    },
+    {
+      "cachedFullReadSeconds" : 0.021876931190490723,
+      "cachedProxySeconds" : 0.10398399829864502,
+      "firstPrecisionSeconds" : 0.27249801158905029,
+      "firstProxySeconds" : 1.5407979488372803,
+      "frame" : "DSC07121",
+      "rgbMatchesReference" : true,
+      "rgbSHA256" : "3dbc3d495219245c3b04dc8ddd54c992a06bb822ef002d2743f5ece64aed78ef"
+    },
+    {
+      "cachedFullReadSeconds" : 0.020323991775512695,
+      "cachedProxySeconds" : 0.10369205474853516,
+      "firstPrecisionSeconds" : 0.27183496952056885,
+      "firstProxySeconds" : 1.5294779539108276,
+      "frame" : "DSC07122",
+      "rgbMatchesReference" : true,
+      "rgbSHA256" : "1e0f15f96649d0c25f418865cd22bbb6a0557ac1d899d7242021f0b19be33cc8"
+    },
+    {
+      "cachedFullReadSeconds" : 0.020714044570922852,
+      "cachedProxySeconds" : 0.10509395599365234,
+      "firstPrecisionSeconds" : 0.27067601680755615,
+      "firstProxySeconds" : 1.4701850414276123,
+      "frame" : "DSC07123",
+      "rgbMatchesReference" : true,
+      "rgbSHA256" : "0c97da92db2286b6eef140551405740ee98b88376608ad6aa817c90ed07d89c3"
+    },
+    {
+      "cachedFullReadSeconds" : 0.020208001136779785,
+      "cachedProxySeconds" : 0.10612905025482178,
+      "firstPrecisionSeconds" : 0.27174699306488037,
+      "firstProxySeconds" : 1.4953899383544922,
+      "frame" : "DSC07124",
+      "rgbMatchesReference" : true,
+      "rgbSHA256" : "087206ae8b500fd57aae98be4893c598d7f9cb7ca6225d2f95f2be2dd9ce8774"
+    },
+    {
+      "cachedFullReadSeconds" : 0.022102952003479004,
+      "cachedProxySeconds" : 0.10644698143005371,
+      "firstPrecisionSeconds" : 0.28671598434448242,
+      "firstProxySeconds" : 1.5270400047302246,
+      "frame" : "DSC07125",
+      "rgbMatchesReference" : true,
+      "rgbSHA256" : "9a9767ae074033e5a00f0566e58aa597aa1d3554222fef0e5c25df9aac8a13c2"
+    },
+    {
+      "cachedFullReadSeconds" : 0.021448969841003418,
+      "cachedProxySeconds" : 0.11783301830291748,
+      "firstPrecisionSeconds" : 0.30235004425048828,
+      "firstProxySeconds" : 1.5780079364776611,
+      "frame" : "DSC07126",
+      "rgbMatchesReference" : true,
+      "rgbSHA256" : "16f77972776f1ab007b452d26a6201238812542ae891fd8a55f79d4c0b7c22d5"
+    }
+  ],
+  "fullSizeExportSeconds" : 1.3704249858856201,
+  "libRawVersion" : "0.22.1-Release",
+  "output" : "\/Users\/bao\/Desktop\/Printroom\/scratch\/raw-integration-09BA6F60-68B7-4630-BB7A-251D74AFD4CF",
+  "peakTestProcessRSSBytes" : 1642577920
+}

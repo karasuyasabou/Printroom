@@ -61,17 +61,13 @@ struct CropControlsView: View {
       }.help("重置裁剪：恢复完整照片与 0° 角度").accessibilityLabel("重置裁剪")
       Spacer(minLength: 4)
       Button("取消") { model.cancelCrop() }.fixedSize().help("取消本次裁剪 · Esc")
-      Button("同步 \(model.selection.selectedFrameIDs.count) 张") {
-        if angleFocused { commitAngle() }
-        model.commitCrop(syncSelection: true)
-      }.fixedSize().disabled(!model.canSyncCrop)
-        .help("保存裁剪并覆盖所选照片的裁剪；一次撤销恢复整组")
       Button("完成") {
         if angleFocused { commitAngle() }
         model.commitCrop()
       }
       .fixedSize().buttonStyle(.borderedProminent).help("保存当前照片裁剪 · Enter")
     }
+    .disabled(model.isLoading || model.sourceWidth == 0 || model.sourceHeight == 0)
     .controlSize(.small)
     .padding(.horizontal, 12).frame(height: 38)
     .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))

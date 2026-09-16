@@ -5,6 +5,8 @@ import PrintroomCore
 @MainActor final class ExportOptionsView: NSView {
   let profilePopUp = NSPopUpButton(frame: .zero, pullsDown: false)
   let compressionPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
+  let prefixField = NSTextField(string: "")
+  var filenamePrefix: String { prefixField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) }
   private let initialSettings: ProjectExportSettings
 
   var settings: ProjectExportSettings {
@@ -18,9 +20,12 @@ import PrintroomCore
     return value
   }
 
-  init(settings: ProjectExportSettings) {
+  init(settings: ProjectExportSettings, filenamePrefix: String = "Printroom") {
     initialSettings = settings
-    super.init(frame: NSRect(x: 0, y: 0, width: 380, height: 132))
+    super.init(frame: NSRect(x: 0, y: 0, width: 420, height: 172))
+    prefixField.stringValue = filenamePrefix
+    prefixField.setAccessibilityIdentifier("export-prefix")
+    prefixField.setAccessibilityLabel("文件名前缀")
     identifier = NSUserInterfaceItemIdentifier("export-options")
     profilePopUp.identifier = NSUserInterfaceItemIdentifier("export-profile")
     profilePopUp.setAccessibilityIdentifier("export-profile")
@@ -35,12 +40,14 @@ import PrintroomCore
       if profile == settings.profile { profilePopUp.select(profilePopUp.lastItem) }
     }
     for compression in TIFFCompression.allCases {
-      compressionPopUp.addItem(withTitle: compression == .none ? "无压缩" : "Deflate")
+      compressionPopUp.addItem(withTitle: compression == .none ? "无压缩" : "ZIP")
       compressionPopUp.lastItem?.representedObject = compression.rawValue
-      if compression == settings.compression { compressionPopUp.select(compressionPopUp.lastItem) }
+      if compression == .deflate { compressionPopUp.select(compressionPopUp.lastItem) }
     }
 
     let grid = NSGridView(views: [
+      [NSTextField(labelWithString: "文件名前缀"), prefixField],
+      [NSTextField(labelWithString: "编号"), NSTextField(labelWithString: "自动追加胶卷原编号，如 -02.tiff")],
       [NSTextField(labelWithString: "格式"), NSTextField(labelWithString: "16-bit TIFF")],
       [NSTextField(labelWithString: "输出 ICC"), profilePopUp],
       [NSTextField(labelWithString: "压缩"), compressionPopUp],

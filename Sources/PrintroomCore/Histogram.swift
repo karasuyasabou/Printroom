@@ -21,7 +21,7 @@ public struct HistogramStatistics: Equatable, Sendable {
   public let isPreview: Bool
   public var unit: String {
     switch stage {
-    case .l0, .l1: "线性透射率（0–1）"
+    case .l0, .l1, .l2: "线性透射率（0–1）"
     case .d0, .d1, .d2, .d3: "归一化密度 N（CV / 1024）"
     case .final: "P3-D65 Gamma 2.6 编码值（0–1）"
     }

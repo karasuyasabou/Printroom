@@ -1,0 +1,18 @@
+{
+  "Kodak Ektacolor Edge": {
+    "sourceMethodComparisonMax": 4.598058045424125e-14
+  },
+  "Kodak Endura Premier": {
+    "sourceMethodComparisonMax": 4.337155634637213e-14
+  },
+  "Kodak Portra Endura": {
+    "sourceMethodComparisonMax": 5.2581203280333e-14
+  },
+  "Kodak Supra Endura": {
+    "sourceMethodComparisonMax": 2.6673975528357374e-14
+  },
+  "Kodak Ultra Endura": {
+    "sourceMethodComparisonMax": 2.97609159538581e-14
+  },
+  "iccWhiteResidual": 2.7448242308270032e-05
+}

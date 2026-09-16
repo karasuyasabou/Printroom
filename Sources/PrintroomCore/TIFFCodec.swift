@@ -17,7 +17,7 @@ public enum TIFFWriteError: LocalizedError, Equatable {
 }
 
 /// Raw sample I/O: ICC metadata never participates in decoding or encoding.
-/// Supports classic, stripped RGB UInt16 TIFF (uncompressed or Deflate).
+/// Reads classic and BigTIFF stripped RGB UInt16 TIFF (uncompressed or Deflate).
 public enum TIFFCodec {
   public static func read(url: URL) throws -> LinearImage {
     guard url.isFileURL else { throw invalid("TIFF 必须是本地文件。") }
@@ -54,12 +54,12 @@ public enum TIFFCodec {
   /// No alpha, no color conversion, exact supplied ICC bytes. Deflate has one
   /// independent zlib stream per strip; metadata is finalized before publication.
   public static func write(
-    url: URL, width: Int, height: Int, profile: Data, compression: TIFFCompression = .none,
+    url: URL, width: Int, height: Int, profile: Data?, compression: TIFFCompression = .none,
     rows: (Range<Int>) throws -> [UInt16]
   ) throws {
     guard url.isFileURL, width > 0, height > 0,
       width <= Int(UInt32.max), height <= Int(UInt32.max),
-      !profile.isEmpty, profile.count <= Int(UInt32.max)
+      (profile == nil || !profile!.isEmpty), (profile?.count ?? 0) <= Int(UInt32.max)
     else {
       throw invalid("TIFF 尺寸或 ICC 数据无效。")
     }
@@ -80,8 +80,10 @@ public enum TIFFCodec {
       .shorts(262, [2]), .longs(273, [UInt32](repeating: 0, count: stripCount)),
       .shorts(274, [1]), .shorts(277, [3]), .long(278, UInt32(rowsPerStrip)),
       .longs(279, byteCounts), .shorts(284, [1]), .shorts(339, [1, 1, 1]),
-      TIFFWriteEntry(tag: 34675, type: 7, count: UInt32(profile.count), payload: profile),
     ]
+    if let profile {
+      entries.append(TIFFWriteEntry(tag: 34675, type: 7, count: UInt32(profile.count), payload: profile))
+    }
     let metadataSize = try makeHeader(entries).count
     let end = UInt64(metadataSize) + rowBytes * UInt64(height)
     guard end <= UInt64(UInt32.max) else {
@@ -236,6 +238,11 @@ extension Data {
     let value = withUnsafeBytes { $0.loadUnaligned(fromByteOffset: offset, as: UInt32.self) }
     return little ? UInt32(littleEndian: value) : UInt32(bigEndian: value)
   }
+  fileprivate func uint64(_ offset: Int, little: Bool) -> UInt64 {
+    let value = withUnsafeBytes { $0.loadUnaligned(fromByteOffset: offset, as: UInt64.self) }
+    return little ? UInt64(littleEndian: value) : UInt64(bigEndian: value)
+  }
+
 }
 
 private final class TIFFReader {
@@ -247,6 +254,7 @@ private final class TIFFReader {
   let handle: FileHandle
   private let fileSize: UInt64
   private let little: Bool
+  private let big: Bool
   private var entries: [UInt16: Entry] = [:]
 
   init(url: URL) throws {
@@ -261,26 +269,50 @@ private final class TIFFReader {
         throw invalid("不是 TIFF 文件。")
       }
       little = header[0] == 0x49
-      guard header.uint16(2, little: little) == 42 else {
-        throw invalid("仅支持 classic TIFF，暂不支持 BigTIFF。")
+      let version = header.uint16(2, little: little)
+      guard version == 42 || version == 43 else {
+        throw invalid("TIFF 文件头版本无效（\(version)）。")
       }
+      big = version == 43
       handle = file
-      let ifd = UInt64(header.uint32(4, little: little))
-      guard ifd >= 8 else { throw invalid("TIFF IFD 偏移无效。") }
-      let count = Int(try readBytes(at: ifd, count: 2).uint16(0, little: little))
-      let directory = try readBytes(at: ifd + 2, count: count * 12 + 4)
+      let ifd: UInt64
+      if big {
+        guard header.uint16(4, little: little) == 8,
+          header.uint16(6, little: little) == 0 else {
+          throw invalid("BigTIFF 文件头无效：偏移宽度必须为 8，保留字段必须为 0。")
+        }
+        ifd = try readBytes(at: 8, count: 8).uint64(0, little: little)
+      } else {
+        ifd = UInt64(header.uint32(4, little: little))
+      }
+      let countSize = big ? 8 : 2
+      let entrySize = big ? 20 : 12
+      let inlineSize = big ? 8 : 4
+      guard ifd >= (big ? 16 : 8) else { throw invalid("TIFF IFD 偏移无效。") }
+      let countBytes = try readBytes(at: ifd, count: countSize)
+      let count64 = big ? countBytes.uint64(0, little: little)
+        : UInt64(countBytes.uint16(0, little: little))
+      // Tags are UInt16 and duplicates are forbidden. Bound before allocation.
+      guard count64 <= 65_536 else { throw invalid("TIFF IFD 标签数量无效。") }
+      let count = Int(count64)
+      let directory = try readBytes(at: ifd + UInt64(countSize), count: count * entrySize + inlineSize)
       for i in 0..<count {
-        let base = i * 12
+        let base = i * entrySize
         let tag = directory.uint16(base, little: little)
         guard entries[tag] == nil else { throw invalid("TIFF 包含重复的标签 \(tag)。") }
+        let valueCount = big ? directory.uint64(base + 4, little: little)
+          : UInt64(directory.uint32(base + 4, little: little))
+        guard let valueCount = Int(exactly: valueCount) else {
+          throw invalid("TIFF 标签数量超出可寻址范围。")
+        }
+        let valueStart = base + (big ? 12 : 8)
         entries[tag] = Entry(
-          type: directory.uint16(base + 2, little: little),
-          count: Int(directory.uint32(base + 4, little: little)),
-          value: directory.subdata(in: (base + 8)..<(base + 12)))
+          type: directory.uint16(base + 2, little: little), count: valueCount,
+          value: directory.subdata(in: valueStart..<(valueStart + inlineSize)))
       }
-      guard directory.uint32(count * 12, little: little) == 0 else {
-        throw invalid("暂不支持多页 TIFF。")
-      }
+      let next = big ? directory.uint64(count * entrySize, little: little)
+        : UInt64(directory.uint32(count * entrySize, little: little))
+      guard next == 0 else { throw invalid("暂不支持多页 TIFF。") }
     } catch {
       try? file.close()
       throw error
@@ -291,9 +323,10 @@ private final class TIFFReader {
     let width = try scalar(256)
     let height = try scalar(257)
     guard width > 0, height > 0,
-      UInt64(height) <= UInt64(UInt32.max) / (UInt64(width) * 6)
+      width <= Int(UInt32.max), height <= Int(UInt32.max),
+      width <= Int.max / 6, height <= Int.max / (width * 6)
     else {
-      throw invalid("TIFF 尺寸无效或未压缩样本超过 4 GiB。")
+      throw invalid("TIFF 尺寸无效或样本超过可寻址范围。")
     }
     guard try scalar(262) == 2, try scalar(277) == 3,
       try integers(258, expectedCount: 3) == [16, 16, 16],
@@ -325,7 +358,7 @@ private final class TIFFReader {
     for strip in 0..<stripCount {
       let count = counts[strip]
       let expected = min(rowsPerStrip, height - strip * rowsPerStrip) * width * 6
-      guard count > 0, offsets[strip] >= 8,
+      guard count > 0, offsets[strip] >= (big ? 16 : 8),
         UInt64(offsets[strip]) <= fileSize,
         UInt64(count) <= fileSize - UInt64(offsets[strip]),
         compression != 1 || count == expected
@@ -385,8 +418,8 @@ private final class TIFFReader {
     let transposed = info.orientation >= 5
     var stripIndices = [[Int]](repeating: [], count: info.offsets.count)
     for index in 0..<(transposed ? outputWidth : outputHeight) {
-      let x = region.x + (transposed ? index * region.width / outputWidth : 0)
-      let y = region.y + (transposed ? 0 : index * region.height / outputHeight)
+      let x = region.x + (transposed ? Int(UInt64(index) * UInt64(region.width) / UInt64(outputWidth)) : 0)
+      let y = region.y + (transposed ? 0 : Int(UInt64(index) * UInt64(region.height) / UInt64(outputHeight)))
       let raw = info.source(x: x, y: y)
       stripIndices[raw.y / info.rowsPerStrip].append(index)
     }
@@ -437,8 +470,8 @@ private final class TIFFReader {
               for other in 0..<(transposed ? outputHeight : outputWidth) {
                 let x = transposed ? index : other
                 let y = transposed ? other : index
-                let normalizedX = region.x + x * region.width / outputWidth
-                let normalizedY = region.y + y * region.height / outputHeight
+                let normalizedX = region.x + Int(UInt64(x) * UInt64(region.width) / UInt64(outputWidth))
+                let normalizedY = region.y + Int(UInt64(y) * UInt64(region.height) / UInt64(outputHeight))
                 let source = info.source(x: normalizedX, y: normalizedY)
                 let offset = ((source.y - firstRow) * info.width + source.x) * 6
                 let target = (y * outputWidth + x) * 3
@@ -461,7 +494,8 @@ private final class TIFFReader {
   }
 
   private func readBytes(at offset: UInt64, count: Int) throws -> Data {
-    guard count >= 0, offset <= fileSize, UInt64(count) <= fileSize - offset else {
+    guard count >= 0, offset <= UInt64(Int64.max), offset <= fileSize,
+      UInt64(count) <= UInt64(Int64.max) - offset, UInt64(count) <= fileSize - offset else {
       throw invalid("TIFF 数据超出文件边界。")
     }
     // pread fills Swift-owned storage directly. FileHandle.read creates
@@ -487,12 +521,14 @@ private final class TIFFReader {
   }
 
   private func payload(_ entry: Entry, unit: Int) throws -> Data {
-    guard entry.count > 0, entry.count <= Int(UInt32.max) / unit else {
+    guard entry.count > 0, entry.count <= Int.max / unit else {
       throw invalid("TIFF 标签数量无效。")
     }
     let size = entry.count * unit
-    if size <= 4 { return entry.value.prefix(size) }
-    return try readBytes(at: UInt64(entry.value.uint32(0, little: little)), count: size)
+    if size <= entry.value.count { return entry.value.prefix(size) }
+    let offset = big ? entry.value.uint64(0, little: little)
+      : UInt64(entry.value.uint32(0, little: little))
+    return try readBytes(at: offset, count: size)
   }
 
   private func integers(_ tag: UInt16, expectedCount: Int, defaultValue: [Int]? = nil) throws
@@ -502,15 +538,19 @@ private final class TIFFReader {
       if let defaultValue { return defaultValue }
       throw invalid("TIFF 缺少标签 \(tag)。")
     }
-    guard entry.count == expectedCount, entry.type == 3 || entry.type == 4 else {
+    guard entry.count == expectedCount, (entry.type == 3 || entry.type == 4 || (big && entry.type == 16)) else {
       throw invalid("TIFF 标签 \(tag) 的类型或数量无效。")
     }
-    let unit = entry.type == 3 ? 2 : 4
+    let unit = entry.type == 3 ? 2 : entry.type == 4 ? 4 : 8
     let bytes = try payload(entry, unit: unit)
-    return (0..<entry.count).map {
-      unit == 2
-        ? Int(bytes.uint16($0 * unit, little: little))
-        : Int(bytes.uint32($0 * unit, little: little))
+    return try (0..<entry.count).map {
+      let value = unit == 2 ? UInt64(bytes.uint16($0 * unit, little: little))
+        : unit == 4 ? UInt64(bytes.uint32($0 * unit, little: little))
+        : bytes.uint64($0 * unit, little: little)
+      guard let result = Int(exactly: value) else {
+        throw invalid("TIFF 标签 \(tag) 超出可寻址范围。")
+      }
+      return result
     }
   }
 

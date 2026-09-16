@@ -81,7 +81,7 @@
       "git_policy": "track_original_bytes"
     },
     {
-      "path": "TEST/DSC07079.tiff",
+      "path": "TEST/TIFF/DSC07079.tiff",
       "bytes": 164993634,
       "sha256": "a50e571aef8755f0fa06a7fbcfe51d1e6bce6a5214cea63a23bbbc866681c797",
       "immutable_source": true,
@@ -154,7 +154,7 @@
       }
     },
     {
-      "path": "TEST/DSC07080.tiff",
+      "path": "TEST/TIFF/DSC07080.tiff",
       "bytes": 173973634,
       "sha256": "9163ace0602f20ef0dda4b8e980ab668c19df87fac05dc506a35c37b11b055fc",
       "immutable_source": true,
@@ -227,7 +227,7 @@
       }
     },
     {
-      "path": "TEST/DSC07081.tiff",
+      "path": "TEST/TIFF/DSC07081.tiff",
       "bytes": 161044747,
       "sha256": "9256ee4ed8a514180b6976d88cd8324dab9a84620bf7db2bd1faec84a2d91898",
       "immutable_source": true,
@@ -300,7 +300,7 @@
       }
     },
     {
-      "path": "TEST/DSC07082.tiff",
+      "path": "TEST/TIFF/DSC07082.tiff",
       "bytes": 160689129,
       "sha256": "c6b933ac3e302a20a866bafeccf17999bd86e8fc745f39e814e15fc107a84f61",
       "immutable_source": true,
@@ -373,7 +373,7 @@
       }
     },
     {
-      "path": "TEST/DSC07083.tiff",
+      "path": "TEST/TIFF/DSC07083.tiff",
       "bytes": 159457157,
       "sha256": "ec6508bf17da4e2a2d6aebd4e42cb45fa0549a127c80b23f2e868df3ec7abb04",
       "immutable_source": true,
@@ -446,7 +446,7 @@
       }
     },
     {
-      "path": "TEST/DSC07084.tiff",
+      "path": "TEST/TIFF/DSC07084.tiff",
       "bytes": 159347522,
       "sha256": "8b9424f4486835d9734333889536f12891de30225e1c40976450c7a5e9ac4334",
       "immutable_source": true,
@@ -519,7 +519,7 @@
       }
     },
     {
-      "path": "TEST/DSC07085.tiff",
+      "path": "TEST/TIFF/DSC07085.tiff",
       "bytes": 163858380,
       "sha256": "9be6fb025c333a5de7af0be5cd543ce719f8ece6b73a4c4585dbe22691db291a",
       "immutable_source": true,
@@ -592,7 +592,7 @@
       }
     },
     {
-      "path": "TEST/DSC07086.tiff",
+      "path": "TEST/TIFF/DSC07086.tiff",
       "bytes": 164571340,
       "sha256": "0db5e158896ded49290bb2e2d7d8bed7d92baae07b02310ac5da6fa91a8040d6",
       "immutable_source": true,
@@ -665,7 +665,7 @@
       }
     },
     {
-      "path": "TEST/DSC07087.tiff",
+      "path": "TEST/TIFF/DSC07087.tiff",
       "bytes": 166798753,
       "sha256": "5a92ec7ea8fd1807bbc82b21083f91596860ec4818f5fa80b0db2786075ac363",
       "immutable_source": true,
@@ -738,7 +738,7 @@
       }
     },
     {
-      "path": "TEST/DSC07088.tiff",
+      "path": "TEST/TIFF/DSC07088.tiff",
       "bytes": 164970788,
       "sha256": "d6b15fe339085bed9f764760ab994b0972a62ba1fa72dcb4da8af85899f38fc5",
       "immutable_source": true,
@@ -808,6 +808,18 @@
         "primaries_interpretation": "P3-D65",
         "embedded_profile_action": "record_only_no_conversion",
         "numeric_normalization": "uint16 / 65535"
+      }
+    },
+    {
+      "path": "LUT/DCI-P3 Fujifilm 3513DI D65.cube",
+      "bytes": 970602,
+      "sha256": "415227d60acfc17fba778901f385a140a26ecb9ca7b3eba636c3f49a96d926b7",
+      "immutable_source": true,
+      "kind": "cube_lut",
+      "metadata": {
+        "size": 33,
+        "input": "Cineon Log",
+        "output": "DCI-P3 Gamma 2.6 D65"
       }
     }
   ],

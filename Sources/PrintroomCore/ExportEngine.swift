@@ -4,17 +4,24 @@ import Foundation
 public struct ExportFrameSnapshot: Sendable {
   public let id: UUID
   public let sourceName: String
+  public let rollNumber: Int
   public let sourceURL: URL
   public let adjustments: FrameAdjustments
   public let orientation: FrameOrientation
   public let crop: FrameCrop?
   public let sourceSize: Int64
   public let sourceModified: Double
+  public let rawProcessing: RAWProcessingIdentity?
 
-  public init(frame: FrameRecord, folder: URL) {
+  public init(frame: FrameRecord, folder: URL, rollNumber: Int = 1) throws {
+    self.rollNumber = rollNumber
     id = frame.id
     sourceName = frame.filename
     sourceURL = folder.appendingPathComponent(frame.filename)
+    rawProcessing = try SourceImageIO.processingIdentity(url: sourceURL)
+    if let previous = frame.rawProcessing, previous != rawProcessing {
+      throw PrintroomError.invalid("RAW 处理版本已改变，请重新载入照片并检查片基校准后导出。")
+    }
     adjustments = frame.adjustments
     orientation = frame.orientation
     crop = frame.crop
@@ -31,12 +38,13 @@ public struct ExportRequest: Sendable {
   public let calibration: FilmCalibration
   public let settings: ProjectExportSettings
   public let destinationDirectory: URL
+  public let filenamePrefix: String?
   public let explicitDestination: URL?
   public let protectedSourceURLs: [URL]
 
   public init(
     project: RollProject, targetIDs: Set<UUID>, destinationDirectory: URL,
-    explicitDestination: URL? = nil
+    explicitDestination: URL? = nil, filenamePrefix: String? = nil
   ) throws {
     guard let folder = project.sourceFolderURL, !targetIDs.isEmpty,
       destinationDirectory.isFileURL,
@@ -44,8 +52,14 @@ public struct ExportRequest: Sendable {
       explicitDestination == nil || (targetIDs.count == 1 && explicitDestination!.isFileURL)
     else { throw PrintroomError.invalid("导出目标或照片集合无效。") }
     id = UUID()
-    frames = project.frames.filter { targetIDs.contains($0.id) }.map {
-      ExportFrameSnapshot(frame: $0, folder: folder)
+    if let filenamePrefix {
+      guard !filenamePrefix.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        !filenamePrefix.contains(where: { $0 == "/" || $0 == ":" || $0.isNewline || $0.asciiValue == 0 })
+      else { throw PrintroomError.invalid("文件名前缀不能为空，也不能包含 /、: 或换行。") }
+    }
+    self.filenamePrefix = filenamePrefix
+    frames = try project.frames.enumerated().filter { targetIDs.contains($0.element.id) }.map {
+      try ExportFrameSnapshot(frame: $0.element, folder: folder, rollNumber: $0.offset + 1)
     }
     calibration = project.calibration
     settings = project.exportSettings
@@ -72,11 +86,12 @@ public struct ExportRequest: Sendable {
     frame.orientation = orientation
     frame.crop = crop
     id = UUID()
-    frames = [ExportFrameSnapshot(frame: frame, folder: source.deletingLastPathComponent())]
+    frames = [try ExportFrameSnapshot(frame: frame, folder: source.deletingLastPathComponent())]
     self.calibration = calibration
     self.settings = settings
     destinationDirectory = destination.deletingLastPathComponent()
     explicitDestination = destination
+    filenamePrefix = nil
     protectedSourceURLs = [source]
   }
 }
@@ -126,7 +141,7 @@ public actor ExportEngine {
   public init(useCPUReference: Bool = false) { self.useCPUReference = useCPUReference }
 
   public func run(
-    _ request: ExportRequest, lut: CubeLUT, p3Profile: Data,
+    _ request: ExportRequest, lut: CubeLUT, p3Profile: Data, fujifilmLUT: CubeLUT? = nil,
     progress: @Sendable @escaping (ExportProgress) -> Void = { _ in }
   ) throws -> ExportSummary {
     let start = Date()
@@ -161,9 +176,14 @@ public actor ExportEngine {
       }
       update(0)
       do {
+        let selectedLUT: CubeLUT
+        if frame.adjustments.cineonLogLUT == .fujifilm3513DI {
+          guard let fujifilmLUT else { throw PrintroomError.invalid("导出缺少 Fujifilm 3513DI LUT") }
+          selectedLUT = fujifilmLUT
+        } else { selectedLUT = lut }
         let destination = try export(
           frame, request: request, converter: converter,
-          lut: lut, progress: update)
+          lut: selectedLUT, progress: update)
         completedCount += 1
         results.append(
           ExportFrameResult(
@@ -202,7 +222,7 @@ public actor ExportEngine {
     if let explicit = request.explicitDestination {
       try protect(explicit, request: request)
     }
-    let image = try TIFFCodec.read(url: frame.sourceURL)
+    let image = try SourceImageIO.read(url: frame.sourceURL, expectedIdentity: frame.rawProcessing)
     try validateSource(frame)
     let geometry = try CropGeometry(crop: frame.crop, sourceWidth: image.width,
                                     sourceHeight: image.height, orientation: frame.orientation)
@@ -211,7 +231,8 @@ public actor ExportEngine {
     let initial =
       request.explicitDestination
       ?? request.destinationDirectory.appendingPathComponent(
-        (frame.sourceName as NSString).deletingPathExtension + "-Printroom.tiff")
+        request.filenamePrefix.map { $0 + String(format: "-%02d.tiff", frame.rollNumber) }
+          ?? (frame.sourceName as NSString).deletingPathExtension + "-Printroom.tiff")
     let basename = initial.deletingPathExtension().lastPathComponent
     let ext = initial.pathExtension.isEmpty ? "tiff" : initial.pathExtension
     // Usually the first candidate wins. RENAME_EXCL also handles a competing
@@ -236,11 +257,11 @@ public actor ExportEngine {
           if let gpu {
             final = try gpu.render(
               input, calibration: request.calibration,
-              adjustments: frame.adjustments, lut: lut)
+              adjustments: frame.adjustments, lut: lut, stage: .final)
           } else {
             final = try Pipeline.render(
               input, calibration: request.calibration,
-              adjustments: frame.adjustments, lut: lut)
+              adjustments: frame.adjustments, lut: lut, stage: .final)
           }
           let samples = try converter.quantized(final)
           try Task.checkCancellation()
@@ -280,7 +301,7 @@ public actor ExportEngine {
 
   private func protect(_ destination: URL, request: ExportRequest) throws {
     guard !isProtected(destination, request: request) else {
-      throw PrintroomError.invalid("导出不能覆盖卷内任何原始 TIFF：\(destination.lastPathComponent)")
+      throw PrintroomError.invalid("导出不能覆盖卷内任何原始图像：\(destination.lastPathComponent)")
     }
   }
 

@@ -15,22 +15,25 @@ struct AdjustmentRow: View {
   let fractionDigits: Int
   let color: Color
   let onEditingChanged: (Bool) -> Void
+  var resetValue: Double? = nil
+  var quantizesValue = true
+  var valueWidth: CGFloat = 56
 
   var body: some View {
     HStack(spacing: 10) {
       AdjustmentSlider(value: $value, range: range, step: step, color: color,
-        title: title, onEditingChanged: onEditingChanged)
+        title: title, onEditingChanged: onEditingChanged, resetValue: resetValue, quantizesValue: quantizesValue)
         .frame(height: 24)
       TextField("", value: Binding(
         get: { value },
         set: { proposed in
           guard proposed.isFinite else { return }
-          value = min(range.upperBound, max(range.lowerBound, (proposed / step).rounded() * step))
+          value = min(range.upperBound, max(range.lowerBound, quantizesValue ? (proposed / step).rounded() * step : proposed))
         }), format: .number.precision(.fractionLength(fractionDigits)))
         .textFieldStyle(.roundedBorder)
         .multilineTextAlignment(.trailing)
         .font(.system(size: 11, design: .monospaced))
-        .frame(width: 56)
+        .frame(width: valueWidth)
         .accessibilityLabel("\(title) 数值")
     }.help(title)
   }
@@ -44,6 +47,8 @@ struct AdjustmentSlider: NSViewRepresentable {
   let color: Color
   let title: String
   let onEditingChanged: (Bool) -> Void
+  var resetValue: Double? = nil
+  var quantizesValue = true
   @Environment(\.isEnabled) private var isEnabled
 
   func makeNSView(context: Context) -> ChannelSlider {
@@ -61,6 +66,7 @@ struct AdjustmentSlider: NSViewRepresentable {
     slider.maxValue = range.upperBound
     slider.doubleValue = value
     slider.increment = step
+    slider.resetValue = resetValue
     slider.trackFillColor = NSColor(color)
     slider.isEnabled = isEnabled
     slider.editingChanged = onEditingChanged
@@ -72,21 +78,29 @@ struct AdjustmentSlider: NSViewRepresentable {
     var parent: AdjustmentSlider
     init(_ parent: AdjustmentSlider) { self.parent = parent }
     @objc func changed(_ sender: NSSlider) {
-      let value = (sender.doubleValue / parent.step).rounded() * parent.step
+      let value = parent.quantizesValue ? (sender.doubleValue / parent.step).rounded() * parent.step : sender.doubleValue
       sender.doubleValue = min(parent.range.upperBound, max(parent.range.lowerBound, value))
       parent.value = sender.doubleValue
+      // The model may stop an entire simple axis before the displayed range ends.
+      sender.doubleValue = parent.value
     }
   }
 }
 
 @MainActor final class ChannelSlider: NSSlider {
   var increment = 1.0
+  var resetValue: Double?
   var editingChanged: ((Bool) -> Void)?
   override func mouseDown(with event: NSEvent) {
     guard isEnabled else { return }
     editingChanged?(true)
     defer { editingChanged?(false) }
-    super.mouseDown(with: event)
+    if event.clickCount == 2, let resetValue {
+      doubleValue = resetValue
+      sendAction(action, to: target)
+    } else {
+      super.mouseDown(with: event)
+    }
   }
   private func adjust(_ delta: Double) -> Bool {
     guard isEnabled else { return false }

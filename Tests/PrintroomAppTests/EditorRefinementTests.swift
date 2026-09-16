@@ -79,7 +79,7 @@ struct EditorRefinementTests {
     model.stage = .l0
     #expect(model.histogram == nil)
     try await settled(model)
-    #expect(model.histogram?.stage == .l0)
+    #expect(model.histogram?.stage == .final)
     #expect(model.flushSave())
   }
 
@@ -88,7 +88,8 @@ struct EditorRefinementTests {
     let folder = try fixture(model)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
-    model.stage = .d3
+    model.stage = .final
+    model.histogramStage = .d3
     try await settled(model)
     let old = try #require(model.histogram)
     var publishedHistogram: HistogramStatistics?
@@ -133,7 +134,7 @@ struct EditorRefinementTests {
     model.stage = .d2
     #expect(model.previewImage == nil)
     try await settled(model)
-    #expect(model.histogram?.stage == .d2)
+    #expect(model.histogram?.stage == .final)
     #expect(model.flushSave())
   }
 
@@ -267,7 +268,7 @@ struct EditorRefinementTests {
       ofItemAtPath: folder.appendingPathComponent(frame.filename).path)
     gate.release()
     try await until("source stamp revalidation") { !model.isNeutralSampling }
-    #expect(model.errorMessage?.contains("源 TIFF 已改变") == true)
+    #expect(model.errorMessage?.contains("源图像已改变") == true)
     #expect(model.project?.frames == before.frames && model.project?.calibration == before.calibration)
     #expect(model.undoRevision == undoRevision)
     #expect(!model.dirty)

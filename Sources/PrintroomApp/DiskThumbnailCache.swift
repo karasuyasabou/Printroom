@@ -1,3 +1,5 @@
+import CryptoKit
+import Darwin
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -20,14 +22,55 @@ actor DiskThumbnailCache {
   let directory: URL
   let maximumBytes: Int64
   let maximumAge: TimeInterval
+  private let managedRoot: URL?
+  private var usesManagedPolicy: Bool { managedRoot == DiskCachePolicy.root.appendingPathComponent("thumbnails-v1", isDirectory: true).standardizedFileURL }
 
   init(
     directory: URL, maximumBytes: Int64 = 512 * 1024 * 1024,
-    maximumAge: TimeInterval = 30 * 24 * 60 * 60
+    maximumAge: TimeInterval = 30 * 24 * 60 * 60, managedRoot: URL? = nil
   ) {
+    self.managedRoot = managedRoot?.standardizedFileURL
     self.directory = directory.standardizedFileURL
     self.maximumBytes = max(0, maximumBytes)
     self.maximumAge = max(0, maximumAge)
+  }
+
+  /// Path and project identity isolate copied rolls, including equal inode numbers on different volumes.
+  static func forRoll(folder: URL, projectID: UUID, cacheRoot: URL? = nil) -> DiskThumbnailCache {
+    let root = (cacheRoot ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("studio.printroom.local.v3.3/thumbnails-v1", isDirectory: true)).standardizedFileURL
+    let identity = projectID.uuidString + "\n" + folder.standardizedFileURL.path
+    let key = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
+    return DiskThumbnailCache(directory: root.appendingPathComponent(key, isDirectory: true)
+      .appendingPathComponent(".printroom-cache", isDirectory: true), managedRoot: root)
+  }
+
+  /// Transfer only owned PNGs. Any failed transfer retains its source for the next open.
+  func migrateLegacy(from folder: URL) async throws {
+    let legacy = DiskThumbnailCache(directory: folder.appendingPathComponent(".printroom-cache", isDirectory: true))
+    try await legacy.transferOwnedImages(to: self)
+  }
+
+  private func transferOwnedImages(to destination: DiskThumbnailCache) async throws {
+    try validateDirectory(create: false)
+    guard FileManager.default.fileExists(atPath: directory.path) else { return }
+    for entry in try ownedFiles() {
+      try Task.checkCancellation()
+      if entry.url.pathExtension == "png" {
+        let key = entry.url.deletingPathExtension().lastPathComponent
+        guard let image = try image(for: key) else { continue }
+        try await destination.store(image, for: key)
+        try Task.checkCancellation()
+        // unlink never recursively removes a directory substituted by another process.
+        guard entry.url.withUnsafeFileSystemRepresentation({ Darwin.unlink($0!) }) == 0 else {
+          throw PrintroomError.invalid("缩略图已迁入系统缓存，旧缓存暂时无法删除；下次打开重试。")
+        }
+      } else if Date().timeIntervalSince(entry.modified) > 24 * 60 * 60 {
+        _ = entry.url.withUnsafeFileSystemRepresentation { Darwin.unlink($0!) }
+      }
+    }
+    // Remove only an empty directory; retain unknown files and active temporaries.
+    _ = directory.withUnsafeFileSystemRepresentation { Darwin.rmdir($0!) }
   }
 
   func image(for key: String) throws -> CGImage? {
@@ -87,7 +130,7 @@ actor DiskThumbnailCache {
       try Task.checkCancellation()
       let temporary = entry.url.lastPathComponent.hasSuffix(".png.tmp")
       // A second app may be publishing a temporary now; reap only abandoned ones.
-      let ageLimit = temporary ? 24 * 60 * 60 : maximumAge
+      let ageLimit = temporary ? 24 * 60 * 60 : (usesManagedPolicy ? .infinity : maximumAge)
       if now.timeIntervalSince(entry.modified) > ageLimit {
         try FileManager.default.removeItem(at: entry.url)
         removed += 1
@@ -98,13 +141,14 @@ actor DiskThumbnailCache {
     retained.sort { $0.modified < $1.modified }
     var bytes = retained.reduce(Int64(0)) { $0 + $1.size }
     var evicted = 0
-    for entry in retained where bytes > maximumBytes {
+    for entry in retained where !usesManagedPolicy && bytes > maximumBytes {
       try Task.checkCancellation()
       try FileManager.default.removeItem(at: entry.url)
       bytes -= entry.size
       removed += 1
       evicted += 1
     }
+    if usesManagedPolicy { RAWSourceService.shared.scheduleMaintenance() }
     return MaintenanceResult(
       removedFiles: removed, remainingFiles: retained.count - evicted, remainingBytes: bytes)
   }
@@ -133,9 +177,18 @@ actor DiskThumbnailCache {
 
   private func validateDirectory(create: Bool) throws {
     guard directory.isFileURL, directory.lastPathComponent == ".printroom-cache" else {
-      throw PrintroomError.invalid("缩略图缓存只能位于卷的 .printroom-cache 目录")
+      throw PrintroomError.invalid("缩略图缓存目录名称无效")
     }
     let manager = FileManager.default
+    if let managedRoot {
+      for ancestor in [managedRoot.deletingLastPathComponent(), managedRoot, directory.deletingLastPathComponent()] {
+        if let values = try? ancestor.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]) {
+          guard values.isDirectory == true, values.isSymbolicLink != true else {
+            throw PrintroomError.invalid("系统缩略图缓存路径不能是符号链接或普通文件")
+          }
+        }
+      }
+    }
     if let values = try? directory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]) {
       guard values.isDirectory == true, values.isSymbolicLink != true else {
         throw PrintroomError.invalid("缩略图缓存目录不能是符号链接或普通文件")

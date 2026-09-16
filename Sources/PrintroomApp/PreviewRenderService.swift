@@ -29,7 +29,7 @@ actor PreviewRenderService {
     assets: AppAssets, stage: PipelineStage = .final,
     orientation: FrameOrientation = .identity, inputIdentity: UUID? = nil,
     crop: FrameCrop? = nil, sourceWidth: Int? = nil, sourceHeight: Int? = nil,
-    includeHistogram: Bool = false
+    includeHistogram: Bool = false, histogramStage: PipelineStage? = nil
   ) throws -> RenderedPreview {
     try autoreleasepool {
       try Task.checkCancellation()
@@ -60,7 +60,7 @@ actor PreviewRenderService {
         geometryInput = nil
       }
       let output = try session!.render(
-        prepared, calibration: calibration, adjustments: adjustments, lut: assets.lut, stage: stage,
+        prepared, calibration: calibration, adjustments: adjustments, lut: assets.lut(for: adjustments.cineonLogLUT), stage: stage,
         inputIdentity: preparedIdentity)
       try Task.checkCancellation()
       let oriented = crop == nil
@@ -69,9 +69,23 @@ actor PreviewRenderService {
       let image = try DisplayImage.make(
         oriented, profile: assets.profile, diagnostic: stage != .final)
       try Task.checkCancellation()
-      let histogram = includeHistogram
-        ? try HistogramStatistics.computePreview(oriented, stage: stage,
-            cancelled: { Task.isCancelled }) : nil
+      var histogram: HistogramStatistics?
+      if includeHistogram {
+        let statisticsStage = histogramStage ?? stage
+        let statisticsPixels: PixelBuffer
+        if statisticsStage == stage {
+          statisticsPixels = oriented
+        } else {
+          let statisticsOutput = try session!.render(
+            prepared, calibration: calibration, adjustments: adjustments,
+            lut: assets.lut(for: adjustments.cineonLogLUT), stage: statisticsStage,
+            inputIdentity: preparedIdentity)
+          statisticsPixels = crop == nil
+            ? try orientation.transform(statisticsOutput, cancelled: { Task.isCancelled }) : statisticsOutput
+        }
+        histogram = try HistogramStatistics.computePreview(statisticsPixels, stage: statisticsStage,
+          cancelled: { Task.isCancelled })
+      }
       return RenderedPreview(pixels: oriented, image: image, histogram: histogram)
     }
   }

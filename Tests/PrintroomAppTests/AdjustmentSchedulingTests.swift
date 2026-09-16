@@ -66,7 +66,7 @@ struct AdjustmentSchedulingTests {
     model.edit { $0.timing.master = 137; $0.contrast.green = 1.3 }
     try await settled(model, thumbnails: 2)
     #expect(model.activeFrame?.id == frames[1].id)
-    #expect(model.histogram?.stage == .d2)
+    #expect(model.histogram?.stage == .final)
     try await verifyFinalPreview(model, folder: folder, assets: assets)
     let finalImage = try #require(model.previewImage)
     let finalHistogram = model.histogram
@@ -230,7 +230,10 @@ struct AdjustmentSchedulingTests {
     let oriented = try frame.orientation.transform(reference)
     let image = try DisplayImage.make(oriented, profile: assets.profile, diagnostic: model.stage != .final)
     try expectSameImage(try #require(model.previewImage), image)
-    #expect(model.histogram == (try HistogramStatistics.computePreview(oriented, stage: model.stage)))
+    let histogramPixels = try assets.gpu.render(input, calibration: calibration,
+      adjustments: frame.adjustments, lut: assets.lut, stage: model.histogramStage)
+    #expect(model.histogram == (try HistogramStatistics.computePreview(
+      frame.orientation.transform(histogramPixels), stage: model.histogramStage)))
     let cpu = try Pipeline.render(input, calibration: calibration,
       adjustments: frame.adjustments, lut: assets.lut, stage: model.stage)
     var maxError: Float = 0

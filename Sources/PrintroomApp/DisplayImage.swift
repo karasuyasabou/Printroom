@@ -48,6 +48,8 @@ struct DisplayImage {
 
 struct AppAssets: Sendable {
   let lut: CubeLUT
+  let fujifilmLUT: CubeLUT
+  func lut(for selection: CineonLogLUT) -> CubeLUT { selection == .kodak2383 ? lut : fujifilmLUT }
   let profile: Data
   let gpu: MetalPipeline
   init() throws {
@@ -61,15 +63,20 @@ struct AppAssets: Sendable {
       })
     else { throw PrintroomError.invalid("缺少随应用提供的 ICC 和 LUT 资源") }
     profile = try Data(contentsOf: root.appendingPathComponent("ICC/DCIP3_D65.icc"))
-    let lutURL = root.appendingPathComponent("LUT/DCI-P3 Kodak 2383 D65.cube")
+    let lutURL = root.appendingPathComponent(CineonLogLUT.kodak2383.path)
     let lutData = try Data(contentsOf: lutURL)
     func digest(_ data: Data) -> String {
       SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
     guard digest(profile) == ProjectAssetIdentity.expectedICCSHA256,
-      digest(lutData) == ProjectAssetIdentity.expectedLUTSHA256
+      digest(lutData) == CineonLogLUT.kodak2383.sha256
     else { throw PrintroomError.invalid("ICC / LUT 与已登记资产不一致，请重新构建应用") }
     lut = try CubeLUT(url: lutURL)
+    let fujiURL = root.appendingPathComponent(CineonLogLUT.fujifilm3513DI.path)
+    guard try digest(Data(contentsOf: fujiURL)) == CineonLogLUT.fujifilm3513DI.sha256 else {
+      throw PrintroomError.invalid("Fujifilm LUT 与已登记资产不一致，请重新构建应用")
+    }
+    fujifilmLUT = try CubeLUT(url: fujiURL)
     gpu = try MetalPipeline()
   }
 }

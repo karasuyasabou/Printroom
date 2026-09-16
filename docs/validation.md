@@ -151,3 +151,116 @@ LED offsetCV = (30.013116153192783, 31.406183066375327, 38.483962495235524)
 - 实际 TIFF 原始 11×11 ROI；新参数的 CPU/Metal 一致性及四 ICC×两压缩 TIFF 回读。
 - 原片裁剪/方向映射、Final 数值、单次撤销/重做、保存重开、非当前帧不变；后台求解、等待取消、上下文/源变化过期防护和失败不增加撤销。
 - 独立 0.3.3 release 构建、资源/签名、原始资产哈希；保留旧版，无发布。实际结果只记录于 acceptance-0.3.3.md。
+
+
+## L. 0.3.5 双矩阵验收
+
+本节取代历史 N07 中“切矩阵重算 offset”的要求，当前公式与阈值仅以 pipeline.md §16 为准。
+
+- 合成三光源观测数据：角色识别、RGB 列顺序、解耦、等值中性、曝光比例、非法/奇异输入；合成三张 TIFF 的真实中心 ROI 读取与原文件不变。
+- 独立解析 L0/L1/L2/D0/D1 顺序、负值与上界保留，CPU/Metal 八阶段误差预算、两种矩阵改变使 D1 缓存失效，非有限中间值不能被 LUT 隐藏。
+- 框选后逐像素 CMOS 再中位数；换矩阵/编辑预设、Undo/Redo、保存/重开保持已有校准；只有显式框选更新。采样矩阵快照、派生量损坏和旧项目迁移保护。
+- 本机库新增/编辑/删除、内置不可修改、外部写入冲突、损坏拒绝覆盖；卷内快照跨库编辑/删除保持独立。
+- 0.3.17 起独立 L1 TIFF 导出已移除；验证普通 Final 导出的 ICC、裁剪/方向、快照、取消与源保护。
+- 最小窗口左 CMOS/右密度，标题管理浮层与两类管理弹窗，CMOS 只读系数与密度输入可辨；弹窗文本焦点不触发调色键。
+
+本轮实际执行及尚未执行项目见 acceptance-0.3.5.md。
+
+## M. 0.3.6 RAW 验证入口
+
+实际结果以acceptance-0.3.6.md为准。`scripts/test-raw-integration.sh`执行固定LibRaw/CFA拒绝/GCD线程、八张真实Adobe全RGB哈希、nearest代理与ROI、CPU/Metal、裁剪及整卷全尺寸/ICC；需要本机Adobe、TEST/RAW和保留的独立研究参考TIFF。`PRINTROOM_TEST_REAL_RAW=1 PRINTROOM_VALIDATE_RAW=1 scripts/test.sh --filter 'RAWEditorIntegrationTests|RAWImageServiceTests'`执行真实编辑器与精确服务。默认RAWSourceServiceTests与RAWGeometryTests执行可控故障/并发取消/源替换/缓存/后台提交测试，不冒充真实Adobe验证。原始RAW基线使用assets/RAW-SHA256SUMS。
+
+## N. 0.3.7 静默与四路
+
+RAWSourceServiceTests覆盖固定四槽、同源混合请求、跨实例、取消与维护屏障；RAWPrewarmerTests验证界面驱动确实四路与停止排队。构建release后可运行scripts/adobe-shadow-qa.sh及scripts/adobe-service-four-qa.sh；实际Adobe进程策略/并行峰值和八张像素验证见acceptance-0.3.7.md。原有TIFF数值与RAW图像策略不变。
+
+## Sony CMOS / RAW 标定回归
+
+运行 `PRINTROOM_CMOS_RAW_TEST=1 scripts/test.sh -c release --filter 'MatrixTests|MatrixEditingTests|RAWSourceServiceTests'`（需本机 Adobe 和 TEST/RAW），检查全尺寸中心均值、只读机型、快照兼容和片基冻结。未设置环境变量时真实 RAW 标定测试跳过。窗口使用 `bash scripts/matrix-window-qa.sh`。本轮结果见 acceptance-cmos-raw.md。
+
+## 0.3.8 BigTIFF
+
+` scripts/test.sh --full --filter 'TIFFCodecTests|OrientationHistogramTests|Export' ` 验证 BigTIFF 大小端、三种 compression 标签、水平预测、八方向、ICC 不转换、完整读取/预览/ROI、损坏文件头/数量拒绝；超过 4 GiB 的稀疏文件分别覆盖高地址目录/ICC/条带及大尺寸预览/ROI，同时回归十张参考 TIFF 与全尺寸输出。实际执行结果见 acceptance-0.3.8.md。
+
+
+## 0.3.9 矩阵联动片基
+
+取代 L 节的“切矩阵保持校准”验收要求。运行 `scripts/test.sh --filter 'MatrixEditingTests|MatrixTests|RollProjectTests'`，验证 CMOS 原始选区重采样、密度 Gain 保持/offset 更新、解析 95 CV、连续请求、失败和取消原子性、帧参数保持、一次撤销重做及保存重开。实际结果见 acceptance-0.3.9.md。
+
+## 0.3.12 最近胶卷
+
+使用 `scripts/test.sh --filter 'RecentRollsTests|EditingV2Tests'` 验证持久化、去重/上限、删除/撤销、项目保护和恢复active；`bash scripts/editor-window-qa.sh --release --appearance`检查六行和撤销的最小窗口布局。实际结果与未测项见 acceptance-0.3.12.md。
+
+
+## 0.3.13 RAW 日常代理验证
+
+运行 `scripts/test.sh` 检查缓存命中无需DNG、旧大文件淘汰、四路并发与取消、失败导出不污染代理；`PRINTROOM_VALIDATE_RAW=1 PRINTROOM_TEST_REAL_RAW=1 PRINTROOM_RAW_INTEGRATION=1 PRINTROOM_CMOS_RAW_TEST=1 scripts/test.sh` 追加实际Adobe、代理网格取样/方向/片基、八张全尺寸RGB哈希和真实导出回读。旧版本精确RAW ROI断言由pipeline.md的新契约取代；TIFF及导出原像素断言保留。实际结果见acceptance-0.3.13.md。
+
+
+## 0.3.15 缩略图迁移
+
+`scripts/test.sh -c release --filter 'ThumbnailMigrationTests|ImageServiceTests|AdjustmentSchedulingTests|EditingV2Tests'` 验证缓存像素/ICC、限额/过期、迁移/重复迁移、目标失败保留源、陌生文件/符号链接/临时文件保护、胶卷隔离和编辑器打开/清理后不再写卷内缓存。原始数据与JSON保护使用临时合成卷；真实外置盘和旧版同时写入尚未实机验收。实际结果见acceptance-0.3.15.md。
+
+
+## 0.3.16 原位裁剪验证
+
+运行 `scripts/test.sh --filter 'CropEditingTests|PreviewCanvasTests|SelectionCropTests|RAWGeometryTests|CropCanvasTests'`，检查切换期间图像与几何配对、提交/取消、快速切图、原片裁剪同步及最小窗口画布身份和边界。`bash scripts/crop-window-qa.sh --transition-only` 使用真实TIFF副本验证R/Enter/Esc、边角拖动、重进/取消及1060×720窗口截图。实际结果见acceptance-0.3.16.md。
+
+
+## 0.3.20 LUT 与同步
+
+`scripts/test.sh --filter 'CineonLUTTests|CropEditingTests|RAWGeometryTests'` 验证七种调色勾选组合、未勾选参数保留、撤销/重做、保存重开、复制重置、schema 5 原字节备份、未知选择拒绝、两份实际 LUT 的 CPU/Metal 预览一致性及混合批量导出回读。`bash scripts/editor-window-qa.sh` 检查最小窗口 LUT 面板和同步浮层。实际执行状态见 acceptance-0.3.20.md。
+
+## 0.3.19 简易 Timing
+
+`scripts/test.sh --filter 'SimpleTiming|TimingKeyboardTests|EditorKeyboardRoutingTests|PipelineTests|MetalTests|EditorIntegrationTests|EditingV2Tests'`检查映射、整数/范围边界、模式持久化与不漂移、按键与通用反差、原生滑杆回显、复制/保存/撤销和既有图像回归。`bash scripts/editor-window-qa.sh --timing`检查最小窗口三/四Timing滑杆和固定Contrast位置。执行状态和未执行范围见acceptance-0.3.19.md。
+
+
+## 历史：0.3.22 LUT 参考白（已由 DirectLUTTests 取代）
+
+`LUTWhiteBalanceTests` 验证两份真实 LUT 白点 RGB 相等、独立 ICC Y/TRC 亮度、重复准备、原格点保持、不同 RGB 反差固定点、CPU/Metal 色阶、校正后的吸管、Identity与不可达LUT、v3原字节备份。`CineonLUTTests`覆盖正式AppAssets加载、选择同步、预览与混合LUT导出回读。实际运行证据与未验收范围见acceptance-0.3.22.md。
+
+
+## 0.3.25 直方图纵轴
+
+`scripts/test.sh --filter 'HistogramDisplayScaleTests|OrientationHistogramTests'`验证巨大暗峰和多bin暗峰下主体可见、未截顶线性比例、样本数量倍增不改变高度、RGB共用尺度、空/纯色/稀疏分布与原统计契约。`bash scripts/editor-window-qa.sh --release --histogram`检查合成夜景分布在RGB/密度单通道下的真实窗口绘制。实际照片观感与执行证据见acceptance-0.3.25.md。
+
+
+## 0.3.26 直方图切换
+
+运行 `scripts/test.sh --filter 'HistogramDisplayScaleTests|OrientationHistogramTests|EditingV2Tests|EditorRefinementTests|AdjustmentSchedulingTests'` 验证独立阶段、快速切帧及调色快照。`bash scripts/editor-window-qa.sh --release --histogram` 检查两阶段与收起／展开布局。实际证据和未执行项见 acceptance-0.3.26.md。
+
+
+## 0.3.27 D3直接LUT与定向补偿
+
+`DirectLUTTests`验证两份原LUT的CPU/Metal直接D3采样、不同反差及边界、v4迁移不自动改参数及原字节备份。配合CineonLUTTests的正式资源/预览/混合导出回读、NeutralTimingTests、管线/裁剪/项目迁移回归。独立补偿脚本对每张既有RAW代理取长边320样本，对照原v4输出与v5补偿输出，记录D3残差、最大/RMS RGB误差、CPU/Metal误差；写入后核对哈希及保留字段。证据见acceptance-0.3.27.md。
+
+
+## 0.3.28 RAW异步维护
+
+运行 `PRINTROOM_TEST_REAL_RAW=1 PRINTROOM_VALIDATE_RAW=1 scripts/test.sh --filter 'RAWEditorIntegrationTests|RAWImageServiceTests|RAWGeometryTests|RAWSourceServiceTests|RAWPrewarmerTests'`。验证一个实例的慢转换不阻止其他源返回和槽位复用，维护不删除活动staging，小容量缓存空闲后收敛，以及真实RAW编辑与代理取样。维护完成断言显式等待后台队列，不能把代理返回当作清理完成。证据见acceptance-0.3.28.md。
+
+
+## 0.3.29 裁剪切图保存
+
+运行 `scripts/test.sh --filter 'SelectionCropTests|CropEditingTests|RAWGeometryTests|EditorKeyboardRoutingTests'`，验证点击和左右键切图保存、原片裁剪与方向保留、项目立即回读、重置全图、逐次撤销重做、扩选保持草稿、快速加载不覆盖裁剪与取消行为。实际证据见 [acceptance-0.3.29.md](acceptance-0.3.29.md)。
+
+
+## 0.3.32 相纸470 CV中灰校准
+
+直接相关验收：源曲线方法对照、最终表470 CV相对于2383的亮度/中性、三个2.048密度窗口、CPU/Metal、选择持久化与七种LUT混合导出回读。执行范围和数值见acceptance-0.3.32.md，未执行的全尺寸及外观验证继续待执行。
+
+
+## 0.3.34 缓存管理
+
+`scripts/test.sh --filter 'DiskCachePolicyTests|RAWSourceServiceTests|ThumbnailMigrationTests|ImageServiceTests'` 检查统一预算/跨类型LRU、期限边界、永不、持久化与非法值、陌生文件/符号链接保护、现有RAW并发维护及缩略图迁移。`bash scripts/cache-window-qa.sh` 截取独立管理窗口检查布局。实际结果和未验证项见acceptance-0.3.34.md。
+
+
+## 0.3.36 LUT直接白点对齐
+
+DiffuseWhiteTests覆盖两份表685 CV的ICC亮度及RGB中性、不同通道反差固定点和CPU/Metal。DirectLUTTests覆盖直接D3查表、v5到v6参数保留和原字节备份；CineonLUTTests覆盖正式资源、同步、预览和混合导出回读。生成器固定随机种子测量重采样误差。两卷补偿核对历史整数差、其他字段保持、备份与正式加载，具体证据见acceptance-0.3.36.md。
+
+
+## 0.3.37 缓存命中与维护频率
+
+`scripts/test.sh -c release --filter 'RAWSourceServiceTests|RAWPrewarmerTests|DiskCachePolicyTests|ThumbnailMigrationTests'`：验证命中不新增维护、新代理仍触发维护、显式维护继续运行，以及损坏重建/四路/取消/容量/期限回归。性能用 `PRINTROOM_RAW_MEASURE_BACKGROUND=1 PRINTROOM_RAW_MEASURE_ROLL=/path/to/RAW scripts/test.sh -c release --filter RAWPreviewPerformanceMeasurements`，读取指定卷项目及前六帧，不保存项目；正常服务可能更新或重建应用缓存。记录读取与包含直方图的渲染耗时，不等同于窗口呈现时间。

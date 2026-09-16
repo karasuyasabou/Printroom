@@ -89,6 +89,7 @@ public final class MetalPipeline: @unchecked Sendable {
       let source: SourceKey
       let gain: SIMD3<Float>
       let matrix: PrintDensityMatrix
+      let cmos: MatrixPreset
     }
 
     /// inputIdentity names an immutable pixel revision, not a frame or a memory
@@ -147,16 +148,23 @@ public final class MetalPipeline: @unchecked Sendable {
         let t = adjustments.timing
         let c = adjustments.contrast
         var params = Parameters(
+          cmosR: calibration.cmosMatrix.coefficients.row(0),
+          cmosG: calibration.cmosMatrix.coefficients.row(1),
+          cmosB: calibration.cmosMatrix.coefficients.row(2),
+          densityR: calibration.matrix.coefficients.row(0),
+          densityG: calibration.matrix.coefficients.row(1),
+          densityB: calibration.matrix.coefficients.row(2),
           gain: SIMD4(calibration.gainRGB, 0),
           offset: SIMD4(
             (calibration.filmBaseOffsetCV
               + SIMD3(Float(t.master + t.red), Float(t.master + t.green), Float(t.master + t.blue)))
               / 1024, 0), contrast: SIMD4(c.master * c.red, c.master * c.green, c.master * c.blue, 0),
           count: UInt32(count), stage: UInt32(stage.rawValue), lutSize: UInt32(lut.size),
-          matrix: calibration.matrix == .identity ? 0 : 1, sourceStage: 0)
+          matrix: calibration.matrix.coefficients == .identity ? 0 : 1,
+          cmos: calibration.cmosMatrix.coefficients == .identity ? 0 : 1, sourceStage: 0)
         let densityKey = key.flatMap { source in
           stage.rawValue >= PipelineStage.d1.rawValue
-            ? DensityKey(source: source, gain: calibration.gainRGB, matrix: calibration.matrix) : nil
+            ? DensityKey(source: source, gain: calibration.gainRGB, matrix: calibration.matrix, cmos: calibration.cmosMatrix) : nil
         }
         let d1Buffer = try densityKey.map { _ in try buffer(&density, length: bytes) }
         guard let command = queue.makeCommandBuffer(), let encoder = command.makeComputeCommandEncoder()
@@ -224,13 +232,14 @@ public final class MetalPipeline: @unchecked Sendable {
   }
 
   private struct Parameters {
+    var cmosR, cmosG, cmosB, densityR, densityG, densityB: SIMD4<Float>
     var gain, offset, contrast: SIMD4<Float>
-    var count, stage, lutSize, matrix, sourceStage: UInt32
+    var count, stage, lutSize, matrix, cmos, sourceStage: UInt32
   }
   private static let shader = """
     #include <metal_stdlib>
     using namespace metal;
-    struct Params { float4 gain; float4 offset; float4 contrast; uint count; uint stage; uint lutSize; uint matrix; uint sourceStage; };
+    struct Params { float4 cmosR; float4 cmosG; float4 cmosB; float4 densityR; float4 densityG; float4 densityB; float4 gain; float4 offset; float4 contrast; uint count; uint stage; uint lutSize; uint matrix; uint cmos; uint sourceStage; };
     float3 lookup(device const float4 *table, uint n, float3 p) {
         float3 q = clamp(p,0.0f,1.0f)*float(n-1);
         uint3 a=uint3(floor(q)); uint3 b=min(a+1,uint3(n-1)); float3 f=q-float3(a);
@@ -243,12 +252,21 @@ public final class MetalPipeline: @unchecked Sendable {
     kernel void printroomPipeline(device const float4 *src [[buffer(0)]], device float4 *dst [[buffer(1)]], device const float4 *table [[buffer(2)]], constant Params& p [[buffer(3)]], uint i [[thread_position_in_grid]]) {
         if (i>=p.count) return;
         float3 v=src[i].xyz;
-        if (p.sourceStage<1 && p.stage>=1) v*=p.gain.xyz;
-        if (p.sourceStage<2 && p.stage>=2) v=-log10(max(v,float3(1e-6f)))/2.048f;
-        if (p.sourceStage<3 && p.stage>=3 && p.matrix==1) v=float3(1.0584f*v.r-0.0204f*v.g+0.0023f*v.b,0.0753f*v.r+1.0120f*v.g-0.0693f*v.b,-0.0147f*v.r+0.1420f*v.g+0.7774f*v.b);
-        if (p.sourceStage<4 && p.stage>=4) v+=p.offset.xyz;
-        if (p.sourceStage<5 && p.stage>=5) v=\(contrastPivotCV).0f/1024.0f+p.contrast.xyz*(v-\(contrastPivotCV).0f/1024.0f);
-        if (p.sourceStage<6 && p.stage>=6) v=lookup(table,p.lutSize,v);
+        bool valid=all(isfinite(v));
+        if (p.sourceStage<1 && p.stage>=1 && p.cmos==1) v=float3(dot(p.cmosR.xyz,v),dot(p.cmosG.xyz,v),dot(p.cmosB.xyz,v));
+        valid=valid && all(isfinite(v));
+        if (p.sourceStage<2 && p.stage>=2) v*=p.gain.xyz;
+        valid=valid && all(isfinite(v));
+        if (p.sourceStage<3 && p.stage>=3) v=-log10(max(v,float3(1e-6f)))/2.048f;
+        valid=valid && all(isfinite(v));
+        if (p.sourceStage<4 && p.stage>=4 && p.matrix==1) v=float3(dot(p.densityR.xyz,v),dot(p.densityG.xyz,v),dot(p.densityB.xyz,v));
+        valid=valid && all(isfinite(v));
+        if (p.sourceStage<5 && p.stage>=5) v+=p.offset.xyz;
+        valid=valid && all(isfinite(v));
+        if (p.sourceStage<6 && p.stage>=6) v=\(contrastPivotCV).0f/1024.0f+p.contrast.xyz*(v-\(contrastPivotCV).0f/1024.0f);
+        valid=valid && all(isfinite(v));
+        if (p.sourceStage<7 && p.stage>=7) v=lookup(table,p.lutSize,v);
+        if (!valid) v=float3(NAN);
         dst[i]=float4(v,1);
     }
     """

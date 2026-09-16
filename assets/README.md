@@ -6,7 +6,7 @@
 | --- | ---: | --- | --- |
 | `ICC/DCIP3_D65.icc` | 1 | 解释 Final、默认 TIFF 嵌入 | 跟踪原始字节 |
 | `LUT/DCI-P3 Kodak 2383 D65.cube` | 1 | 密度到最终 Kodak 2383 外观 | 跟踪原始字节 |
-| `TEST/DSC07079.tiff` 至 `TEST/DSC07088.tiff` | 10 | 导入、片基、预览、导出实际样本 | 仅本地；清单入 Git |
+| `TEST/TIFF/DSC07079.tiff` 至 `TEST/TIFF/DSC07088.tiff` | 10 | 导入、片基、预览、导出实际样本 | 仅本地；清单入 Git |
 
 参考 TIFF 共 1,639,705,084 字节（约 1.64 GB）。每张均 7008×4672、16-bit RGB、Deflate 压缩，嵌入 `ProPhoto RGB Linear`，三个 TRC 的 Gamma 为 1.0。这是元信息实测，不等于像素内容和物理线性已经验证。
 
@@ -38,3 +38,10 @@ shasum -a 256 -c assets/SHA256SUMS
 - `verification_scope` 明确本轮检查范围。
 
 新机器克隆本地工程副本后，按清单放回原始参考 TIFF 并核对 SHA-256。缺少参考图片不影响阅读文档，但实际 TIFF 验收必须明确标记未运行，不能用空文件代替。
+
+2026-09-09：用户将 TIFF 整理到 `TEST/TIFF/`，清单仅同步路径，原哈希不变。八张新增原始 ARW 的独立不可变基线为 `assets/RAW-SHA256SUMS`，来自RAW研究开始前记录，可执行 `shasum -a 256 -c assets/RAW-SHA256SUMS` 复核。
+
+0.3.20 登记用户新增 `LUT/DCI-P3 Fujifilm 3513DI D65.cube`，原字节保持，作为第二个 Cineon Log LUT 随包附带。哈希见 manifest.json 与 SHA256SUMS；输入/输出解释以 docs/pipeline.md §8 为准。
+
+
+0.3.36：原电影LUT保留为不可变输入；当前运行表改用 `DerivedLUTs/diffuse-white-v1/`，其manifest登记来源与派生SHA、685 CV目标和重采样误差。使用scripts/generate-white-luts.py（NumPy）可复现；原始SHA256SUMS保持。

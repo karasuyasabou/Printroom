@@ -13,7 +13,7 @@ struct EditorIntegrationTests {
   func testFullResolutionReferencePipelineExport() async throws {
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
       .deletingLastPathComponent().deletingLastPathComponent()
-    let source = root.appendingPathComponent("TEST/DSC07079.tiff")
+    let source = root.appendingPathComponent("TEST/TIFF/DSC07079.tiff")
     let destination = FileManager.default.temporaryDirectory.appendingPathComponent(
       "PrintroomFullPipeline-\(UUID().uuidString).tiff")
     defer { try? FileManager.default.removeItem(at: destination) }

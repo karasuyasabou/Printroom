@@ -9,9 +9,11 @@ struct PreviewSourceStamp: Equatable {
   let size: Int64
   let modified: Date?
   let inode: UInt64
+  let rawProcessing: RAWProcessingIdentity?
 
   init(url: URL) throws {
     let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+    rawProcessing = try SourceImageIO.processingIdentity(url: url)
     self.url = url.standardizedFileURL
     size = (attributes[.size] as? NSNumber)?.int64Value ?? -1
     modified = attributes[.modificationDate] as? Date

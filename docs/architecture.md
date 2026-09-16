@@ -26,8 +26,7 @@ UI 只通过模型命令修改参数；渲染接收捕获后的不可变参数�
 Roll/
 ├── Scan001.tif
 ├── Scan002.tif
-├── .printroom.json
-└── .printroom-cache/
+└── .printroom.json
 ```
 
 默认非递归扫描，扩展名大小写不敏感，自然文件名升序；名称比较相同时用完整相对路径作稳定次序。只接受直接子文件，不自动跟随指向卷外的符号链接。未知或无法读取文件保留可解释的失败状态，不中断整个目录发现。
@@ -49,7 +48,7 @@ Roll/
 | exportSettings | profile 身份、16-bit TIFF、ICC 开关、抖动、命名规则；本地目录授权单独管理 |
 | viewState | 可选 lastActiveFrameID；不保存多选、撤销历史或复制快照 |
 
-FrameRecord 的初始 Timing 四项为 0，Contrast 四项为 1；pivot 与算法绑定，首版不做逐帧字段。无校准时明确 `status=uncalibrated`；来源与采样字段可为空，gain/offset 使用规范默认。已校准时必须完整保存采样依据及派生量。加载时重算并检查派生量；不一致则报告不兼容或损坏，不无声覆盖文件。
+FrameRecord 的初始 Timing 四项为 0，Contrast 四项为 1；pivot 与算法绑定，首版不做逐帧字段。无校准时明确 `status=uncalibrated`；来源与采样字段可为空，gain/offset 使用规范默认。已校准时必须完整保存采样依据及派生量。加载时按上次片基采样时的密度矩阵快照检查派生量；不以当前矩阵自动重算校准。不一致则报告不兼容或损坏，不无声覆盖文件。
 
 JSON 数值必须有限；整数 Timing 不接受小数。记录 `schemaVersion` 处理结构迁移，记录 `algorithmVersion` 处理图像行为迁移；二者不能互相替代。损坏或不支持的高版本项目禁止自动重置并覆盖。
 
@@ -144,7 +143,7 @@ schema 1/2 明确迁移为无裁剪，保留原 ID、调色、方向与输出设
 
 EditorModel 分离原片坐标草稿与项目；显示控件和 Canvas 使用由当前 D4 转换的临时显示草稿，编辑显示值后转换回原片坐标。草稿提交/多选同步统一事务、整组撤销和保存。同步先捕获当前原片裁剪，再按目标原始尺寸拟合，全组校验成功后一次写入；同尺寸目标裁剪值相同，保留各自方向和调色。
 
-SelectionState 的 active 与 anchor 由普通点击建立；⌘/Shift/⌘Shift 修改目标集合时保持二者，active 不可被 ⌘ 移除。仅目标集合变化不重新载入源、不清除草稿、不更换预览或视口；普通点击换 active 才取消未提交草稿并载入新源。具体边界由 interaction.md 定义。
+SelectionState 的 active 与 anchor 由普通点击建立；⌘/Shift/⌘Shift 修改目标集合时保持二者，active 不可被 ⌘ 移除。仅目标集合变化不重新载入源、不清除草稿、不更换预览或视口；普通点击或左右键换 active 前先提交当前已加载照片的裁剪草稿，再保持裁剪模式载入新源。具体边界由 interaction.md 定义。
 
 主预览上下文包括裁剪及其几何版本、源尺寸与方向，几何切换取消旧渲染并清除不匹配展示，避免旧图配新尺寸。主预览 actor 只保留当前几何的有界输入，调色时可复用几何输入及 D1 缓存；未裁剪路径保留既有行为。缩略图缓存键包含完整裁剪，几何迁移后自然失效，源尺寸由真实 TIFF metadata 提供。恢复、同步和撤销按受影响帧失效。
 
@@ -167,3 +166,142 @@ ExportFrameSnapshot 固定裁剪值；导出期间的新编辑不改变已提交
 EditorModel 将求解放入 userInitiated detached task，父任务取消向后台传播；完成后再次校验整个取样上下文和源文件指纹，只有仍有效的结果可进入单帧 edit。内部可注入求解闭包用于确定性测试取消、后台隔离和求解期间源变更；应用默认始终使用真实核心求解器。
 
 无新增持久字段或迁移；既有参数快照、Undo/Redo、自动保存和缓存身份继续适用。旧项目按原参数渲染，只有用户点吸管才写入新 Timing。交付独立 0.3.3 bundle，保留 0.3.2 及更早应用。
+
+
+## 0.3.4 统一同步事务
+
+EditorModel 的统一同步命令捕获 active 已提交设置与排除 active 的选中集合，预校验并构造项目副本后一次替换。调色和裁剪可独立或共同覆盖，共用一个撤销记录；裁剪转换使用来源真实 metadata，目标按各自尺寸适配。复制快照仍独立保存。浮层勾选仅为会话 UI 状态，每次打开清空，不写 JSON。算法、schema、几何版本不变。交互唯一来源见 interaction.md 的统一同步节。
+
+
+## 0.3.5 矩阵库、校准快照与迁移
+
+矩阵版使用 schema 4、`printroom-density-v3`，几何版本仍 2。`MatrixPreset` 包含稳定 UUID、名称与九项按行排列 Float32 系数；内置 identity/ledLightSource 仍保存固定字符串并由注册值解释，不能伪造同 ID 覆盖系数。`FilmCalibration.matrix` 与 `cmosMatrix` 是当前卷的独立完整快照；`sampledDensityMatrix` 和 `sampledCMOSMatrix` 保存最近成功对齐时的矩阵。baseRGB 是 CMOS 后逐像素取中位数的结果，允许大于 1；Gain/offset 与采样快照一起保存；应用矩阵时按 pipeline.md §6 原子更新。
+
+本机库默认 `~/Library/Application Support/Printroom/matrices.json`，版本 1，按 CMOS/density 分类存自定义项，内置项不入库。新建/编辑/删除经文件协调、原子写入、当前内容对比防外部冲突；损坏或未来库版本明确报错并停止覆盖。每卷自带系数，库变更、删除、丢失或换电脑不改变已有项目。测试注入临时库目录，不写实际用户库。
+
+schema 1/2/3 读取沿用旧密度选择作为 CMOS 与采样快照；较新项目若只保存 CMOS 或密度其中一侧，也复用已有值，只有两侧都缺失时才使用 Identity。其余已存 base/gain/offset、帧参数与输出保持不变。首次成功覆盖前沿用旧 schema/算法/几何的原 JSON 独占备份机制；读取本身不写文件。schema 3 应用不支持 schema 4。后续 RAW 结构可以在此基础上独立迁移。
+
+CPU Prepared、Metal 参数、D1 缓存键与全部预览/缩略图/1:1/导出快照均包含两种当前矩阵；矩阵变化重算前段，普通 Timing/Contrast 继续复用。采样结果发布必须匹配卷和两种矩阵，矩阵切换取消在途采样。0.3.17 移除独立 L1 导出模式，ExportRequest 统一固定 Final 导出快照，无新增持久字段或项目迁移。
+
+## 0.3.6 RAW 源与缓存
+
+`SourceImageIO` 是输入边界：TIFF 直通 TIFFCodec，ARW 经 `RAWSourceService` 调用已安装 Adobe 和静态 LibRaw C++ 桥接。项目 schema 5，FrameRecord.rawProcessing 为可选的独立 RAW 策略快照；TIFF 默认 nil。frameID、filename、sourceSize/sourceModified 始终绑定卷内原始文件，缓存不参与卷发现。schema 1–4 沿用原子迁移备份，矩阵 schema 4 契约不变。
+
+廉价处理身份包含源 stat 修订、Adobe 真实版本、LibRaw/策略/代理采样版本；不在主线程为缓存键解码或计算整文件 SHA。后台 manifest 另记录源内容 SHA256、有效尺寸及 DNG/各 TIFF 的完整性哈希。准备前后验证源修订和转换器版本，导出冻结同一处理身份。变更不丢弃调色，已保存的 RAW 校准来源处理身份变化时标记复核。
+
+默认缓存位于 `~/Library/Caches/studio.printroom.local.v3.3/raw-v1`，上限8GiB、按最近访问淘汰。0.3.13 起仅1600/240代理与manifest持久化；DNG临时使用后删除，不生成full.tiff。RAW准备固定4路，不提供并行数设置。跨进程同源锁串行复用meta/代理/full请求，同源等待者不占4个准备槽位；digest缓存独立同步。源处理持共享缓存锁，清理/淘汰仅在所有活动读者释放后持独占锁执行，禁止锁升级；0.3.28起源读取完成即释放共享锁、同源锁与准备槽，结果返回不等待维护。维护在独立utility队列合并执行，仍持跨进程独占锁，正在使用的代理与staging不被删除。8GiB为异步淘汰目标，持续读取期间可暂时超限，读者结束后收敛；不再承诺仅超出当批4个源。显式清理仍等待独占锁并同步完成。最后消费者取消后终止生产者，临时目录原子发布，拒绝符号链接缓存。缓存清理只处理本服务拥有的摘要目录；不删除卷、项目或原片。
+
+几何同步、缺失RAW重连和旧裁剪恢复需要RAW尺寸时在后台准备，提交前验证项目、选择和编辑上下文未变；TIFF同步事务保持原语义。精确图像读取经现有ImageService actor，导出经独立ExportEngine；不在EditorModel分散外部进程调用。
+
+
+## 0.3.7 Adobe静默启动与预先准备
+
+通过临时LSUIElement应用外壳启动已安装的Adobe，外壳只复制Info.plist并链接原二进制/Resources/Frameworks，不改Adobe安装内容，不引入新的去马赛克后端。外壳失败明确报错，不退回可见Adobe启动。原始Adobe版本仍参与处理身份，像素策略/schema不变。
+
+RAWPrewarmer向服务保持最多4个未调色代理准备请求，当前帧排在前面，Filmstrip显示生成独立。切帧/换卷取消旧预备任务并按新当前帧重排；取消传入detached工作任务，不继续排入下一张。不在预备层持有全尺寸RGB，也不为预备写full.tiff。Final导出仍逐张渲染，准备层的4路上限不增加导出图像驻留。
+
+## Sony CMOS 预设兼容
+
+Sony A7C II 使用保留 UUID `6DA9259A-6676-48CF-AB02-9C3DBBE43762`，以完整系数对象持久化。旧 schema 5 读取器可按自定义快照保持像素；新读取器验证保留 ID 的名称和系数一致并识别为只读内置。原 Identity/LED 字符串编码保持。schema 5、算法 v3、矩阵库版本 1 不变，不自动给旧卷应用机型。
+
+## 0.3.8 BigTIFF 读取
+
+TIFFReader 在同一条带读取器中按文件头选择 classic / BigTIFF 的目录布局，使用 64 位文件地址并验证范围；metadata、预览、完整读取和 ROI 共用解析与样本处理。具体格式边界见 pipeline.md 的 BigTIFF 输入节。无需项目迁移或缓存版本变更，源文件与原始通道保持不变。
+
+
+## 0.3.12 本机最近胶卷
+
+RecentRolls 使用应用 UserDefaults 的 recentRolls.v1 保存目录规范路径、项目UUID和最近成功打开时间。应用注入 EditorModel，测试使用隔离suite或默认不注入，避免测试卷污染真实历史。记录在项目打开成功后更新，失败不新增；符号链接目录按解析路径去重。删除和撤销仅写本机偏好，不触碰卷。窗口异步检查目录可用性，恢复活动时重查。项目schema、图像算法及卷级/帧级设置结构不变。
+
+
+## 0.3.13 RAW 代理缓存与瞬时导出
+
+沿用raw-v1目录和既有代理身份，缓存命中不再依赖DNG。每次维护在跨进程独占缓存锁下，清除可解码manifest所属64位摘要目录中的普通source.dng/full.tiff，保留代理与陌生文件，不跟随符号链接；无需让所有代理失效。旧manifest中的DNG/full哈希字段兼容读取但不再用作缓存有效性条件。
+
+导出在同源锁/四槽/共享缓存锁保护下创建UUID临时目录，重新运行Adobe、验证尺寸和源身份、解码为UInt16后直接返回，所有成功/失败出口清理临时DNG。已有崩溃临时目录恢复机制继续适用。8GiB上限与LRU沿用，维护后仅计代理文件。RAW日常采样及兼容性以pipeline.md末节为准。
+
+
+## 0.3.15 缩略图移出胶卷目录
+
+正式缩略图统一位于 `~/Library/Caches/studio.printroom.local.v3.3/thumbnails-v1/<namespace>/.printroom-cache/`。namespace为胶卷UUID与标准化目录路径组合的SHA256，隔离胶卷副本和不同卷上的相同inode。胶卷移动可以重建缓存，项目字段、源坐标、像素算法和JSON位置不变。现有512MiB/30天维护规则继续按胶卷作用；清理本卷只清理该namespace。
+
+打开胶卷（包括无可用照片的卷）时，在缩略图后台任务中尝试迁移卷内旧`.printroom-cache`：只读取已知SHA256普通PNG，成功写入系统缓存后才unlink旧文件；迁移失败保留尚未迁移的旧文件，后续打开可重试，失败不阻断编辑。成功迁移的PNG保持16-bit显示数据及ICC。超过一天的已知临时文件可清理，新临时文件、陌生文件、损坏不可读PNG与符号链接保留；仅通过rmdir移除空目录，不递归删除残留内容。手动清理先尝试处理旧缓存再清系统缓存，重新生成继续写系统目录。系统路径祖先和旧缓存目录拒绝符号链接/普通文件替换。
+
+不主动扫描未打开的磁盘和胶卷，也不删除原片、旁存设置、历史JSON迁移备份、用户导出。旧版本应用仍可能再次生成卷内缓存；新版下次打开继续迁移。
+
+
+## 0.3.16 裁剪展示切换
+
+EditorModel在裁剪进入、提交与取消前保留一份临时展示几何（尺寸、裁剪模式、草稿几何及已有细节图），原previewImage持续存在。CanvasView在替换期间按该几何绘制，延后cropViewportToken的视口复位；新渲染通过既有generation/context/frame校验后，同一主线程回合清除临时几何并发布图像。清空预览（包括切图）也清除临时状态，快速反复操作保留最初仍可见的几何。该状态只引用当前展示资源，不做图像重编码，不用于取样/导出或项目持久化；算法、schema与几何版本不变。
+
+## 0.3.19 Timing界面偏好
+
+`EditorModel.timingMode`从本机UserDefaults的`timingMode`读取（simple/rgb，缺省simple），切换即时保存；测试注入独立defaults。模式不进入胶卷、帧参数、复制/导出快照或撤销记录。`SimpleTimingAxis`在Core执行可逆坐标读取及受整数/边界约束的编辑，UI和快捷键均调用该转换，再通过原有edit事务提交。管线和项目格式不变，数值规范见pipeline.md。
+
+
+## 0.3.20 逐帧 LUT
+
+项目 schema 6 在 FrameAdjustments 新增 cineonLogLUT，稳定值 kodak2383 / fujifilm3513DI。schema 1–5 读取缺失字段时补 kodak2383，旧画面保持；未知值拒绝读取。首次覆盖旧 schema 前沿用 ProjectStore 原始 JSON 备份机制，schema 5 使用 `.printroom-schema5-UUID.json`。旧应用不支持 schema 6，不应交替编辑。算法仍 printroom-density-v3、几何版本 2。
+
+AppAssets 校验并预载两份 LUT，CPU/Metal 继续接收明确 LUT 实例。导出快照固定逐帧选择，批量逐帧解析对应 LUT；缺少所选 LUT 明确失败。主预览/缩略图/1:1 的 FrameAdjustments 身份包含选择，磁盘缩略图另包含所选 LUT 哈希。NeutralSolver 使用取样启动时当前帧所选 LUT，帧参数变化使旧请求失效。
+
+
+## 0.3.21 导出命名
+
+ExportFrameSnapshot 在筛选前捕获 project.frames 的一基编号；ExportRequest 固定可选 filenamePrefix，应用三个入口统一传入。前缀为对话框局部草稿，不写入项目，命名交互以 interaction.md 为准。旧项目已存 compression 原样读取；新建输出设置默认 deflate，对话框每次默认 ZIP。schema、算法和像素契约保持。底层独立调用者仍可指定完整目标路径。
+
+
+## 历史：0.3.22 LUT 白点准备与算法迁移（0.3.27 已移除）
+
+AppAssets 在校验 LUT/ICC 哈希后为所有可选 LUT 调用 `neutralizingWhite`；CubeLUT 持有不可变原格点与派生 `neutralWhiteShift`，`sample` 为原始插值，`sampleFinal` 为实际 Final 入口。派生偏移不写入项目或 Timing，契约见 pipeline.md。算法版本 v4 纳入现有缩略图身份；内存缓存随应用进程重建。
+
+项目仍为 schema6，v1/v2/v3 读取时迁移 v4，帧参数不补偿。首次保存沿用冲突检查与原子写入：v1 使用原有密度备份；旧schema使用原有schema备份；同schema旧算法保存 `.printroom-density-vN-UUID.json` 原字节备份，然后才覆盖。备份失败中止保存。v4快照拒绝旧算法快照；旧应用拒绝新算法项目。
+
+
+## 0.3.27 白点移除与定向补偿
+
+AppAssets只校验并读取原始cube，不再准备白点偏移，CubeLUT只保留原始格点与sample。算法升级v5，支持v1–v4项目按现有规则迁移，默认不修改任何Timing；同schema旧算法首次保存备份原JSON，v4为`.printroom-density-v4-UUID.json`。算法身份使旧缩略图失效；旧版应用拒绝新算法设置。
+
+独立 `scripts/white-removal-compensation.sh` / `WhiteRemovalCompensation.swift` 只接受明确传入的卷路径，prepare生成原JSON快照、替换JSON及逐帧误差报告，读取已有RAW代理验证输出，不触发RAW转换。apply要求Printroom退出，并核验所有原文件和候选SHA；逐卷在NSFileCoordinator写协调中重验源字节，先独占保存`.printroom-before-white-removal-UUID.json`，再原子替换并回读校验。仅写Timing、algorithmVersion与updatedAt，其他JSON字段保持；v5拒绝再次补偿。两卷按顺序独立提交，任一失败停止并报告已完成卷，不能声称跨目录原子事务。
+
+## 0.3.31 相纸 LUT 注册与导出
+
+CineonLogLUT 增加五个稳定 DiVERE 相纸枚举值，路径与SHA固定。AppAssets 在初始化时验证并加载全部注册表；预览、缩略图、吸管通过同一选择查表。ExportEngine 接收只读 LUT 字典，未知/缺少新增 LUT 明确失败，不能回退 Kodak 或 Fuji。运行任务继续使用帧选择快照。
+
+schema 6 与算法 v5 保持：仅扩展已存在的逐帧枚举，旧应用遇到新枚举会拒绝解码，不会默认为旧 LUT 并覆盖。只用原有 LUT 的项目行为保持。新选项继承复制、重置、同步、撤销和缓存身份；转换策略见 pipeline.md §8。派生表在随包 Assets/assets/DerivedLUTs，MIT源材料及许可证随包提供。
+
+
+## 0.3.32 相纸曝光定位版本
+
+五个相纸选择保留帧枚举与菜单名称，注册资源更新为DerivedLUTs/gray2383-neutral-v3和新SHA，策略为divere-paper-gray2383-neutral-v3。schema6及密度算法v5保持；按用户要求，已有相纸帧也采用统一且中性的中灰定位，存储Timing不修改。缓存身份包含LUT SHA，不复用旧表缩略图。旧应用仍带旧表，不用于本轮外观验收；当前包只打包v3，源码保留历史派生表。偏移仅烘焙进新增相纸资源，不增加运行时偏移字段或全局校正器。
+
+
+## 0.3.33 已移除相纸选择的兼容
+
+当前枚举仅Kodak2383/Fujifilm3513DI。解码时只将五个明确的历史divere标识映射为默认Kodak2383；其他未知标识继续报错。读取不立即写磁盘；首次覆盖含历史标识的项目时，沿既有文件协调/冲突检查流程独占写入`.printroom-retired-paper-luts-UUID.json`原字节备份，失败则停止保存。再次保存不重复备份。帧Timing/Contrast/裁剪等字段保持，缩略图选择和SHA改变后重建。schema6和密度算法v5不变；这是撤销资源的显式兼容策略，不修改两个保留LUT的算法。
+
+
+## 0.3.34 统一磁盘缓存策略（取代上述固定限额）
+
+Core的DiskCachePolicy在UserDefaults保存diskCacheLimitGB/diskCacheRetentionDays；数值和交互以interaction.md为准。ManagedDiskCache仅扫描固定系统缓存根下raw-v1的64位摘要目录，以及thumbnails-v1摘要namespace下.printroom-cache中的摘要普通PNG。两类已提交缓存共用总字节预算，按最后使用时间全局LRU和TTL删除；不计内存缓存、锁文件和活动staging。缩略图命中更新PNG修改时间，RAW命中更新条目目录修改时间。
+
+正式默认RAWSourceService在原有独占跨进程锁内执行统一维护；读取/转换仍持共享锁，结果先返回。正式DiskThumbnailCache停用每卷512MiB/30天限额，写入后请求同一后台合并维护，仍回收一天前的已知缩略图临时文件。注入的测试目录保留原独立限额行为。应用启动、运行每小时、缓存写入/RAW读取以及策略改变时请求维护；持续RAW活动可暂时超限，空闲后收敛。窗口后台统计每2秒刷新，不等待锁。仅扫描本机已迁移系统缓存，不主动扫描未打开的胶卷；旧卷缓存沿原打开迁移流程进入管理。缓存不可用可重建，原片、项目、导出、算法v5和schema6保持。
+
+
+## 0.3.35 RAW 磁盘缓存快速命中
+
+已有代理按完整 FileRevision（大小、inode、设备号、mtime/ctime 秒及纳秒）和 Adobe/LibRaw/策略/代理版本生成带 stat-cache-v1 域标记的目录摘要。命中时不读取原片内容；读取前后继续验证源修订及转换器版本，并完整验证两个代理的 SHA256。仅缓存缺失或损坏需重建时计算原片 SHA256，manifest 保留该值。此节取代缓存定位必须先计算原片全文 SHA 的实现，像素、处理身份和项目版本保持。
+
+首次遇到旧内容摘要目录时，在现有同源锁和缓存共享锁内查找匹配 manifest，核对旧目录摘要及两个代理 SHA 后将目录移至新身份位置；不转换、不改写代理。后续启动直接定位。目录和 manifest/代理拒绝符号链接，统一缓存管理仍识别64位摘要目录。变化、缺失、损坏均回到既有重建路径，四路准备及异步维护保持。快速路径依赖文件系统正确更新 stat 修订；不宣称检测所有元数据均被底层还原的内容变更。
+
+
+## 0.3.36 烘焙 LUT 与偏置回补
+
+AppAssets按CineonLogLUT.path/sha256加载两份diffuse-white-v1派生表；原始ProjectAssetIdentity继续作为原LUT与ICC来源身份，派生表身份由选择注册项及算法v6明确绑定。CubeLUT、CPU、Metal和吸管仍直接采样，无白点运行时字段。构建脚本打包派生表与manifest。项目v1–v5按既有规则迁移v6、保留参数，首次保存前原字节备份；v5软件拒绝v6项目，缓存按算法与LUT SHA失效。
+
+独立WhiteRestoreCompensation只应用已准备且SHA固定的两卷计划，要求应用退出，全部候选预检后逐卷文件协调、复核源、独占备份、原子替换和回读。备份为`.printroom-before-white-restore-UUID.json`。之后以正式ProjectStore重新打开核验。算法已为v6时不能重新准备，避免重复扣回；跨卷不是单一事务。
+
+
+## 0.3.37 RAW 缓存命中不触发全库维护
+
+取代0.3.34中每次RAW读取均请求维护的触发规则。普通metadata、preview、region命中只更新访问时间，不请求独占缓存锁及全库扫描；全尺寸导出仅有临时文件，也不因读取请求维护。新增代理发布或旧目录迁移成功后请求异步维护，应用启动、每小时、缩略图维护与策略修改继续请求维护。预算、TTL、活动读者保护、同源互斥及四路限制保持。显式clearCache行为保持。测试/工具中改变独立服务的容量后，需要显式scheduleMaintenance以执行新策略。

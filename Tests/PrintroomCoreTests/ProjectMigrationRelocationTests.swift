@@ -26,6 +26,9 @@ final class ProjectMigrationRelocationTests: XCTestCase {
   private func legacyData(_ project: RollProject) throws -> Data {
     var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(project)) as? [String: Any])
     object["schemaVersion"] = 1
+    var calibration = object["calibration"] as! [String: Any]
+    for key in ["cmosMatrix", "sampledDensityMatrix", "sampledCMOSMatrix"] { calibration.removeValue(forKey: key) }
+    object["calibration"] = calibration
     var frames = object["frames"] as! [[String: Any]]
     for index in frames.indices {
       frames[index].removeValue(forKey: "orientation")
@@ -45,11 +48,12 @@ final class ProjectMigrationRelocationTests: XCTestCase {
     var project = try ProjectStore.open(folder: root)
     project.frames[0].adjustments = FrameAdjustments(timing: .init(master: 12, red: -11), contrast: .init(blue: 1.25))
     project.calibration.matrix = .ledLightSource
+    project.calibration.sampledDensityMatrix = .ledLightSource
     let original = try legacyData(project)
     let url = root.appendingPathComponent(ProjectStore.filename)
     try original.write(to: url)
     let migrated = try ProjectStore.open(folder: root)
-    XCTAssertEqual(migrated.schemaVersion, 3)
+    XCTAssertEqual(migrated.schemaVersion, RollProject.currentSchemaVersion)
     XCTAssertEqual(migrated.algorithmVersion, project.algorithmVersion)
     XCTAssertEqual(migrated.id, project.id)
     XCTAssertEqual(migrated.frames, project.frames)
@@ -61,9 +65,9 @@ final class ProjectMigrationRelocationTests: XCTestCase {
     try ProjectStore.save(migrated, folder: root, expectedModification: migrated.loadedModificationDate)
     let reopened = try ProjectStore.open(folder: root)
     XCTAssertEqual(reopened.frames, migrated.frames)
-    XCTAssertEqual(reopened.schemaVersion, 3)
+    XCTAssertEqual(reopened.schemaVersion, RollProject.currentSchemaVersion)
     let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-    XCTAssertEqual(saved["schemaVersion"] as? Int, 3)
+    XCTAssertEqual(saved["schemaVersion"] as? Int, RollProject.currentSchemaVersion)
     XCTAssertNotNil((saved["frames"] as? [[String: Any]])?[0]["orientation"])
   }
 

@@ -348,14 +348,14 @@ import SwiftUI
     model.sampling = true
     try await settle()
     let previousCalibration = model.project!.calibration
-    try await clickControl(CGPoint(x: canvas.bounds.maxX - 174, y: 30))
-    precondition(model.histogramChannel == 0, "Floating R channel control must receive clicks")
+    try await clickControl(CGPoint(x: canvas.bounds.maxX - 160, y: 30))
+    precondition(model.histogramStage == .d3, "Floating Density control must receive clicks")
     precondition(canvas.start == nil && canvas.selectionRect == nil)
     precondition(model.project!.calibration == previousCalibration)
     try await capture("22-floating-histogram-sampling")
     model.sampling = false
-    try await clickControl(CGPoint(x: canvas.bounds.maxX - 198, y: 30))
-    precondition(model.histogramChannel == -1)
+    try await clickControl(CGPoint(x: canvas.bounds.maxX - 105, y: 30))
+    precondition(model.histogramStage == .final)
     try await ready()
     try await capture("23-ui-refresh-final")
     print("PASS: eight slider clicks/undo/arrow navigation, focused Timing shortcut, floating picker hit testing")

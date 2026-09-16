@@ -5,19 +5,21 @@ import SwiftUI
 struct PreviewCanvas: NSViewRepresentable {
   @ObservedObject var model: EditorModel
   let resetToken: Int
+  var onViewportChange: ((PreviewViewportMode?) -> Void)? = nil
   func makeNSView(context: Context) -> CanvasView {
     let view = CanvasView()
     view.model = model
     return view
   }
   func updateNSView(_ view: CanvasView, context: Context) {
-    if view.frameID != model.activeFrame?.id || view.resetToken != resetToken
-      || view.orientation != model.orientation || view.cropViewportToken != model.cropViewportToken {
+    view.onViewportChange = onViewportChange
+    if model.cropPreviewTransition == nil && (view.frameID != model.activeFrame?.id || view.resetToken != resetToken
+      || view.orientation != model.orientation || view.cropViewportToken != model.cropViewportToken) {
       view.resetViewport()
     }
     if !model.sampling { view.selectionRect = nil }
     view.orientation = model.orientation
-    view.cropViewportToken = model.cropViewportToken
+    if model.cropPreviewTransition == nil { view.cropViewportToken = model.cropViewportToken }
     if view.nativeZoomToken != model.nativeZoomToken {
       view.nativeZoomToken = model.nativeZoomToken
       view.setNativeZoom()
@@ -38,6 +40,7 @@ struct PreviewCanvas: NSViewRepresentable {
   var nativeZoomToken = 0
   var cropViewportToken = 0
   var orientation = FrameOrientation.identity
+  var onViewportChange: ((PreviewViewportMode?) -> Void)?
   var zoom: CGFloat = 1
   var pan = CGPoint.zero
   var start: CGPoint?
@@ -110,7 +113,13 @@ struct PreviewCanvas: NSViewRepresentable {
   }
   override var acceptsFirstResponder: Bool { true }
   override var isFlipped: Bool { true }
+  var presentsCrop: Bool { model?.cropPreviewTransition?.isCropping ?? (model?.isCropping == true) }
+  var presentedCropGeometry: CropGeometry? {
+    if let transition = model?.cropPreviewTransition { return transition.geometry }
+    return model?.cropDraftGeometry
+  }
   var displaySize: CGSize {
+    if let transition = model?.cropPreviewTransition { return transition.size }
     guard let model, let image = model.previewImage else { return .zero }
     return CGSize(width: model.displayWidth > 0 ? model.displayWidth : image.width,
                   height: model.displayHeight > 0 ? model.displayHeight : image.height)
@@ -118,7 +127,7 @@ struct PreviewCanvas: NSViewRepresentable {
   var fitScale: CGFloat {
     let size = displaySize
     guard size.width > 0, size.height > 0 else { return 0 }
-    if model?.isCropping == true {
+    if presentsCrop {
       // Reserve the full ±10° envelope once; angle changes never move the viewport.
       let horizontalAngle = min(CGFloat.pi / 18, atan2(size.height, size.width))
       let verticalAngle = min(CGFloat.pi / 18, atan2(size.width, size.height))
@@ -146,7 +155,11 @@ struct PreviewCanvas: NSViewRepresentable {
     // UI updates and layout callbacks may not publish synchronously into SwiftUI.
     Task { @MainActor [weak self] in
       guard let self, let model = self.model else { return }
-      guard !model.isCropping else { model.requestDetail(nil); return }
+      let physicalScale = self.fitScale * self.zoom * (self.window?.backingScaleFactor ?? 1)
+      let mode: PreviewViewportMode? = abs(self.zoom - 1) < 0.0001 && self.pan == .zero
+        ? .fit : (abs(physicalScale - 1) < 0.0001 ? .native : nil)
+      self.onViewportChange?(mode)
+      guard !model.isCropping, model.cropPreviewTransition == nil else { return }
       let rect = self.imageRect
       let size = self.displaySize
       guard size.width > 0, size.height > 0,
@@ -169,12 +182,15 @@ struct PreviewCanvas: NSViewRepresentable {
     defer { context.restoreGState() }
     // Apply before either the image or the selection overlay is drawn.
     context.clip(to: bounds)
-    NSColor(calibratedWhite: 0.075, alpha: 1).setFill()
+    let backdrop = model?.project == nil
+      ? NSColor(calibratedWhite: 0.075, alpha: 1)
+      : NSColor(srgbRed: 72.0 / 255, green: 72.0 / 255, blue: 72.0 / 255, alpha: 1)
+    backdrop.setFill()
     bounds.fill()
     guard let image = model?.previewImage else { return }
     let rect = imageRect
     context.saveGState()
-    if model?.isCropping == true, let crop = model?.displayedCropDraft {
+    if presentsCrop, let crop = presentedCropGeometry?.displayCrop {
       context.translateBy(x: rect.midX, y: rect.midY)
       context.rotate(by: CGFloat(crop.angleDegrees) * .pi / 180)
       context.translateBy(x: -rect.midX, y: -rect.midY)
@@ -182,19 +198,21 @@ struct PreviewCanvas: NSViewRepresentable {
     NSGraphicsContext.current?.imageInterpolation = .high
     NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height)).draw(
       in: rect, from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: nil)
-    if let model, !model.isCropping, let detail = model.detailImage, let tile = model.detailRect,
-      model.displayWidth > 0, model.displayHeight > 0 {
+    if let model, !presentsCrop,
+      let detail = model.cropPreviewTransition?.detailImage ?? model.detailImage,
+      let tile = model.cropPreviewTransition?.detailRect ?? model.detailRect,
+      displaySize.width > 0, displaySize.height > 0 {
       let destination = CGRect(
-        x: rect.minX + CGFloat(tile.x) / CGFloat(model.displayWidth) * rect.width,
-        y: rect.minY + CGFloat(tile.y) / CGFloat(model.displayHeight) * rect.height,
-        width: CGFloat(tile.width) / CGFloat(model.displayWidth) * rect.width,
-        height: CGFloat(tile.height) / CGFloat(model.displayHeight) * rect.height)
+        x: rect.minX + CGFloat(tile.x) / displaySize.width * rect.width,
+        y: rect.minY + CGFloat(tile.y) / displaySize.height * rect.height,
+        width: CGFloat(tile.width) / displaySize.width * rect.width,
+        height: CGFloat(tile.height) / displaySize.height * rect.height)
       NSGraphicsContext.current?.imageInterpolation = .none
       NSImage(cgImage: detail, size: NSSize(width: detail.width, height: detail.height)).draw(
         in: destination, from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: nil)
     }
     context.restoreGState()
-    if model?.isCropping == true { drawCropOverlay(context) }
+    if presentsCrop { drawCropOverlay(context) }
     if let selectionRect {
       NSColor.systemYellow.withAlphaComponent(0.15).setFill()
       selectionRect.fill()
@@ -205,9 +223,10 @@ struct PreviewCanvas: NSViewRepresentable {
     }
   }
   override func mouseDown(with event: NSEvent) {
+    guard !isOverHistogram(convert(event.locationInWindow, from: nil)) else { return }
     cancelGesture()
     let p = convert(event.locationInWindow, from: nil)
-    guard bounds.contains(p), model?.previewImage != nil else { return }
+    guard bounds.contains(p), model?.previewImage != nil, model?.cropPreviewTransition == nil else { return }
     window?.makeFirstResponder(self)
     if event.clickCount == 2 {
       resetViewport()
@@ -226,7 +245,7 @@ struct PreviewCanvas: NSViewRepresentable {
     if model?.sampling == true { selectionRect = CGRect(origin: p, size: .zero) }
   }
   override func mouseDragged(with event: NSEvent) {
-    guard let start else { return }
+    guard let start, model?.cropPreviewTransition == nil else { return }
     let p = convert(event.locationInWindow, from: nil)
     guard bounds.contains(p) else {
       // Pause outside; re-entry must not accumulate an off-viewport pan delta.
@@ -256,7 +275,7 @@ struct PreviewCanvas: NSViewRepresentable {
       cropGesture = nil
       needsDisplay = true
     }
-    guard start != nil, let model, model.sourceWidth > 0, model.sourceHeight > 0 else { return }
+    guard start != nil, let model, model.cropPreviewTransition == nil, model.sourceWidth > 0, model.sourceHeight > 0 else { return }
     let p = convert(event.locationInWindow, from: nil)
     if let gesture = cropGesture {
       if !bounds.contains(p), model.isCropping {
@@ -271,8 +290,8 @@ struct PreviewCanvas: NSViewRepresentable {
     guard display.width > 0, display.height > 0 else { return }
     func point(_ p: CGPoint) -> CGPoint {
       CGPoint(
-        x: (p.x - display.minX) / display.width * CGFloat(model.displayWidth),
-        y: (p.y - display.minY) / display.height * CGFloat(model.displayHeight))
+        x: (p.x - display.minX) / display.width * displaySize.width,
+        y: (p.y - display.minY) / display.height * displaySize.height)
     }
     if model.sampling, let selected = selectionRect, !selected.isNull, selected.width > 1,
       selected.height > 1
@@ -292,7 +311,8 @@ struct PreviewCanvas: NSViewRepresentable {
     }
   }
   override func magnify(with event: NSEvent) {
-    guard bounds.contains(convert(event.locationInWindow, from: nil)), model?.previewImage != nil
+    guard bounds.contains(convert(event.locationInWindow, from: nil)), model?.previewImage != nil,
+      model?.cropPreviewTransition == nil
     else { return }
     cancelGesture()
     zoom = max(0.25, min(16, zoom * (1 + event.magnification)))
@@ -300,7 +320,9 @@ struct PreviewCanvas: NSViewRepresentable {
     needsDisplay = true
   }
   override func scrollWheel(with event: NSEvent) {
-    guard bounds.contains(convert(event.locationInWindow, from: nil)), model?.previewImage != nil
+    guard !isOverHistogram(convert(event.locationInWindow, from: nil)) else { return }
+    guard bounds.contains(convert(event.locationInWindow, from: nil)), model?.previewImage != nil,
+      model?.cropPreviewTransition == nil
     else { return }
     cancelGesture()
     if event.modifierFlags.contains(.command) || event.modifierFlags.contains(.option) {
@@ -323,7 +345,21 @@ struct PreviewCanvas: NSViewRepresentable {
     addTrackingArea(area)
     cursorTrackingArea = area
   }
+  private func isOverHistogram(_ point: CGPoint) -> Bool {
+    guard let content = window?.contentView else { return false }
+    func containsPanel(_ view: NSView) -> Bool {
+      guard !view.isHidden else { return false }
+      if view is HistogramPointerView {
+        return view.bounds.contains(view.convert(point, from: self))
+      }
+      return view.subviews.contains { containsPanel($0) }
+    }
+    return containsPanel(content)
+  }
   func cursor(at point: CGPoint) -> NSCursor {
+    // SwiftUI may route non-interactive background hits through to the canvas.
+    // The panel's actual laid-out bounds also exclude its chart and padding.
+    if isOverHistogram(point) { return .arrow }
     guard bounds.contains(point), let model, model.previewImage != nil else { return .arrow }
     if model.sampling { return .crosshair }
     if model.neutralPicking { return Self.neutralCursor }
@@ -335,14 +371,13 @@ struct PreviewCanvas: NSViewRepresentable {
     return .openHand
   }
   func refreshCursor() {
-    // A tool can change under a stationary pointer (I, Esc, or completed sampling).
-    // Only claim the pointer when the canvas is actually hit, excluding SwiftUI overlays.
+    // SwiftUI overlay backgrounds can hit either the canvas or a shared graphics
+    // view. Use the actual panel bounds instead of that unstable hit-test result.
     guard let window, window.isKeyWindow, window.attachedSheet == nil,
-      NSApp.modalWindow == nil, let content = window.contentView else { return }
-    let location = window.mouseLocationOutsideOfEventStream
-    let hit = content.hitTest(content.convert(location, from: nil))
-    guard hit === self || hit?.isDescendant(of: self) == true else { return }
-    cursor(at: convert(location, from: nil)).set()
+      NSApp.modalWindow == nil else { return }
+    let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+    guard bounds.contains(point) else { return }
+    cursor(at: point).set()
   }
   override func cursorUpdate(with event: NSEvent) { refreshCursor() }
   override func mouseEntered(with event: NSEvent) { refreshCursor() }
@@ -367,7 +402,7 @@ extension CanvasView {
     let draft: FrameCrop
   }
   var cropRect: CGRect? {
-    guard let geometry = model?.cropDraftGeometry, displaySize.width > 0, displaySize.height > 0 else {
+    guard let geometry = presentedCropGeometry, displaySize.width > 0, displaySize.height > 0 else {
       return nil
     }
     let image = imageRect
@@ -431,14 +466,26 @@ extension CanvasView {
     guard let rect = cropRect, !rect.isEmpty else { return }
     context.saveGState()
     defer { context.restoreGState() }
+    context.saveGState()
+    // Dim only the rotated photo; keep the surrounding preview backdrop unchanged.
+    let image = imageRect
+    let angle = CGFloat(presentedCropGeometry?.displayCrop?.angleDegrees ?? 0) * .pi / 180
+    let photo = CGPath(rect: image, transform: nil)
+    var rotation = CGAffineTransform(translationX: image.midX, y: image.midY)
+      .rotated(by: angle).translatedBy(x: -image.midX, y: -image.midY)
+    if let rotatedPhoto = photo.copy(using: &rotation) {
+      context.addPath(rotatedPhoto)
+      context.clip()
+    }
     context.addRect(bounds)
     context.addRect(rect)
     context.setFillColor(NSColor.black.withAlphaComponent(0.52).cgColor)
     context.drawPath(using: .eoFill)
+    context.restoreGState()
     context.saveGState()
     context.clip(to: rect)
     // Denser fixed grid supplies visual angle references without a separate straighten tool.
-    let divisions = abs(model?.cropDraft?.angleDegrees ?? 0) > 0.00001 ? 6 : 3
+    let divisions = abs(presentedCropGeometry?.displayCrop?.angleDegrees ?? 0) > 0.00001 ? 6 : 3
     context.setStrokeColor(NSColor.white.withAlphaComponent(0.35).cgColor)
     context.setLineWidth(0.5)
     for index in 1..<divisions {

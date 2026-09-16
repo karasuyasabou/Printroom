@@ -41,6 +41,7 @@ final class RollProjectTests: XCTestCase {
     var result = project
     var calibration = FilmCalibration()
     calibration.matrix = matrix
+    calibration.sampledDensityMatrix = matrix
     calibration.sourceFrameID = project.frames[0].id
     calibration.sourceWidth = 100
     calibration.sourceHeight = 80
@@ -401,7 +402,7 @@ final class RollProjectTests: XCTestCase {
     let mutations: [(inout RollProject) -> Void] = [
       { $0.calibration.gainRGB.x += 0.01 },
       { $0.calibration.filmBaseOffsetCV.z += 0.1 },
-      { $0.calibration.matrix = .ledLightSource },
+      { $0.calibration.sampledDensityMatrix = .ledLightSource },
       { $0.calibration.baseRGB?.x = 0 },
       { $0.calibration.baseRGB?.x = 1.01 },
       { $0.calibration.baseRGB?.x = .nan },

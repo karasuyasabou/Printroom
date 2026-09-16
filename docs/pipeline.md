@@ -1,21 +1,22 @@
 # 算法与色彩管线
 
-本文是公式、单位和常量的规范来源。除标注为“工程默认/待验证”的项，以下核心公式、矩阵、pivot、参数范围均来自用户说明及后续确认。算法标识：`printroom-density-v2`；0.1.0 已实现 CPU/Metal 与 TIFF 闭环，实际验证记录见 `acceptance-0.1.0.md`。算法契约与 LUT 作者的物理标定证据仍须区分。
+本文是公式、单位和常量的规范来源。除标注为“工程默认/待验证”的项，以下核心公式、矩阵、pivot、参数范围均来自用户说明及后续确认。算法标识：`printroom-density-v6`；0.1.0 已实现 CPU/Metal 与 TIFF 闭环，实际验证记录见 `acceptance-0.1.0.md`。算法契约与 LUT 作者的物理标定证据仍须区分。
 
 ## 1. 阶段与表示
 
 ```text
 L0 原始线性 RGB
- → Linear Gain → L1
+ → CMOS Matrix → L1
+ → Linear Gain → L2
  → Cineon Density → D0
  → Print Density Matrix → D1
  → Film Base Offset + User Timing → D2
  → RGB Contrast → D3
- → Kodak 2383 D65 LUT → Final（P3-D65 Gamma 2.6 编码 RGB）
+ → Cineon Log LUT（逐帧选择） → Final（P3-D65 Gamma 2.6 编码 RGB）
  → 显示器色彩转换 / 导出 profile 转换
 ```
 
-CPU 参考和 Metal 基线都用 Float32。L0/L1 是线性透射率数值；D0–D3 **统一保存归一化密度** `N`。UI Timing 与校准偏移保存 CV，进入计算时除以 1024。函数与字段名必须标明 `CV`、`Density` 或 `NormalizedDensity`，避免混用。
+CPU 参考和 Metal 基线都用 Float32。L0/L1/L2 是线性透射率数值；D0–D3 **统一保存归一化密度** `N`。UI Timing 与校准偏移保存 CV，进入计算时除以 1024。函数与字段名必须标明 `CV`、`Density` 或 `NormalizedDensity`，避免混用。
 
 中间阶段不量化为整数 CV、8-bit 或 16-bit，不把密度数组包装成普通 RGB 交给 ICC 处理。Float16 只允许在后续通过误差验收后作为明确优化。
 
@@ -31,16 +32,18 @@ CPU 参考和 Metal 基线都用 Float32。L0/L1 是线性透射率数值；D0�
 
 ## 3. 片基采样与 Linear Gain
 
-选区映射到完成 TIFF orientation 校正后的原始像素坐标，整数边界，左上包含、右下不包含。保存此坐标空间、来源帧 ID、图像尺寸与选区，避免从缩略图采样。逐通道中位数；偶数样本数取中间两值平均，禁止先取 RGB 亮度再求中位数。
+选区映射到完成 TIFF orientation 校正后的原始像素坐标，整数边界，左上包含、右下不包含。保存此坐标空间、来源帧 ID、图像尺寸与选区，避免从缩略图采样。先对选区每个原始 RGB 像素应用当前 CMOS 矩阵，再求逐通道中位数；不能以矩阵乘原始通道中位数代替。偶数样本数取中间两值平均，禁止先取 RGB 亮度再求中位数。
 
 工程默认：选区至少 16 个有效 RGB 像素；排除任何通道非有限的整个像素。任一通道中位数 `base[c] <= 0` 则校准失败，保留已有有效校准。报告零值和饱和样本比例，不暗中排除有限亮暗值；用户可据此重选。
 
 ```text
 gain[c] = 0.75 / base[c]
-L1[c] = L0[c] × gain[c]
+L1 = CMOS × L0
+base[c] = median(L1 samples[c])
+L2[c] = L1[c] × gain[c]
 ```
 
-未校准时 gain=(1,1,1)、offsetCV=(0,0,0)，状态为未校准；预览可用但不能伪装已达片基目标。不裁切 L1 上界；大于 1 可以形成负密度。
+未校准时 gain=(1,1,1)、offsetCV=(0,0,0)，状态为未校准；预览可用但不能伪装已达片基目标。不裁切 L1 或 L2 上界；大于 1 可以形成负密度。
 
 ## 4. 密度与 CV
 
@@ -52,7 +55,7 @@ normalizedDensity = CV / 1024
 CV = normalizedDensity × 1024
 ```
 
-工程默认：`T = max(L1, 1e-6)`；零值和有限负值被替换并累计诊断计数。NaN/Inf 不送入 LUT：处理任务返回明确错误，保留上一次有效预览并禁止本次导出。不裁切有限的中间密度。
+工程默认：`T = max(L2, 1e-6)`；零值和有限负值被替换并累计诊断计数。NaN/Inf 不送入 LUT：处理任务返回明确错误，保留上一次有效预览并禁止本次导出。不裁切有限的中间密度。
 
 | 参考点 | CV | 实际密度 | 归一化密度 |
 | --- | ---: | ---: | ---: |
@@ -66,7 +69,7 @@ CV = normalizedDensity × 1024
 
 ## 5. Transform to Print Density
 
-默认 `identity`。另提供 `ledLightSource`。RGB 列向量，左乘矩阵，计算发生在归一化密度域：
+默认 `identity`。另提供只读 `ledLightSource` 和用户手动输入的自定义 3×3 系数。内置值不可编辑或删除，自定义系数不自动归一化。RGB 列向量，左乘矩阵，计算发生在归一化密度域：
 
 ```text
 D1 = M × D0
@@ -86,20 +89,20 @@ G′ =  0.0753R + 1.0120G − 0.0693B
 B′ = −0.0147R + 0.1420G + 0.7774B
 ```
 
-来源：用户提供的矩阵截图及 RGB 顺序确认。无额外矩阵偏移。不得归一化行和、转置、拟合或修改系数。Swift SIMD 矩阵可能按列构造，须用基向量验收其实际乘法方向。
+来源：用户提供的矩阵截图及 RGB 顺序确认。无额外矩阵偏移。内置密度矩阵不得归一化行和、转置、拟合或修改系数；用户新增矩阵按输入值应用。Swift SIMD 矩阵可能按列构造，须用基向量验收其实际乘法方向。
 
 ## 6. 片基 95 CV 自动校准
 
 ```text
-baseL1 = base × gain
-baseD0 = -log10(max(baseL1, epsilon)) / 2.048
+baseL2 = base × gain
+baseD0 = -log10(max(baseL2, epsilon)) / 2.048
 baseD1 = M × baseD0
 filmBaseOffsetCV = (95,95,95) − 1024 × baseD1
 ```
 
 offsetCV 保留浮点。含义是让 `baseD1 + offsetCV/1024` 达到片基目标；偏移作用在 D1 之后。D1 本身不含偏移，D2 同时包含自动偏移和用户 Timing。校准承诺仅在用户 Timing=0、Contrast=1 的基准状态成立，后续手动调色可以移动片基。
 
-重新采样：重新计算 gain 和 offset。切换矩阵：从已保存的 base/gain 重新计算 offset。两者影响整卷，但保留每帧用户 Timing/Contrast。失败时不部分更新。未校准时换矩阵保持 offset=0。
+用户框选片基时，使用当时 CMOS 处理的选区中位数及当时密度矩阵计算 gain 和 offset。0.3.9 起，已校准卷应用新 CMOS 矩阵时沿原片选区重新逐像素处理并取中位数，更新 base/gain/offset；只改密度矩阵时保留 base/gain，按新矩阵重算 offset。若旧项目当前 CMOS 与采样 CMOS 不同，改密度矩阵也先重新采样，确保对齐成立。未校准卷仍 gain=1、offset=0。仅编辑或删除库预设不改变卷快照。来源丢失、指纹/RAW 处理身份变化、选区尺寸变化或采样失败时整次应用失败，保留原矩阵和校准；连续矩阵请求合并最新目标并丢弃过期结果。矩阵和校准一起提交、一起撤销，保留每帧 Timing/Contrast。保存/重开仍只验证已存采样快照，不主动重算，因此旧项目打开时画面保持。
 
 ## 7. Timing 与 RGB Contrast
 
@@ -120,7 +123,7 @@ D3[c] = pivot + finalContrast[c] × (D2[c] − pivot)
 
 ## 8. LUT
 
-资产：`LUT/DCI-P3 Kodak 2383 D65.cube`，33³，35937 行，DOMAIN_MIN=(0,0,0)、DOMAIN_MAX=(1,1,1)。文件头声明 Cineon Log 输入，Kodak 2383 D65 外观、DCI-P3 Gamma 2.6 显示输出；文件数值范围见资产清单。
+资产：`LUT/DCI-P3 Kodak 2383 D65.cube` 与 `LUT/DCI-P3 Fujifilm 3513DI D65.cube`，均为 33³、35937 格点，DOMAIN_MIN=(0,0,0)、DOMAIN_MAX=(1,1,1)。文件头均声明 Cineon Log 输入、D65 白点和 DCI-P3 Gamma 2.6 显示输出。逐帧选择 Kodak 2383（默认）或 Fujifilm 3513DI，预览、缩略图、中性点吸管和导出共享该选择；切换只替换 D3 后的 LUT。原资产字节不变，哈希见资产清单。
 
 工程默认：输入在 LUT 边界逐通道 clamp 到 [0,1]，记录域外计数；采用显式三线性插值，CPU 和 Metal 采用相同算法。`.cube` 红索引变化最快，行索引 `r + N*g + N*N*b`。坐标为 `u*(N-1)`，上界索引不得越界。GPU 首版手动读取 8 个格点插值，避免硬件采样半像素坐标与精度差异。暂不提供四面体插值。
 
@@ -130,7 +133,7 @@ Final 按现有 P3-D65 Gamma 2.6 ICC 解释。LUT 后不再套 Gamma 2.6 编码�
 
 Final 由正确的源 profile 转换到显示器 profile；显示链路只进行一次相应转换。显示框架的纹理格式、transfer 和系统合成行为须由 M1 实测明确，不能把“看起来正常”作为排除双重 Gamma 的证据。
 
-中间阶段工程默认：L0/L1 显示 `clamp(value,0,1)` 的诊断伪色 RGB；D0–D3 显示 `clamp(normalizedDensity,0,1)` 的诊断伪色 RGB，统一作为 sRGB 编码诊断画面送显示器。标记“数值诊断”；诊断显示不参与后续计算。0.3.2 移除首版点击像素读数，密度直方图坐标与中性点取样见 §12/§15。
+中间阶段工程默认：L0/L1/L2 显示 `clamp(value,0,1)` 的诊断伪色 RGB；D0–D3 显示 `clamp(normalizedDensity,0,1)` 的诊断伪色 RGB，统一作为 sRGB 编码诊断画面送显示器。标记“数值诊断”；诊断显示不参与后续计算。0.3.2 移除首版点击像素读数，密度直方图坐标与中性点取样见 §12/§15。
 
 默认导出：Final→P3-D65 Gamma 2.6→16-bit RGB TIFF，嵌入原始 ICC；相同 profile 不转换数值。**0.1.0 实际选择无压缩 classic TIFF（compression=1）**，无 alpha、orientation=1、抖动关闭。直接写入有界条带，并以不替换已有目标的原子重命名发布；7008 像素宽时每块 32 行，编码器同时限制原始行块不超过约 2 MiB。初始文档中的 ZIP/Deflate 输出建议留到后续，不隐式降位深。超过 classic TIFF 4 GiB 限制明确拒绝。
 
@@ -174,6 +177,8 @@ Final 数值已经 Gamma 2.6 编码。相同 P3 不进行 ICC 往返或额外 tr
 
 RGB 叠加与单通道共享同一统计结果。0.3.2 构建 3 起，大于 131,072 像素的预览按原预览坐标的 4×4 网格取样，每格取 (起点+2) 并在末格夹到图像边界；小图保留逐像素统计。覆盖整张裁后预览，256 bins 与数值域保持。pixelCount 是完整预览像素数，sampleCount 是实际统计数；所有计数只指样本，百分比以 sampleCount 为分母，界面注明估计，可能漏掉细小尖峰和稀少极值。完整 compute 接口保留精确统计。画面与统计由同一个渲染请求后台准备，在一次无挂起的主线程更新中一起发布，取消原 120ms 等待；同上下文允许递增完成快照，跨帧/阶段/校准/几何旧结果丢弃。1:1 局部不替换整图统计。此近似仅用于直方图，不改变画面、取样吸管或导出像素。
 
+
+0.3.25（构建3将P90系数提高至4，样本比例下限沿用构建2）纵轴仅用于显示：将当前可见通道的所有非零 bin 计数合并、排序，以 nearest-rank P90 × 4 为候选上限；下限为 max(1, sampleCount × 0.002)，最终上限不超过实际最高 bin。绘图高度为 min(1, count / 上限)，保持未截顶部分的线性比例。RGB叠加共用尺度，单通道按自身分布计算；空分布上限为1，稀疏/纯色分布可自然退回最高峰。零bin不参与分位数，端点和其他位置的峰同等处理。阈值为工程默认，避免单个大峰压扁主体，同时限制稀少样本被过度放大。仅改变显示高度，统计、像素、算法版本和项目schema均保持；不声称复刻Lightroom内部实现。
 
 0.3.2 显示单位：D0–D3 的横轴以 `CV = N × 1024` 标示为 0…1024 CV，参考线位于 N=95/1024、470/1024、685/1024。只转换坐标标签与详细统计的范围文案，256 bins、归一化值和域外计数规则保持。
 
@@ -235,3 +240,143 @@ targetRGB = (ICC.TRC.encode(y), 同左, 同左)
 求解在可取消后台任务中运行，提交前再次校验帧/卷、调色、校准、几何、阶段、原始尺寸、LUT/ICC、修订、取消令牌与源文件指纹。成功作为已有单帧事务一次撤销；失败和取消不增加撤销或保存。
 
 此功能仅产生既有整数 RGB Timing 参数，`printroom-density-v2`、schema 3、几何版本 2 和 LUT/ICC 资产保持。旧项目不自动重算吸管参数；使用新吸管时才产生新的调色结果。0.3.2 D3 求解记录保留于该版本验收文档。
+
+
+## 16. 0.3.5 CMOS 标定与双矩阵
+
+**用户确认**：L0→CMOS→L1→Gain→L2→D0→密度矩阵→D1；矩阵均为卷级。0.3.9 用户确认矩阵应用自动联动片基对齐，具体规则以 §6 为准，取代此前冻结 Gain/offset 的约定。CMOS 制作本轮只支持三张 TIFF，RAW 留给后续接入。借鉴 LightSourceDecouple 功能思路，不要求与其裁切/截断的中间 TIFF 逐像素相同。
+
+CMOS 标定工程实现：三张分别仅开启 R/G/B 光源的 16-bit RGB TIFF。使用保持样本值的 TIFFCodec，按 orientation 校正后的中心宽高各 20% 区域计算 Double RGB 算术均值（整数尺寸向下取整；尺寸≤10 的轴取全轴）。每个相机通道在三张图中的最大均值确定光源角色，必须一一对应。令均值列向量构成 `A=[vR vG vB]`，`B=inverse(A)`，`CMOS[i,j]=B[i,j]/sum_j(B[i,j])`。行归一化仅用于此 CMOS 求解，保持等值 RGB；结果转为 Float32，允许负系数。
+
+工程失败条件：重复/不足三张、不可读/不支持 TIFF、区域内任一 65535 剪切样本、非有限或非法均值、角色重复、`||A||∞×||A⁻¹||∞ >= 1e8` 或非有限、`abs(rowSum) <= 1e-8×sum(abs(row))`、Float32 非有限系数、读取期间源大小/mtime 改变。失败不覆盖已保存矩阵，也不改变卷设置。标定计算在后台，可取消。
+
+内部 L1/L2 保留 Float32，不裁切、不量化、不做 ICC/transfer 转换。有限负值进入密度时仍按 §4 的 epsilon 处理；非有限中间值在 CPU/Metal 均失败，不允许被 LUT 裁切隐藏。
+
+0.3.17 起按用户要求移除独立 CMOS 校正 TIFF 导出，导出统一为 Final，按 §11 执行 ICC 转换与量化。CMOS 校正仍为管线内部 L0→L1 阶段。
+
+算法版本升级 `printroom-density-v3`，旧 v2 项目补 Identity CMOS 并保留所有已有像素参数、Gain/offset，不自动重做校准；因此旧画面保持。历史 v1 的 685 CV 迁移仍遵守 §13，不由本次撤销。结构版本迁移与矩阵快照见 architecture.md。
+
+## 0.3.6 RAW 输入契约
+
+RAW 策略独立版本为 `adobe-linear-camera-rgb-v1`。首版输入开放 ARW；真实验收范围为 Sony ILCE-7CM2 的八张样片。仅 Adobe DNG Converter 执行去马赛克：单遍参数 `-u -l -p0 -dng1.1`，禁止加入 `-cr5.4`，转换失败不能改用其他去马赛克后端。读取真正主图并验证 uncompressed UInt16、三通道、LinearRaw (34892)、无 CFA filters；DNGVersion 不必等于 BackwardVersion。
+
+静态构建 LibRaw 0.22.1 执行 `open_file → adjust_to_raw_inset_crop(3,0) → unpack → dcraw_process → copy_mem_image`。固定 `user_mul=[1,1,1,1]`、`output_color=0`、`user_flip=0`、`highlight=1`、`output_bps=16`、`no_auto_bright=1`、`user_qual=3`、`gamm=[1,1]`、`adjust_maximum_thr=0`、`use_camera_matrix=0`。不再做黑位归一化、相机白平衡、自动亮度、ICC 转换或 Gamma。有效裁剪/黑位来自实际 DNG 和 LibRaw，不硬编码机型尺寸。
+
+所得 UInt16 线性相机 RGB 进入现有 L0 输入；原 TIFF 样本读取行为不变。内部 TIFF 无需嵌入相机色域 ICC。`user_flip=0` 保留参考样本布局，RAW 源 EXIF 方向不自动旋转 RGB；用户方向和原片裁剪仍按现有几何契约应用一次。
+
+`nearest-original-1600-v1` 代理按长边 1600、尺寸向下取整，由完整有效图逐像素 nearest-original-sample 取样；240 缩略源独立从完整图取样，不能从1600代理二次取样。两者均保存未调色的 UInt16 TIFF。首次代理仍需全尺寸 Adobe 和 LibRaw 处理，但不先写完整 TIFF。0.3.13 起按用户要求，日常 ROI/1:1/片基/中性点/CMOS 制作仅使用代理；导出才重新调用 Adobe 并解码全尺寸，直接交给导出器，不落 full.tiff。DNG 仅在本次准备/导出临时目录存在，用完删除。数值复现的历史依据见 raw-adobe-study-2026-09-09.md；本版生产验证另见 acceptance-0.3.6.md。
+
+## CMOS 标定 RAW 接口补充
+
+三张标定图允许 TIFF、ARW 或混合选择。ARW 使用既有 SourceImageIO 线性转换，原片中心 ROI 映射到代理参与标定（0.3.13 起）；读取冻结 RAW 处理身份并检查源文件变化。求解、曝光拒绝和中性归一化沿用 §16。Sony A7C II 内置系数直接来自用户 NPY，仅转换为管线 Float32，不转置、不再次归一化；阶段顺序与算法版本不变。
+
+## BigTIFF 输入（0.3.8）
+
+TIFF 输入同时支持版本 42（classic）与 43（BigTIFF）；BigTIFF 使用 8 字节偏移、8 字节目录项数量、20 字节目录项与 8 字节内联值，条带地址和字节数支持 LONG8。样本约束沿用 §2：chunky RGB UInt16、无 alpha、单页条带、无压缩或 Deflate、水平预测和八种 orientation。不支持 tiled、LZW 或其他位深。ICC 仅作为元数据，解码数值、算法版本和项目 schema 不变。输入不再以 4 GiB 限制样本总量；维度与乘法先校验可寻址范围，读取前校验文件边界。预览和 ROI 按所需条带读取，完整图像和单个条带仍需要相应内存。输出继续使用 classic TIFF 及既有 4 GiB 拒绝行为。
+
+
+## 0.3.13 RAW 日常代理采样
+
+用户确认日常完全走代理、全尺寸仅用于实际导出。此节取代以上对 RAW 精确 ROI/取样的约定，TIFF 保持原样。编辑采样版本 `proxy-region-nearest-v1`：原片整数坐标 `(x,y)` 映射到1600代理的 `(floor(x*Pw/W), floor(y*Ph/H))`；ROI 返回原坐标网格尺寸，值取对应代理像素，不宣称包含原片精细信息。片基逐通道中位数、CMOS中心均值和中性点11×11邻域使用此网格；因此可能多次取到同一代理像素，代表值相较全尺寸取样可能不同。保存的选区/尺寸/裁剪仍为原片坐标，旋转和裁剪导出范围不变。1:1显示代理放大，明确标注代理。
+
+1600/240原代理生成规则和 RAW 处理身份保持；其他预览尺寸从1600代理缩小，不为放大请求重新解码。首次代理制作仍需全尺寸 Adobe/LibRaw 临时处理。Final导出从原片重新转换，沿原有完整分辨率和算法执行，不以代理补偿或替代输出；失败不得回退代理。密度算法v3、schema5、几何v2不变。旧项目已存校准和矩阵不自动重算，只有新取样/相关矩阵重采样采用本节规则。
+
+## 0.3.19 简易 Timing 坐标
+
+简易 Timing 只生成 §7 已有整数参数，不增加管线阶段。设有效用户偏移 `r=master+red`、`g=master+green`、`b=master+blue`（不含片基偏移）：
+
+```text
+E = (r+g+b)/3
+T = (r-b)/2
+H = (r+b-2g)/6
+r = E+T+H
+g = E-2H
+b = E-T+H
+```
+
+E/T/H 分别显示曝光、色温、色调，均为相对 CV 坐标；不标 EV 或 Kelvin。工程默认每个轴单步为1，对应有效偏移向量 `(1,1,1)`、`(1,0,-1)`、`(1,-2,1)`。正向对应当前2383中间调更亮、更暖、更洋红；不保证非线性LUT及非单位RGB反差之后亮度/色相严格独立。
+
+切换模式只反解显示，不写入或舍入原参数。已有RGB可能反解出分数，显示两位小数；编辑将目标与当前轴值的差四舍五入为整数步数，保留其他两轴。因此从旧RGB继承的分数余量保持，输入0/双击复位达到当前整数格点上最接近0的可达值，误差最多半步（若受范围约束则停在边界）。普通简易模式从全零开始没有分数余量。
+
+各控件仍须满足 §7 的独立±512。沿整条轴限制移动，使有效RGB各自位于±1024且最大与最小之差≤1024，禁止分别截断通道。对移动后的有效RGB，合法Master区间为 `[max(-512,maxRGB-512), min(512,minRGB+512)]`；曝光优先让Master随轴移动，色温/色调优先保留Master，必要时在合法区间内重分配Master/RGB，合成偏移精确不变。显示全域E±1024、T±512、H±1024/3，实际可达区间受另外两轴约束。
+
+现有CPU/Metal共享已生成的Timing参数，密度算法v3和schema5不变；已存照片不自动修改。
+
+
+## 历史：0.3.22 LUT 白点中性校正（0.3.27 已移除）
+
+用户确认所有可选 LUT 自动将等值 685 CV 的输出去偏色，同时保持该 LUT 原输出的线性亮度；不要求满值纯白，不改 cube，不写入用户 Timing。算法升级为 `printroom-density-v4`。
+
+设原始 LUT 为 F，p=(685,685,685)/1024。用 §15 的固定 ICC 测量 F(p)，取 `t=neutralMatchingLuminance(F(p))`，求解域内 x 满足 F(x)=t；保存浮点归一化密度偏移 s=x−p。最终阶段为 `Final=F(clamp(D3+s,0,1))`。偏移在反差之后，故 p 仍为所有通道的反差固定点。D3 诊断、片基95 CV、既有矩阵和 Timing 数值不变。校正是全图固定偏移，只承诺参考白点的中性与亮度，不承诺其他色阶/像素亮度保持或全灰阶中性。
+
+每个 LUT/工作 ICC 加载时计算一次，所有当前可选 LUT 走同一准备入口；原格点与原始 sample 保留。CPU、Metal、预览、缩略图、导出与吸管共用偏移；吸管格点起点反解时扣除偏移，避免重复应用。重复准备仍以原始表为基准。
+
+工程默认求解：以参考点和距离目标编码 RGB 最近的格点为两个确定性起点；域内阻尼最小二乘，0.5 CV 有界差分，单步最大128 CV，最多64轮，每轮最多10次阻尼尝试。最终以实际 Float32 校正采样验证：RGB 到目标欧氏误差≤2e-6、C*ab≤0.001、|ΔL*|≤0.001。不满足则明确报错，不静默使用未校正 LUT；不对 LUT 域外进行外推。ICC 解码只用于求解目标，不改变实际输出的 Gamma 编码。
+
+schema 6 和几何版本2保持；旧算法 v1/v2/v3 读取迁移至 v4，保留已有参数，照片呈现采用新白点。首次覆盖备份原 JSON，具体顺序见 architecture.md。算法身份使旧缩略图失效。数值证据见 acceptance-0.3.22.md。
+
+
+0.3.26 直方图选择独立于照片预览：Density 取现有 D3，Final 取现有 Final，同一输入、裁剪、方向和参数快照；默认 Final。统计数值契约保持，详情弹窗已移除，固定显示 RGB 叠加。
+
+
+## 0.3.27 恢复 D3 直接套用 LUT
+
+用户明确撤回自动白点校正。算法 `printroom-density-v5` 恢复 `Final=F(clamp(D3,0,1))`，CPU、Metal、预览、缩略图、导出和中性点吸管均不再增加白点偏移；删除运行时白点求解器及派生字段。685 CV反差pivot保持，cube不变。
+
+用户另授权仅为指定两卷已调色照片做一次性参数补偿，尽量保留v4画面。对每帧按已选LUT的历史偏移s（单位CV）及有效通道反差k求 `deltaTiming[c]=round(s[c]/k[c])`，加到原RGB Timing；Master、反差、片基、矩阵、LUT选择和几何保持。正负号与历史s相同，因为新的Timing必须承担已移除的偏移。整数Timing不能精确表示任意浮点偏移，残差为 `k[c]*deltaTiming[c]−s[c]`，必须测量并报告；不能宣称像素完全相同。超范围拒绝，不截断。
+
+该补偿只由独立脚本对明确指定的项目执行，不是应用自动迁移行为，不增加隐藏参数。其他项目读取时仅迁移算法身份并保留参数。项目仍schema6、几何2；备份及冲突规则见architecture.md。
+
+### 历史：0.3.31 DiVERE 相纸 LUT（0.3.32 替换曝光定位）
+
+新增 Kodak Ektacolor Edge、Kodak Endura Premier、Kodak Portra Endura、Kodak Supra Endura、Kodak Ultra Endura，均为 65³ `.cube`。原有两个 LUT 保持字节不变；新增派生资源位于 `assets/DerivedLUTs/`，源曲线、线性 ICC 和 MIT 许可位于 `ThirdParty/DiVERE/`。生成策略标识 `divere-paper-v1`；运行时算法仍为 `printroom-density-v5`，只在用户选中新 LUT 时改变画面。
+
+**工程默认衔接（不是 Kodak 官方 Cineon 标定）：** DiVERE 默认负片反相参数为 gamma=1、density_dmax=2.5。令 Printroom LUT 输入为 N=D3，则原始物理密度 D=2.048N，DiVERE 曲线之前的正片密度 q=2.5−D。其曲线坐标范围 L=log10(65536)，按以下方式烘焙：
+
+```text
+N = clamp(N, 0, 1)
+x = 1 − clamp((2.5 − 2.048N) / L, 0, 1)
+y[c] = channelCurve[c](commonRGBCurve(x[c]))
+linearPaper[c] = 10^(-(1 − y[c]) × L)
+linearP3 = inverse(P3_ICC_D50_colorants) × Paper_ICC_D50_colorants × linearPaper
+Final = clamp(linearP3, 0, 1) ^ (1 / P3_ICC_gamma)
+```
+
+曲线使用源程序高精度导出的分段线性插值及常值端点延伸。保留所有 RGB 控制点、相纸黑位和色偏，屏幕反光补偿为0；没有重新对齐中灰/白点、按通道拉伸黑白或自动中和。Printroom 上游矩阵、片基、Timing、反差已由本管线完成，不重复烘焙 DiVERE 上游扫描输入转换、密度矩阵或调色参数。因此这是相纸曲线的可复现移植，不承诺相同扫描文件与 DiVERE 整条默认管线逐像素一致。
+
+相纸输出使用 DiVERE 默认 KodakEnduraPremier 工作空间：原色/白点定义为 D60，其线性 ICC 的 colorants 已适配到 D50 PCS。目标使用现有 `ICC/DCIP3_D65.icc` 的 D50 colorants 与 TRC（存储 gamma=2.600006103515625）。两组 ICC 矩阵相接包含白点适配，不重复使用 chad，也不使用 DiVERE 的简化白点增益。矩阵只用于曲线后的线性反射 RGB，不作用于密度。P3 越界值相对色度裁切后编码，运行时和导出不再加 Gamma；P3 原色、D65 与 Display P3 的传递函数不可混同。
+
+65³ 表使用既有三线性插值，是连续转换的离散近似。固定随机100000色及10001个等值密度点，五表合并最坏编码通道误差0.06643、各表RMS≤0.00160，P99≤0.00418；等值密度阶梯最大≤0.00688。最坏误差位于饱和颜色的P3裁切附近，不能宣称达到16-bit解析转换精度。源算法在烘焙前的解析对照误差<8e-14，与离散LUT误差、CPU/Metal一致性是三个不同指标。完整结果、格点数和SHA见 `assets/DerivedLUTs/manifest.json`，源码方法对照见同目录 `reference-validation.json`。用户实际照片外观仍待验收。
+
+复现：用带 NumPy 的 Python 运行 `scripts/generate-divere-luts.py` 与 `scripts/validate-divere-luts.py`。前者只创建新文件或核对现有文件相同，拒绝覆盖不同字节的 LUT；改变策略必须新增明确的版本与资产身份。原始 `LUT/`、`ICC/`、`TEST/` 保持不变。
+
+
+### 0.3.32 相纸中灰曝光与通道偏移（当前 §8 补充）
+
+用户要求以现有Kodak2383为参照保持中灰曝光一致、截取2.048密度，随后允许RGB通道密度偏移使470 CV保持中灰。当前策略为 `divere-paper-gray2383-neutral-v3`；取代v1的默认曝光定位及本轮未交付的v2共用偏移方案，只更新五个相纸LUT。
+
+中灰输入为 `Ngray=(470,470,470)/1024`。取原Kodak2383经现有三线性插值后的线性亮度 `Yref = rowY(P3_ICC_D50_colorants) · decodeTRC(Kodak2383(Ngray))`，实测约0.134987173971308。中性目标三个通道均为 `(Yref / sum(rowY))^(1/gamma)`。参考是现有LUT实测中灰亮度，不强制为0.18，不复制2383该点的色偏，也不以编码RGB平均替代线性亮度。
+
+每条相纸求三个密度曝光位置 `dmax[c]`，映射为 `q[c](N)=dmax[c]−2.048×clamp(N[c],0,1)`；每通道所取相纸密度窗口为 `[dmax[c]−2.048,dmax[c]]`，宽度均严格2.048。输入密度越大q越小，保持负转正方向。允许RGB窗口相对平移，不缩放横轴或曲线反差、不拉伸输出黑白。相纸曲线插值、线性化、ICC连接及Gamma编码沿用上节。只保证参考中灰中性，不保证其余色阶无偏色。
+
+以匹配亮度的共用偏移为初值，有限差分Jacobian和带回溯Newton求三个通道位置。求解对象是最终65³表在Ngray处的八个格点三线性插值（包含9位十进制舍入），避免只匹配连续曲线而遗漏实际采样偏差。不可达/不收敛则生成失败；烘焙后逐通道编码目标残差<1e-9。正式CPU/Metal目标为ICC L*差<0.00005、通道极差<1e-6；上游反差pivot仍685 CV，未改变为470。
+
+新表位于 `assets/DerivedLUTs/gray2383-neutral-v3/`，路径、SHA、RGB窗口及偏移实测见该目录manifest。偏移仅离线写入这五个相纸LUT，不改变运行时管线，不恢复全局白点校正，不修改用户Timing；已选相纸的项目也采用新版。原始2383/Fuji/ICC/JSON与历史派生表不覆盖。密度算法v5和schema6保持，LUT转换独立版本化，缩略图因LUT SHA变化而失效。
+
+65³在P3裁切边界的离散近似误差仍存在，不能由470 CV中灰对齐推断整条灰阶或两套完整扫描管线逐像素一致。具体数值及验证范围见acceptance-0.3.32.md。生成和源算法对照命令仍为scripts/generate-divere-luts.py、scripts/validate-divere-luts.py，现默认为v3。
+
+
+## 0.3.33 移除相纸LUT（当前）
+
+用户明确不再需要五个DiVERE相纸LUT。当前只提供原始Kodak2383和Fujifilm3513DI，两者内容/输入输出约定保持。0.3.31/0.3.32相纸段落均为已撤销功能的历史记录，不再参与运行时。派生cube已删除，转换脚本、源数据和数值验收结论作为可复用研究资料保留，不随应用打包。原始TEST/ICC/LUT和桌面DiVERE项目保持。
+
+
+## 0.3.36 LUT 漫反射白直接烘焙（当前）
+
+用户要求直接修改LUT，取代运行时偏移方案。当前资源使用 `assets/DerivedLUTs/diffuse-white-v1/` 的两份65³表；原始LUT目录字节不变。此节取代§8与0.3.27关于使用原表的约定，仍为 `Final=F_baked(clamp(D3,0,1))`，不新增运行时步骤、偏移字段或输出增益。密度公式、矩阵、片基、Timing、685 CV反差pivot保持。
+
+离线生成以p=(685,685,685)/1024为Cineon漫反射白，使用原表F(p)经固定P3 ICC解码后的线性Y，生成相同Y的等值RGB目标t。求固定RGB输入平移s，使最终65³表的三线性插值在p处等于t；每个格点q写入F(clamp(q+s,0,1))。直接对最终表在p周围八个格点求解，包含9位小数存储回读验证。生成脚本为scripts/generate-white-luts.py，系数、目标、源/输出SHA及重采样误差记录在派生manifest。
+
+此方法只对齐参考白，不强制全灰阶中性，也不把漫反射白提到输出1。均匀格点重采样与连续输入平移存在误差，尤其在LUT陡峭区域；不宣称等同历史v4像素。算法身份升级v6以区分图像与缓存；schema6保持。
+
+两卷已授权照片按0.3.27逐帧记录，执行 `Timing_now -= (Timing_then_after - Timing_then_before)`，仅RGB三项；使用历史实际整数差，不按当前反差重新推算，不恢复整份历史参数，保留之后的调整。按frameID对应备份与当前照片，越界拒绝。此操作独立于应用自动迁移，仅对指定76帧执行一次。

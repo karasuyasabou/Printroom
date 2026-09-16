@@ -1,0 +1,132 @@
+{
+  "accessorySamples" : 1436,
+  "failures" : [
+
+  ],
+  "fullImages" : [
+    {
+      "frame" : "DSC07119",
+      "height" : 4672,
+      "matchesReference" : true,
+      "rgbSHA256" : "f2cc1e1c2ee79c209c89d8ef0ab888a210fc809c1c3ccb156c078c30af1eea0f",
+      "width" : 7008
+    },
+    {
+      "frame" : "DSC07120",
+      "height" : 4672,
+      "matchesReference" : true,
+      "rgbSHA256" : "6feecbee3b9e6f105c448ab08b9d68fd0fe64a34cfb5671f9889bd835ada84b5",
+      "width" : 7008
+    },
+    {
+      "frame" : "DSC07121",
+      "height" : 4672,
+      "matchesReference" : true,
+      "rgbSHA256" : "3dbc3d495219245c3b04dc8ddd54c992a06bb822ef002d2743f5ece64aed78ef",
+      "width" : 7008
+    },
+    {
+      "frame" : "DSC07122",
+      "height" : 4672,
+      "matchesReference" : true,
+      "rgbSHA256" : "1e0f15f96649d0c25f418865cd22bbb6a0557ac1d899d7242021f0b19be33cc8",
+      "width" : 7008
+    },
+    {
+      "frame" : "DSC07123",
+      "height" : 4672,
+      "matchesReference" : true,
+      "rgbSHA256" : "0c97da92db2286b6eef140551405740ee98b88376608ad6aa817c90ed07d89c3",
+      "width" : 7008
+    },
+    {
+      "frame" : "DSC07124",
+      "height" : 4672,
+      "matchesReference" : true,
+      "rgbSHA256" : "087206ae8b500fd57aae98be4893c598d7f9cb7ca6225d2f95f2be2dd9ce8774",
+      "width" : 7008
+    },
+    {
+      "frame" : "DSC07125",
+      "height" : 4672,
+      "matchesReference" : true,
+      "rgbSHA256" : "9a9767ae074033e5a00f0566e58aa597aa1d3554222fef0e5c25df9aac8a13c2",
+      "width" : 7008
+    },
+    {
+      "frame" : "DSC07126",
+      "height" : 4672,
+      "matchesReference" : true,
+      "rgbSHA256" : "16f77972776f1ab007b452d26a6201238812542ae891fd8a55f79d4c0b7c22d5",
+      "width" : 7008
+    }
+  ],
+  "observedAdobePIDs" : [
+    86557,
+    86558,
+    86559,
+    86560,
+    86574,
+    86580,
+    86581,
+    86582
+  ],
+  "observedPeakAdobeProcesses" : 4,
+  "output" : "\/Users\/bao\/Desktop\/Printroom\/scratch\/adobe-service-four-55212AA4-7D8F-4757-923A-66A720914F5D",
+  "proxies" : [
+    {
+      "frame" : "DSC07119",
+      "samplesMatchReference" : true,
+      "serviceCompletionSeconds" : 7.4204899072647095,
+      "serviceWaitSeconds" : 7.420462965965271
+    },
+    {
+      "frame" : "DSC07120",
+      "samplesMatchReference" : true,
+      "serviceCompletionSeconds" : 5.1778289079666138,
+      "serviceWaitSeconds" : 5.1777949333190918
+    },
+    {
+      "frame" : "DSC07121",
+      "samplesMatchReference" : true,
+      "serviceCompletionSeconds" : 5.1885079145431519,
+      "serviceWaitSeconds" : 5.1884430646896362
+    },
+    {
+      "frame" : "DSC07122",
+      "samplesMatchReference" : true,
+      "serviceCompletionSeconds" : 3.5709009170532227,
+      "serviceWaitSeconds" : 3.57082200050354
+    },
+    {
+      "frame" : "DSC07123",
+      "samplesMatchReference" : true,
+      "serviceCompletionSeconds" : 7.4243029356002808,
+      "serviceWaitSeconds" : 7.4242029190063477
+    },
+    {
+      "frame" : "DSC07124",
+      "samplesMatchReference" : true,
+      "serviceCompletionSeconds" : 5.1822009086608887,
+      "serviceWaitSeconds" : 5.1820828914642334
+    },
+    {
+      "frame" : "DSC07125",
+      "samplesMatchReference" : true,
+      "serviceCompletionSeconds" : 7.4310179948806763,
+      "serviceWaitSeconds" : 7.4308830499649048
+    },
+    {
+      "frame" : "DSC07126",
+      "samplesMatchReference" : true,
+      "serviceCompletionSeconds" : 7.4448049068450928,
+      "serviceWaitSeconds" : 7.4446650743484497
+    }
+  ],
+  "proxyPhasePeakRSSBytes" : 3251765248,
+  "proxyPreparationAndComparisonSeconds" : 7.6700559854507446,
+  "proxyServiceCompletionSeconds" : 7.4448049068450928,
+  "regularSamples" : 0,
+  "serialFullPreparationAndHashSeconds" : 3.980167031288147,
+  "totalPeakRSSBytes" : 3296083968
+}

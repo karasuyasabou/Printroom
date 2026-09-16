@@ -59,7 +59,7 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
     guard let window, window.isKeyWindow,
       window.attachedSheet == nil, NSApp.modalWindow == nil,
       !(window.firstResponder is NSTextView),
-      let model, model.errorMessage == nil, !model.showExportSummary else { return false }
+      let model, model.errorMessage == nil, !model.showExportSummary, !model.showSync, model.matrixManager == nil, !model.showMatrixMenu else { return false }
     return true
   }
 
@@ -84,7 +84,18 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
     let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
     if let adjustmentKey = Self.adjustmentKey(for: event.keyCode),
       modifiers.intersection([.command, .control]).isEmpty {
-      guard !model.isCropping else { model.stopTimingKey(); return true }
+      if model.isCropping {
+        guard modifiers.isEmpty else { model.stopTimingKey(); return true }
+        let nudge: (Double, Double)? = switch adjustmentKey {
+        case "w": (0, -0.003)
+        case "s": (0, 0.003)
+        case "a": (-0.003, 0)
+        case "d": (0.003, 0)
+        default: nil
+        }
+        if let nudge { model.nudgeCropDraft(horizontal: nudge.0, vertical: nudge.1) }
+        return true
+      }
       model.startAdjustmentKey(adjustmentKey, contrast: modifiers.contains(.option),
         shift: modifiers.contains(.shift), isRepeat: event.isARepeat) { [weak self] in
           self?.canRouteKeys == true && NSApp.isActive
@@ -129,8 +140,7 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
       case 53:
         model.cancelCrop()
         return true
-      // Keep the crop draft and its source fixed until completion or cancellation.
-      case 123...126: return true
+      case 125, 126: return true
       default: break
       }
       if ["[", "【", "]", "】"].contains(key) { return true }

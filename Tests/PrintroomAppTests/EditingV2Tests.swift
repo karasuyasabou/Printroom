@@ -68,11 +68,62 @@ struct EditingV2Tests {
     #expect(reopened.frames == applied.frames)
     #expect(reopened.exportSettings.profile == .proPhoto)
     #expect(reopened.exportSettings.compression == .deflate)
-    #expect(reopened.schemaVersion == 3)
+    #expect(reopened.schemaVersion == RollProject.currentSchemaVersion)
     try await until("oriented preview", { model.histogram != nil && !model.isRendering })
     #expect(model.previewImage?.width == 8 && model.previewImage?.height == 12)
     #expect(model.histogram?.pixelCount == 96)
     #expect(model.errorMessage == nil)
+  }
+
+  @Test func batchDirectionsPreserveSelectionUndoTogetherAndRejectMissingTargets() async throws {
+    let model = EditorModel()
+    let assets = try #require(model.assets)
+    let folder = try fixture("BatchDirections")
+    defer { try? FileManager.default.removeItem(at: folder) }
+    for name in ["A.tif", "B.tif", "C.tif"] { try write(name, folder: folder, profile: assets.profile) }
+    model.open(folder)
+    try await until("initial preview", { model.histogram != nil })
+    let frames = try #require(model.project?.frames)
+    model.changeOrientation(.rotateClockwise)
+    model.select(frames[1].id)
+    try await until("second preview", { model.histogram != nil })
+    model.changeOrientation(.flipVertical)
+    model.select(frames[0].id, command: true)
+    let selection = model.selection
+    for operation: OrientationOperation in [.flipHorizontal, .flipVertical, .rotateClockwise, .rotateCounterclockwise] {
+      let before = try #require(model.project)
+      model.changeSelectedOrientations(operation)
+      let after = try #require(model.project)
+      for index in 0..<2 {
+        #expect(after.frames[index].orientation == before.frames[index].orientation.applying(operation))
+        #expect(after.frames[index].adjustments == before.frames[index].adjustments)
+        #expect(after.frames[index].crop == before.frames[index].crop)
+      }
+      #expect(after.frames[2] == before.frames[2])
+      #expect(model.selection.activeFrameID == selection.activeFrameID)
+      #expect(model.selection.selectedFrameIDs == selection.selectedFrameIDs)
+      #expect(model.selection.anchorID == selection.anchorID)
+      model.undo()
+      #expect(model.project?.frames == before.frames)
+      model.redo()
+      #expect(model.project?.frames == after.frames)
+    }
+    #expect(model.flushSave())
+    #expect(try ProjectStore.open(folder: folder).frames == model.project?.frames)
+    let beforeFailure = try #require(model.project)
+    try await until("preview before crop", { model.histogram != nil && !model.isPreviewPlaceholder })
+    model.beginCrop()
+    #expect(model.isCropping)
+    #expect(!model.canChangeSelectedOrientations)
+    model.changeSelectedOrientations(.flipHorizontal)
+    #expect(model.project?.frames == beforeFailure.frames)
+    model.cancelCrop()
+    model.undoManager.removeAllActions()
+    try FileManager.default.removeItem(at: folder.appendingPathComponent("B.tif"))
+    model.changeSelectedOrientations(.rotateClockwise)
+    #expect(model.project?.frames == beforeFailure.frames)
+    #expect(model.errorMessage != nil)
+    #expect(!model.undoManager.canUndo)
   }
 
   @Test func rapidFrameAndStageChangesNeverPublishPreviousHistogram() async throws {
@@ -85,32 +136,40 @@ struct EditingV2Tests {
     model.open(folder)
     model.stage = .l0
     let frames = try #require(model.project?.frames)
-    try await until("first histogram", { model.histogram?.stage == .l0 })
+    try await until("first histogram", { model.histogram?.stage == .final })
     #expect(model.histogram?.pixelCount == 512 * 256)
     for index in 0..<12 {
       model.select(frames[index % 2].id)
       model.stage = index % 2 == 0 ? .d3 : .final
+      model.histogramStage = index % 2 == 0 ? .d3 : .final
       model.edit { $0.timing.master = index }
     }
     model.select(frames[1].id)
     model.stage = .l0
     #expect(model.histogram == nil)
-    try await until("latest frame histogram", { model.histogram?.stage == .l0 })
+    try await until("latest frame histogram", { model.histogram?.stage == .final })
     let result = try #require(model.histogram)
     #expect(model.activeFrame?.id == frames[1].id)
     #expect(result.pixelCount == 48 * 32)
-    #expect(result.channels.allSatisfy { $0.bins[192] == 48 * 32 && $0.bins.reduce(0, +) == 48 * 32 })
+    let expectedFinal = try Pipeline.process(SIMD3<Float>(repeating: Float(49152) / 65535),
+      calibration: try #require(model.project).calibration,
+      adjustments: model.adjustments, lut: assets.lut, stage: .final)
+    for channel in 0..<3 {
+      #expect(result.channels[channel].bins[min(255, Int(expectedFinal[channel] * 256))] == 48 * 32)
+    }
     // Give cancelled, more expensive A work an opportunity to finish; it still cannot publish.
     try await Task.sleep(for: .milliseconds(200))
     #expect(model.histogram == result)
     model.stage = .d2
+    model.histogramStage = .d3
+    #expect(model.stage == .d2)
     model.edit { $0.timing.master = 200 }
     #expect(model.histogram == nil)
-    try await until("latest adjusted stage histogram", { model.histogram?.stage == .d2 })
+    try await until("latest adjusted stage histogram", { model.histogram?.stage == .d3 })
     let adjusted = try #require(model.histogram)
     let value = try Pipeline.process(SIMD3<Float>(repeating: Float(49152) / 65535),
       calibration: try #require(model.project).calibration,
-      adjustments: model.adjustments, lut: assets.lut, stage: .d2)
+      adjustments: model.adjustments, lut: assets.lut, stage: .d3)
     let bin = min(255, Int(value.x * 256))
     #expect(adjusted.channels[0].bins[bin] == 48 * 32)
     #expect(adjusted.unit.contains("1024"))
@@ -177,7 +236,7 @@ struct EditingV2Tests {
     #expect(model.histogram?.pixelCount == 128 * 96)
     model.stage = .d0
     #expect(model.detailImage == nil && model.histogram == nil)
-    try await until("new diagnostic histogram", { model.histogram?.stage == .d0 })
+    try await until("new diagnostic histogram", { model.histogram?.stage == .final })
     #expect(model.histogram?.pixelCount == 128 * 96)
     #expect(model.errorMessage == nil)
   }

@@ -20,6 +20,7 @@ import PrintroomCore
     guard !isRepeat, key.count == 1, "qeadzcws".contains(key),
       model.activeFrame != nil, !model.isCropping else { return }
     stop(model: model)
+    guard contrast || model.timingMode == .rgb || !["z", "c"].contains(key) else { return }
     model.beginAdjustment()
     heldKey = key
     if contrast { model.handleContrastKey(key) }
@@ -72,16 +73,31 @@ extension EditorModel {
   }
 
   static func heldTimingCV(elapsed: Double) -> Int {
-    Int((max(0, elapsed - 0.4) * 50 + 1e-9).rounded(.down))
+    Int((max(0, elapsed - 0.4) * 25 + 1e-9).rounded(.down))
   }
 
   static func heldContrastSteps(elapsed: Double) -> Int {
-    Int((max(0, elapsed - 0.4) * 20 + 1e-9).rounded(.down))
+    Int((max(0, elapsed - 0.4) * 10 + 1e-9).rounded(.down))
   }
 
   func handleTimingKey(_ key: String, step: Int = 1) {
     guard activeFrame != nil else { return }
     let step = max(0, min(TimingParameters.range.count - 1, step))
+    if timingMode == .simple {
+      let axis: SimpleTimingAxis
+      let sign: Int
+      switch key.lowercased() {
+      case "w": axis = .exposure; sign = 1
+      case "s": axis = .exposure; sign = -1
+      case "q": axis = .temperature; sign = -1
+      case "e": axis = .temperature; sign = 1
+      case "a": axis = .tint; sign = -1
+      case "d": axis = .tint; sign = 1
+      default: return
+      }
+      edit { $0.timing = axis.moving(sign * step, in: $0.timing) }
+      return
+    }
     edit { a in
       switch key.lowercased() {
       case "q": a.timing.red = max(TimingParameters.range.lowerBound, a.timing.red - step)

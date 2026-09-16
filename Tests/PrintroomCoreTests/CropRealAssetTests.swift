@@ -11,7 +11,7 @@ final class CropRealAssetTests: XCTestCase, @unchecked Sendable {
     }
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
       .deletingLastPathComponent().deletingLastPathComponent()
-    let source = root.appendingPathComponent("TEST/DSC07079.tiff")
+    let source = root.appendingPathComponent("TEST/TIFF/DSC07079.tiff")
     let originalHash = try hash(source)
     let metadata = try TIFFCodec.metadata(url: source)
     XCTAssertEqual(metadata.width, 7008)

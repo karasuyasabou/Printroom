@@ -118,6 +118,48 @@ import SwiftUI
       guard process.terminationStatus == 0 else { throw PrintroomError.invalid("Crop QA screenshot failed") }
     }
 
+    if CommandLine.arguments.contains("--transition-only") {
+      window.setContentSize(NSSize(width: 1060, height: 720))
+      try await settle()
+      let viewport = canvas.convert(canvas.bounds, to: host)
+      func stableCanvas() {
+        host.layoutSubtreeIfNeeded()
+        precondition(findCanvas(host) === canvas)
+        precondition(canvas.convert(canvas.bounds, to: host) == viewport)
+        precondition(model.previewImage != nil)
+      }
+      try await capture("transition-01-before")
+      window.makeFirstResponder(canvas)
+      try await press("r", code: 15)
+      try await ready()
+      stableCanvas()
+      precondition(model.isCropping)
+      model.updateDisplayedCropDraft(FrameCrop(aspect: .sevenSix, width: 0.7,
+        angleDegrees: 4.75, geometryVersion: 1))
+      try await settle()
+      let rect = canvas.cropRect!
+      drag(CGPoint(x: rect.maxX, y: rect.maxY), CGPoint(x: rect.maxX - 30, y: rect.maxY - 20))
+      try await capture("transition-02-cropping")
+      let draft = model.cropDraft
+      try await press("\r", code: 36)
+      try await ready()
+      stableCanvas()
+      precondition(!model.isCropping && model.activeFrame?.crop == draft)
+      try await capture("transition-03-committed")
+      try await press("r", code: 15)
+      try await ready()
+      stableCanvas()
+      model.resetCropDraft()
+      try await press("\u{1b}", code: 53)
+      try await ready()
+      stableCanvas()
+      precondition(!model.isCropping && model.activeFrame?.crop == draft)
+      try await capture("transition-04-cancelled")
+      model.flushSave()
+      print("PASS: R/Enter/Esc, corner drag, crop reopen/cancel, same CanvasView and viewport at 1060x720")
+      return
+    }
+
     if CommandLine.arguments.contains("--layout-only") {
       print("LAYOUT ONLY: direct model setup for visual layout; real keyboard and mouse QA is NOT RUN")
       model.beginCrop()
@@ -132,7 +174,7 @@ import SwiftUI
       precondition(abs(canvas.bounds.width - 753) < 1)
       let viewport = canvas.convert(canvas.bounds, to: host)
       let top = host.isFlipped ? viewport.minY : host.bounds.height - viewport.maxY
-      precondition(abs(top - 143) <= 2, "Crop controls must occupy one 38 px row")
+      precondition(abs(top - 104) <= 2, "Crop controls must replace the existing 38 px toolbar")
       try await capture("layout-only-minimum-window")
       print("LAYOUT CHECK COMPLETE: 1060x720 window, 753 px preview column, one 38 px crop row. Real keyboard/mouse/sync-click checks remain NOT RUN.")
       return

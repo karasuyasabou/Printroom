@@ -18,6 +18,7 @@ actor ImageService {
     let modification: Date?
     let size: Int64
     let inode: UInt64
+    let rawProcessing: RAWProcessingIdentity?
   }
   private struct Entry {
     let identity: SourceIdentity
@@ -44,7 +45,10 @@ actor ImageService {
   /// Compatibility/reference path only. No full-resolution image remains cached.
   func load(_ url: URL) throws -> LinearImage {
     try Task.checkCancellation()
-    let image = try autoreleasepool { try TIFFCodec.read(url: url) }
+    let image = try autoreleasepool {
+      if SourceImageIO.isRAW(url) { return try SourceImageIO.readPreview(url: url, maxDimension: 1600) }
+      return try SourceImageIO.read(url: url)
+    }
     try Task.checkCancellation()
     return image
   }
@@ -102,32 +106,32 @@ actor ImageService {
       rect.width <= 8_388_608 / rect.height
     else { throw PrintroomError.invalid("1:1 检查区域超过 8 百万像素，请缩小检查视口") }
     let identity = try sourceIdentity(url)
-    let image = try autoreleasepool { try TIFFCodec.readRegion(url: url, rect: rect) }
+    let image = try autoreleasepool { try SourceImageIO.readRegion(url: url, rect: rect) }
     try Task.checkCancellation()
     guard identity == (try sourceIdentity(url)) else {
-      throw PrintroomError.invalid("读取期间源 TIFF 已改变，请重新打开照片")
+      throw PrintroomError.invalid("读取期间源图像已改变，请重新打开照片")
     }
     return try pixelBuffer(image)
   }
 
-  func sample(_ url: URL, rect: PixelRect, matrix: PrintDensityMatrix, frameID: UUID) throws -> (
+  func sample(_ url: URL, rect: PixelRect, matrix: PrintDensityMatrix, frameID: UUID, cmosMatrix: MatrixPreset = .identity) throws -> (
     FilmCalibration, CalibrationDiagnostics
   ) {
     try Task.checkCancellation()
     let identity = try sourceIdentity(url)
-    let metadata = try autoreleasepool { try TIFFCodec.metadata(url: url) }
-    let image = try autoreleasepool { try TIFFCodec.readRegion(url: url, rect: rect) }
+    let metadata = try autoreleasepool { try SourceImageIO.metadata(url: url) }
+    let image = try autoreleasepool { try SourceImageIO.readRegion(url: url, rect: rect) }
     let local = PixelRect(x: 0, y: 0, width: image.width, height: image.height)
     try Task.checkCancellation()
     var calibration = try Pipeline.calibrate(
-      image: image, rect: local, matrix: matrix, sourceFrameID: frameID)
+      image: image, rect: local, matrix: matrix, sourceFrameID: frameID, cmosMatrix: cmosMatrix)
     calibration.selection = rect
     calibration.sourceWidth = metadata.width
     calibration.sourceHeight = metadata.height
     let diagnostics = try Pipeline.calibrationDiagnostics(image: image, rect: local)
     try Task.checkCancellation()
     guard identity == (try sourceIdentity(url)) else {
-      throw PrintroomError.invalid("采样期间源 TIFF 已改变，请重新采样")
+      throw PrintroomError.invalid("采样期间源图像已改变，请重新采样")
     }
     return (calibration, diagnostics)
   }
@@ -135,14 +139,14 @@ actor ImageService {
   func pixel(_ url: URL, x: Int, y: Int) throws -> SIMD3<Float> {
     try Task.checkCancellation()
     let identity = try sourceIdentity(url)
-    let metadata = try autoreleasepool { try TIFFCodec.metadata(url: url) }
+    let metadata = try autoreleasepool { try SourceImageIO.metadata(url: url) }
     let rect = PixelRect(
       x: max(0, min(metadata.width - 1, x)), y: max(0, min(metadata.height - 1, y)),
       width: 1, height: 1)
-    let image = try autoreleasepool { try TIFFCodec.readRegion(url: url, rect: rect) }
+    let image = try autoreleasepool { try SourceImageIO.readRegion(url: url, rect: rect) }
     try Task.checkCancellation()
     guard identity == (try sourceIdentity(url)) else {
-      throw PrintroomError.invalid("读取期间源 TIFF 已改变，请重新取样")
+      throw PrintroomError.invalid("读取期间源图像已改变，请重新取样")
     }
     return image.pixel(x: 0, y: 0)
   }
@@ -163,12 +167,12 @@ actor ImageService {
       return entries[index]
     }
     misses += 1
-    let metadata = try autoreleasepool { try TIFFCodec.metadata(url: url) }
-    let image = try autoreleasepool { try TIFFCodec.readPreview(url: url, maxDimension: maxDimension) }
+    let metadata = try autoreleasepool { try SourceImageIO.metadata(url: url) }
+    let image = try autoreleasepool { try SourceImageIO.readPreview(url: url, maxDimension: maxDimension) }
     let pixels = try pixelBuffer(image)
     try Task.checkCancellation()
     guard identity == (try sourceIdentity(url)) else {
-      throw PrintroomError.invalid("读取期间源 TIFF 已改变，请重新打开照片")
+      throw PrintroomError.invalid("读取期间源图像已改变，请重新打开照片")
     }
     let entry = Entry(
       identity: identity, dimension: maxDimension, pixels: pixels,
@@ -193,7 +197,8 @@ actor ImageService {
     return SourceIdentity(
       url: url.standardizedFileURL, modification: attributes[.modificationDate] as? Date,
       size: (attributes[.size] as? NSNumber)?.int64Value ?? -1,
-      inode: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0)
+      inode: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0,
+      rawProcessing: try SourceImageIO.processingIdentity(url: url))
   }
 
   private func pixelBuffer(_ image: LinearImage) throws -> PixelBuffer {
@@ -214,7 +219,7 @@ actor ImageService {
   ) async throws {
     let request = try ExportRequest(
       source: source, destination: destination, calibration: calibration, adjustments: adjustments)
-    let result = try await ExportEngine().run(request, lut: assets.lut, p3Profile: assets.profile) {
+  let result = try await ExportEngine().run(request, lut: assets.lut, p3Profile: assets.profile, fujifilmLUT: assets.fujifilmLUT) {
       progress($0.fraction)
     }
     if result.wasCancelled { throw CancellationError() }

@@ -17,11 +17,14 @@ public struct FrameRecord: Identifiable, Codable, Equatable, Sendable {
   public var sourceSize: Int64
   /// Source modification time, in seconds since 1970. Used with size for cache invalidation.
   public var sourceModified: Double
+  /// Identity of the Adobe-prepared source. nil means TIFF or RAW not prepared yet.
+  public var rawProcessing: RAWProcessingIdentity?
 
   public init(
     id: UUID = UUID(), filename: String, adjustments: FrameAdjustments = .init(),
     isMissing: Bool = false, sourceSize: Int64 = 0, sourceModified: Double = 0,
-    orientation: FrameOrientation = .identity, crop: FrameCrop? = nil
+    orientation: FrameOrientation = .identity, crop: FrameCrop? = nil,
+    rawProcessing: RAWProcessingIdentity? = nil
   ) {
     self.id = id
     self.filename = filename
@@ -31,10 +34,11 @@ public struct FrameRecord: Identifiable, Codable, Equatable, Sendable {
     self.isMissing = isMissing
     self.sourceSize = sourceSize
     self.sourceModified = sourceModified
+    self.rawProcessing = rawProcessing
   }
 
   private enum CodingKeys: String, CodingKey {
-    case id, filename, adjustments, orientation, crop, isMissing, sourceSize, sourceModified
+    case id, filename, adjustments, orientation, crop, isMissing, sourceSize, sourceModified, rawProcessing
   }
 
   public init(from decoder: Decoder) throws {
@@ -45,6 +49,7 @@ public struct FrameRecord: Identifiable, Codable, Equatable, Sendable {
     isMissing = try values.decode(Bool.self, forKey: .isMissing)
     sourceSize = try values.decode(Int64.self, forKey: .sourceSize)
     sourceModified = try values.decode(Double.self, forKey: .sourceModified)
+    rawProcessing = try values.decodeIfPresent(RAWProcessingIdentity.self, forKey: .rawProcessing)
     if decoder.userInfo[migratingSchemaOne] as? Bool == true {
       // Schema 1 never had a user transform. Reject a conflicting extension rather than
       // accidentally applying it twice or silently changing the old default image.
@@ -80,6 +85,7 @@ public struct FrameRecord: Identifiable, Codable, Equatable, Sendable {
     try values.encode(isMissing, forKey: .isMissing)
     try values.encode(sourceSize, forKey: .sourceSize)
     try values.encode(sourceModified, forKey: .sourceModified)
+    try values.encodeIfPresent(rawProcessing, forKey: .rawProcessing)
   }
 }
 
@@ -111,12 +117,12 @@ public struct ProjectExportSettings: Codable, Equatable, Sendable {
   public var profile: OutputColorProfile = .p3 {
     didSet { profileSHA256 = profile.profileSHA256 }
   }
-  public var compression: TIFFCompression = .none
+  public var compression: TIFFCompression = .deflate
   public var profileSHA256 = ProjectAssetIdentity.expectedICCSHA256
   public var bitsPerSample = 16
   public var embedsICC = true
   public var dithering = false
-  public init(profile: OutputColorProfile = .p3, compression: TIFFCompression = .none) {
+  public init(profile: OutputColorProfile = .p3, compression: TIFFCompression = .deflate) {
     self.profile = profile
     self.compression = compression
     profileSHA256 = profile.profileSHA256
@@ -146,7 +152,7 @@ public struct ProjectExportSettings: Codable, Equatable, Sendable {
 }
 
 public struct RollProject: Codable, Sendable {
-  public static let currentSchemaVersion = 3
+  public static let currentSchemaVersion = 6
 
   public var schemaVersion = currentSchemaVersion
   public var algorithmVersion = projectAlgorithmVersion
@@ -199,7 +205,7 @@ public enum ProjectStore {
   public static let filename = ".printroom.json"
   private static let lock = NSLock()
 
-  /// Opens and reconciles a roll without writing anything. preferredFile denotes a TIFF, not JSON.
+  /// Opens and reconciles a roll without writing anything. preferredFile denotes an original TIFF or RAW, not JSON.
   public static func open(folder: URL, preferredFile: URL? = nil) throws -> RollProject {
     lock.lock()
     defer { lock.unlock() }
@@ -230,6 +236,9 @@ public enum ProjectStore {
           var frame = oldFrames[source.filename] ?? source
           frame.isMissing = source.isMissing
           if !source.isMissing {
+            if frame.sourceSize != source.sourceSize || frame.sourceModified != source.sourceModified {
+              frame.rawProcessing = nil
+            }
             frame.sourceSize = source.sourceSize
             frame.sourceModified = source.sourceModified
           }
@@ -241,7 +250,8 @@ public enum ProjectStore {
         // originals keep their legacy value until they can be located again.
         for index in project.frames.indices where !project.frames[index].isMissing {
           let frame = project.frames[index]
-          if let crop = frame.crop, crop.geometryVersion == 1,
+          if !SourceImageIO.isRAW(folder.appendingPathComponent(frame.filename)),
+            let crop = frame.crop, crop.geometryVersion == 1,
             let metadata = try? TIFFCodec.metadata(url: folder.appendingPathComponent(frame.filename)) {
             project.frames[index].crop = try crop.sourceCoordinates(sourceWidth: metadata.width,
               sourceHeight: metadata.height, orientation: frame.orientation)
@@ -313,17 +323,32 @@ public enum ProjectStore {
           let existing = try decode(original)
           guard existing.id == project.id else { throw ProjectStoreError.externalConflict }
           let header = try JSONDecoder().decode(Header.self, from: original)
-          if header.algorithmVersion == legacyAlgorithmVersion {
+          let rawObject = try JSONSerialization.jsonObject(with: original) as? [String: Any]
+          let rawFrames = rawObject?["frames"] as? [[String: Any]] ?? []
+          let hasRetiredLUT = rawFrames.contains { frame in
+            guard let adjustments = frame["adjustments"] as? [String: Any],
+              let selection = adjustments["cineonLogLUT"] as? String else { return false }
+            return CineonLogLUT.retiredRawValues.contains(selection)
+          }
+          if hasRetiredLUT {
+            let backup = coordinated.deletingLastPathComponent().appendingPathComponent(
+              ".printroom-retired-paper-luts-\(UUID().uuidString).json")
+            try original.write(to: backup, options: .withoutOverwriting)
+          } else if header.algorithmVersion == legacyAlgorithmVersion {
             // Preserve exact original settings before the first save under the new image behavior.
             // Exclusive creation never overwrites another backup; any failure aborts replacement.
             let backup = coordinated.deletingLastPathComponent().appendingPathComponent(
               ".printroom-density-v1-\(UUID().uuidString).json")
             try original.write(to: backup, options: .withoutOverwriting)
           } else if header.schemaVersion < RollProject.currentSchemaVersion {
-            // Older app packages cannot read schema 3. Preserve their exact settings
+            // Older app packages cannot read the current schema. Preserve their exact settings
             // before the first migrated save, with the same conflict/atomicity rules.
             let backup = coordinated.deletingLastPathComponent().appendingPathComponent(
               ".printroom-schema\(header.schemaVersion)-\(UUID().uuidString).json")
+            try original.write(to: backup, options: .withoutOverwriting)
+          } else if header.algorithmVersion != projectAlgorithmVersion {
+            let backup = coordinated.deletingLastPathComponent().appendingPathComponent(
+              ".\(header.algorithmVersion)-\(UUID().uuidString).json")
             try original.write(to: backup, options: .withoutOverwriting)
           } else if existing.frames.contains(where: { previous in
             guard previous.crop?.geometryVersion == 1 else { return false }
@@ -354,7 +379,7 @@ public enum ProjectStore {
 
   public static func decodeSnapshot(_ data: Data) throws -> RollProject { try decode(data) }
 
-  /// Explicitly reconnect a missing/renamed photograph to a readable TIFF in the same roll.
+  /// Explicitly reconnect a missing/renamed photograph to a readable original TIFF or RAW in the same roll.
   /// Stable identity, adjustments and direction remain attached to the old record. Discovery may
   /// already have added the new filename; it is absorbed only if it has no edits/calibration role.
   /// This is a value transaction: the UI may register the whole before/after pair for Undo/Redo.
@@ -369,14 +394,14 @@ public enum ProjectStore {
     guard sourceURL.isFileURL,
       sourceURL.standardizedFileURL.deletingLastPathComponent().resolvingSymlinksInPath() == folder,
       let index = project.frames.firstIndex(where: { $0.id == frameID })
-    else { throw ProjectStoreError.invalidProject("重新定位目标必须是当前卷内的 TIFF") }
+    else { throw ProjectStoreError.invalidProject("重新定位目标必须是当前卷内的 TIFF 或 ARW") }
     try validateFilename(sourceURL.lastPathComponent)
     guard let source = sourceRecord(url: sourceURL, folder: folder) else {
       throw ProjectStoreError.unavailableFrame(sourceURL.lastPathComponent)
     }
-    // Explicit reconnection must target a supported TIFF, not merely a readable file
-    // with a TIFF extension. Discovery remains lightweight and reports bad sources separately.
-    let metadata = try TIFFCodec.metadata(url: sourceURL)
+    // Reconnection verifies decoded source metadata (Adobe for RAW). Callers perform this
+    // transaction off the main thread. Discovery itself never launches RAW preparation.
+    let metadata = try SourceImageIO.metadata(url: sourceURL)
     var updated = project
     let previous = project.frames[index]
     if previous.filename != source.filename,
@@ -398,6 +423,10 @@ public enum ProjectStore {
     reconnected.sourceSize = source.sourceSize
     reconnected.sourceModified = source.sourceModified
     reconnected.isMissing = false
+    reconnected.rawProcessing = try SourceImageIO.processingIdentity(url: sourceURL)
+    guard let verifiedSource = sourceRecord(url: sourceURL, folder: folder),
+      verifiedSource.sourceSize == source.sourceSize, verifiedSource.sourceModified == source.sourceModified
+    else { throw ProjectStoreError.unavailableFrame(sourceURL.lastPathComponent) }
     if let crop = reconnected.crop, crop.geometryVersion == 1 {
       reconnected.crop = try crop.sourceCoordinates(sourceWidth: metadata.width,
         sourceHeight: metadata.height, orientation: reconnected.orientation)
@@ -419,12 +448,13 @@ public enum ProjectStore {
     do {
       let decoder = JSONDecoder()
       let header = try decoder.decode(Header.self, from: data)
-      guard [1, 2, RollProject.currentSchemaVersion].contains(header.schemaVersion) else {
+      guard [1, 2, 3, 4, 5, RollProject.currentSchemaVersion].contains(header.schemaVersion) else {
         throw ProjectStoreError.unsupportedSchema(header.schemaVersion)
       }
-      guard [legacyAlgorithmVersion, projectAlgorithmVersion].contains(header.algorithmVersion) else {
+      guard [legacyAlgorithmVersion, "printroom-density-v2", "printroom-density-v3", "printroom-density-v4", "printroom-density-v5", projectAlgorithmVersion].contains(header.algorithmVersion) else {
         throw ProjectStoreError.incompatibleAlgorithm(header.algorithmVersion)
       }
+      decoder.userInfo[migratingLegacyMatrices] = header.schemaVersion < 4
       decoder.userInfo[migratingSchemaOne] = header.schemaVersion == 1
       decoder.userInfo[migratingLegacyCrop] = header.schemaVersion < 3
       var project = try decoder.decode(RollProject.self, from: data)
@@ -471,6 +501,13 @@ public enum ProjectStore {
       guard frame.sourceSize >= 0, frame.sourceModified.isFinite else {
         throw ProjectStoreError.invalidProject("照片源文件指纹无效")
       }
+      if let identity = frame.rawProcessing {
+        guard SourceImageIO.isRAW(URL(fileURLWithPath: frame.filename)),
+          !identity.sourceRevision.isEmpty, !identity.adobeVersion.isEmpty,
+          !identity.libRawVersion.isEmpty, !identity.strategyVersion.isEmpty,
+          !identity.proxySamplingVersion.isEmpty
+        else { throw ProjectStoreError.invalidProject("RAW 处理身份无效") }
+      }
       try validateAdjustments(frame.adjustments)
       try frame.crop?.validate()
     }
@@ -482,9 +519,9 @@ public enum ProjectStore {
 
   private static func validateFilename(_ name: String) throws {
     guard !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains("\\"),
-      !name.contains("\0"), isTIFF(name)
+      !name.contains("\0"), isSupportedSource(name)
     else {
-      throw ProjectStoreError.invalidProject("必须使用卷内 TIFF 相对文件名")
+      throw ProjectStoreError.invalidProject("必须使用卷内 TIFF 或 ARW 相对文件名")
     }
   }
 
@@ -513,7 +550,7 @@ public enum ProjectStore {
       }
       return
     }
-    guard finite(base), (0..<3).allSatisfy({ base[$0] > 0 && base[$0] <= 1 }),
+    guard finite(base), (0..<3).allSatisfy({ base[$0] > 0 }),
       let sourceID = calibration.sourceFrameID, frameIDs.contains(sourceID),
       let rect = calibration.selection, let width = calibration.sourceWidth,
       let height = calibration.sourceHeight,
@@ -537,11 +574,11 @@ public enum ProjectStore {
     }
     var expected = calibration
     expected.gainRGB = expectedGain
-    let expectedOffset = try Pipeline.recalibrate(expected, matrix: calibration.matrix)
+    let expectedOffset = try Pipeline.recalibrate(expected, matrix: calibration.sampledDensityMatrix)
       .filmBaseOffsetCV
     guard (0..<3).allSatisfy({ abs(calibration.filmBaseOffsetCV[$0] - expectedOffset[$0]) <= 0.01 })
     else {
-      throw ProjectStoreError.invalidProject("片基 offset 与采样数据或矩阵不一致")
+      throw ProjectStoreError.invalidProject("片基 offset 与上次采样数据或当时的矩阵不一致")
     }
   }
 
@@ -570,8 +607,8 @@ public enum ProjectStore {
     }
   }
 
-  private static func isTIFF(_ name: String) -> Bool {
-    ["tif", "tiff"].contains((name as NSString).pathExtension.lowercased())
+  private static func isSupportedSource(_ name: String) -> Bool {
+    ["tif", "tiff", "arw"].contains((name as NSString).pathExtension.lowercased())
   }
 
   private static func naturalLess(_ lhs: String, _ rhs: String) -> Bool {
@@ -584,7 +621,7 @@ public enum ProjectStore {
   private static func discover(folder: URL) throws -> [FrameRecord] {
     let urls = try FileManager.default.contentsOfDirectory(
       at: folder, includingPropertiesForKeys: [.isDirectoryKey], options: [])
-    return urls.filter { isTIFF($0.lastPathComponent) }.compactMap { url in
+    return urls.filter { !$0.lastPathComponent.hasPrefix(".") && isSupportedSource($0.lastPathComponent) }.compactMap { url in
       if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { return nil }
       if let source = sourceRecord(url: url, folder: folder) { return source }
       return FrameRecord(filename: url.lastPathComponent, isMissing: true)
@@ -677,7 +714,7 @@ public struct ParameterSnapshot: Sendable {
 
   public init(
     sourceID: UUID, sourceName: String, adjustments: FrameAdjustments,
-    formatVersion: Int = currentFormatVersion, algorithmVersion: String = "printroom-density-v2",
+    formatVersion: Int = currentFormatVersion, algorithmVersion: String = "printroom-density-v6",
     pivotCV: Int = contrastPivotCV
   ) {
     self.sourceID = sourceID

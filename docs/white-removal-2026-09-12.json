@@ -1,0 +1,1978 @@
+[
+  {
+    "filename" : "DSC07079.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0018304437398910522,
+    "newTiming" : {
+      "blue" : 25,
+      "green" : -17,
+      "master" : 80,
+      "red" : -4
+    },
+    "oldTiming" : {
+      "blue" : 89,
+      "green" : -61,
+      "master" : 80,
+      "red" : 19
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00051139193060206474,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07080.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0026002973318099976,
+    "newTiming" : {
+      "blue" : 48,
+      "green" : -41,
+      "master" : 138,
+      "red" : -3
+    },
+    "oldTiming" : {
+      "blue" : 112,
+      "green" : -85,
+      "master" : 138,
+      "red" : 20
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.0004880725881103467,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07081.ARW",
+    "gpuMaxError" : 3.2782554626464844e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0029063522815704346,
+    "newTiming" : {
+      "blue" : 41,
+      "green" : -41,
+      "master" : 94,
+      "red" : 4
+    },
+    "oldTiming" : {
+      "blue" : 105,
+      "green" : -85,
+      "master" : 94,
+      "red" : 27
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00053787401656268019,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07082.ARW",
+    "gpuMaxError" : 3.3527612686157227e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0025607943534851074,
+    "newTiming" : {
+      "blue" : 41,
+      "green" : -41,
+      "master" : 94,
+      "red" : 4
+    },
+    "oldTiming" : {
+      "blue" : 105,
+      "green" : -85,
+      "master" : 94,
+      "red" : 27
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00055627841785409421,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07083.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0017400383949279785,
+    "newTiming" : {
+      "blue" : 41,
+      "green" : -41,
+      "master" : 94,
+      "red" : 4
+    },
+    "oldTiming" : {
+      "blue" : 105,
+      "green" : -85,
+      "master" : 94,
+      "red" : 27
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00049819224105217318,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07084.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0011425614356994629,
+    "newTiming" : {
+      "blue" : 41,
+      "green" : -41,
+      "master" : 94,
+      "red" : 4
+    },
+    "oldTiming" : {
+      "blue" : 105,
+      "green" : -85,
+      "master" : 94,
+      "red" : 27
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00048236375546570825,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07085.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0017383098602294922,
+    "newTiming" : {
+      "blue" : 41,
+      "green" : -41,
+      "master" : 94,
+      "red" : 4
+    },
+    "oldTiming" : {
+      "blue" : 105,
+      "green" : -85,
+      "master" : 94,
+      "red" : 27
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00048971198863077738,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07086.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0016807019710540771,
+    "newTiming" : {
+      "blue" : -17,
+      "green" : -48,
+      "master" : 185,
+      "red" : 17
+    },
+    "oldTiming" : {
+      "blue" : 47,
+      "green" : -92,
+      "master" : 185,
+      "red" : 40
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00049628362682913767,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07087.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0010490715503692627,
+    "newTiming" : {
+      "blue" : 58,
+      "green" : -32,
+      "master" : 48,
+      "red" : 17
+    },
+    "oldTiming" : {
+      "blue" : 122,
+      "green" : -76,
+      "master" : 48,
+      "red" : 40
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00049573944909667134,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07088.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0017773658037185669,
+    "newTiming" : {
+      "blue" : 49,
+      "green" : -35,
+      "master" : 74,
+      "red" : 9
+    },
+    "oldTiming" : {
+      "blue" : 113,
+      "green" : -79,
+      "master" : 74,
+      "red" : 32
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00047005261488546599,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07089.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0019235163927078247,
+    "newTiming" : {
+      "blue" : 85,
+      "green" : -29,
+      "master" : 153,
+      "red" : -18
+    },
+    "oldTiming" : {
+      "blue" : 149,
+      "green" : -73,
+      "master" : 153,
+      "red" : 5
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.0004955637723654268,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07090.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0023003518581390381,
+    "newTiming" : {
+      "blue" : 74,
+      "green" : -22,
+      "master" : 187,
+      "red" : 0
+    },
+    "oldTiming" : {
+      "blue" : 138,
+      "green" : -66,
+      "master" : 187,
+      "red" : 23
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00052284849962601246,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07091.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0022475719451904297,
+    "newTiming" : {
+      "blue" : 69,
+      "green" : -36,
+      "master" : 111,
+      "red" : 7
+    },
+    "oldTiming" : {
+      "blue" : 133,
+      "green" : -80,
+      "master" : 111,
+      "red" : 30
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00050977794479200352,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07092.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0011158883571624756,
+    "newTiming" : {
+      "blue" : 69,
+      "green" : -36,
+      "master" : 92,
+      "red" : 7
+    },
+    "oldTiming" : {
+      "blue" : 133,
+      "green" : -80,
+      "master" : 92,
+      "red" : 30
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00049154401492189045,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07093.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0015918612480163574,
+    "newTiming" : {
+      "blue" : 39,
+      "green" : -50,
+      "master" : 27,
+      "red" : 5
+    },
+    "oldTiming" : {
+      "blue" : 103,
+      "green" : -94,
+      "master" : 27,
+      "red" : 28
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00049297401478098717,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07094.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0012200772762298584,
+    "newTiming" : {
+      "blue" : 53,
+      "green" : -24,
+      "master" : 112,
+      "red" : 25
+    },
+    "oldTiming" : {
+      "blue" : 117,
+      "green" : -68,
+      "master" : 112,
+      "red" : 48
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00048101086877668718,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07095.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0020794570446014404,
+    "newTiming" : {
+      "blue" : 46,
+      "green" : -24,
+      "master" : 178,
+      "red" : 9
+    },
+    "oldTiming" : {
+      "blue" : 110,
+      "green" : -68,
+      "master" : 178,
+      "red" : 32
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00049619780411402122,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07096.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0012087505310773849,
+    "newTiming" : {
+      "blue" : 25,
+      "green" : -18,
+      "master" : 131,
+      "red" : -1
+    },
+    "oldTiming" : {
+      "blue" : 89,
+      "green" : -62,
+      "master" : 131,
+      "red" : 22
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00048844572836634532,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07097.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0011864155530929565,
+    "newTiming" : {
+      "blue" : 30,
+      "green" : -12,
+      "master" : 141,
+      "red" : -3
+    },
+    "oldTiming" : {
+      "blue" : 94,
+      "green" : -56,
+      "master" : 141,
+      "red" : 20
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00049852140781002439,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07098.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0027034208178520203,
+    "newTiming" : {
+      "blue" : 27,
+      "green" : -16,
+      "master" : 115,
+      "red" : -1
+    },
+    "oldTiming" : {
+      "blue" : 91,
+      "green" : -60,
+      "master" : 115,
+      "red" : 22
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00042996046986596131,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07099.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0011516213417053223,
+    "newTiming" : {
+      "blue" : 12,
+      "green" : -16,
+      "master" : 73,
+      "red" : 27
+    },
+    "oldTiming" : {
+      "blue" : 76,
+      "green" : -60,
+      "master" : 73,
+      "red" : 50
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00033210853074381387,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07100.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0013058483600616455,
+    "newTiming" : {
+      "blue" : 23,
+      "green" : -46,
+      "master" : 70,
+      "red" : 2
+    },
+    "oldTiming" : {
+      "blue" : 87,
+      "green" : -90,
+      "master" : 70,
+      "red" : 25
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.0003549568114357134,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07101.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0012909173965454102,
+    "newTiming" : {
+      "blue" : 15,
+      "green" : -26,
+      "master" : 132,
+      "red" : -6
+    },
+    "oldTiming" : {
+      "blue" : 79,
+      "green" : -70,
+      "master" : 132,
+      "red" : 17
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00044480090116247106,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07102.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.003071904182434082,
+    "newTiming" : {
+      "blue" : 39,
+      "green" : -14,
+      "master" : 122,
+      "red" : -8
+    },
+    "oldTiming" : {
+      "blue" : 103,
+      "green" : -58,
+      "master" : 122,
+      "red" : 15
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00054010381091488461,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07103.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0030123740434646606,
+    "newTiming" : {
+      "blue" : 44,
+      "green" : -10,
+      "master" : 109,
+      "red" : -8
+    },
+    "oldTiming" : {
+      "blue" : 108,
+      "green" : -54,
+      "master" : 109,
+      "red" : 15
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00046705175752365742,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07104.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0012935549020767212,
+    "newTiming" : {
+      "blue" : 40,
+      "green" : -20,
+      "master" : 120,
+      "red" : -3
+    },
+    "oldTiming" : {
+      "blue" : 104,
+      "green" : -64,
+      "master" : 120,
+      "red" : 20
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00039506185057955177,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07105.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0014990568161010742,
+    "newTiming" : {
+      "blue" : 84,
+      "green" : -26,
+      "master" : 79,
+      "red" : -28
+    },
+    "oldTiming" : {
+      "blue" : 148,
+      "green" : -70,
+      "master" : 79,
+      "red" : -5
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00046408753213098014,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07106.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0019179303199052811,
+    "newTiming" : {
+      "blue" : 37,
+      "green" : -26,
+      "master" : 111,
+      "red" : -8
+    },
+    "oldTiming" : {
+      "blue" : 101,
+      "green" : -70,
+      "master" : 111,
+      "red" : 15
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00053182759005745105,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07107.ARW",
+    "gpuMaxError" : 3.2782554626464844e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0011800825595855713,
+    "newTiming" : {
+      "blue" : 13,
+      "green" : -32,
+      "master" : 48,
+      "red" : 10
+    },
+    "oldTiming" : {
+      "blue" : 77,
+      "green" : -76,
+      "master" : 48,
+      "red" : 33
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00051416567567608271,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07108.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0028819739818572998,
+    "newTiming" : {
+      "blue" : -16,
+      "green" : -44,
+      "master" : 114,
+      "red" : -8
+    },
+    "oldTiming" : {
+      "blue" : 48,
+      "green" : -88,
+      "master" : 114,
+      "red" : 15
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00049701621456066717,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07109.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0012883692979812622,
+    "newTiming" : {
+      "blue" : 16,
+      "green" : -55,
+      "master" : 100,
+      "red" : -2
+    },
+    "oldTiming" : {
+      "blue" : 80,
+      "green" : -99,
+      "master" : 100,
+      "red" : 21
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00044713061344102867,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07110.ARW",
+    "gpuMaxError" : 3.8743019104003906e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0028497576713562012,
+    "newTiming" : {
+      "blue" : 12,
+      "green" : -14,
+      "master" : 40,
+      "red" : 3
+    },
+    "oldTiming" : {
+      "blue" : 76,
+      "green" : -58,
+      "master" : 40,
+      "red" : 26
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00044607084214380685,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07111.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0025397539138793945,
+    "newTiming" : {
+      "blue" : 37,
+      "green" : -8,
+      "master" : 90,
+      "red" : 26
+    },
+    "oldTiming" : {
+      "blue" : 101,
+      "green" : -52,
+      "master" : 90,
+      "red" : 49
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00049570006673688139,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07112.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.002105712890625,
+    "newTiming" : {
+      "blue" : 22,
+      "green" : -63,
+      "master" : 72,
+      "red" : -17
+    },
+    "oldTiming" : {
+      "blue" : 86,
+      "green" : -107,
+      "master" : 72,
+      "red" : 6
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00041016728346694915,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07113.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0012363791465759277,
+    "newTiming" : {
+      "blue" : 48,
+      "green" : -3,
+      "master" : 77,
+      "red" : 26
+    },
+    "oldTiming" : {
+      "blue" : 112,
+      "green" : -47,
+      "master" : 77,
+      "red" : 49
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00048025534149824143,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07114.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0018852651119232178,
+    "newTiming" : {
+      "blue" : 78,
+      "green" : -4,
+      "master" : 86,
+      "red" : 14
+    },
+    "oldTiming" : {
+      "blue" : 142,
+      "green" : -48,
+      "master" : 86,
+      "red" : 37
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      -0.258636474609375,
+      -0.082489013671875
+    ],
+    "rmsRGBError" : 0.00047001387456036545,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-1\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07115.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "fujifilm3513DI",
+    "maxRGBError" : 0.0016832053661346436,
+    "newTiming" : {
+      "blue" : -156,
+      "green" : -11,
+      "master" : 126,
+      "red" : 33
+    },
+    "oldTiming" : {
+      "blue" : -82,
+      "green" : -51,
+      "master" : 126,
+      "red" : 56
+    },
+    "residualD3CV" : [
+      -0.46056747436523438,
+      0.14136505126953125,
+      -0.48249053955078125
+    ],
+    "rmsRGBError" : 0.00038531850378900585,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07116.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0014582127332687378,
+    "newTiming" : {
+      "blue" : -109,
+      "green" : -19,
+      "master" : 190,
+      "red" : -8
+    },
+    "oldTiming" : {
+      "blue" : -75,
+      "green" : -50,
+      "master" : 190,
+      "red" : 25
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00024605444854057859,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07117.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.00046684592962265015,
+    "newTiming" : {
+      "blue" : -137,
+      "green" : -8,
+      "master" : 96,
+      "red" : 11
+    },
+    "oldTiming" : {
+      "blue" : -99,
+      "green" : -42,
+      "master" : 96,
+      "red" : 47
+    },
+    "residualD3CV" : [
+      0.062397003173828125,
+      0.093912124633789062,
+      -0.2388458251953125
+    ],
+    "rmsRGBError" : 0.00014650442954152647,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07118.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0016848593950271606,
+    "newTiming" : {
+      "blue" : -104,
+      "green" : -27,
+      "master" : 259,
+      "red" : -20
+    },
+    "oldTiming" : {
+      "blue" : -71,
+      "green" : -56,
+      "master" : 259,
+      "red" : 11
+    },
+    "residualD3CV" : [
+      0.27239990234375,
+      -0.39608955383300781,
+      -0.30884170532226562
+    ],
+    "rmsRGBError" : 0.00038075285468414956,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07119.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0008881688117980957,
+    "newTiming" : {
+      "blue" : -128,
+      "green" : -27,
+      "master" : 204,
+      "red" : 0
+    },
+    "oldTiming" : {
+      "blue" : -94,
+      "green" : -58,
+      "master" : 204,
+      "red" : 33
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00030726832007307723,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07120.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0013910084962844849,
+    "newTiming" : {
+      "blue" : -86,
+      "green" : -13,
+      "master" : 210,
+      "red" : -11
+    },
+    "oldTiming" : {
+      "blue" : -52,
+      "green" : -44,
+      "master" : 210,
+      "red" : 22
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00032779580522937762,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07121.ARW",
+    "gpuMaxError" : 3.7252902984619141e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0015725493431091309,
+    "newTiming" : {
+      "blue" : -124,
+      "green" : -26,
+      "master" : 84,
+      "red" : -1
+    },
+    "oldTiming" : {
+      "blue" : -90,
+      "green" : -57,
+      "master" : 84,
+      "red" : 32
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00026513561945594352,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07122.ARW",
+    "gpuMaxError" : 3.2782554626464844e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0016474314033985138,
+    "newTiming" : {
+      "blue" : -78,
+      "green" : -6,
+      "master" : 133,
+      "red" : 0
+    },
+    "oldTiming" : {
+      "blue" : -44,
+      "green" : -37,
+      "master" : 133,
+      "red" : 33
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00028220181712097179,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07123.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0012364611029624939,
+    "newTiming" : {
+      "blue" : -81,
+      "green" : 5,
+      "master" : 133,
+      "red" : -7
+    },
+    "oldTiming" : {
+      "blue" : -47,
+      "green" : -26,
+      "master" : 133,
+      "red" : 26
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00027681446066889822,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07124.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0016119107604026794,
+    "newTiming" : {
+      "blue" : -96,
+      "green" : 5,
+      "master" : 141,
+      "red" : 8
+    },
+    "oldTiming" : {
+      "blue" : -62,
+      "green" : -26,
+      "master" : 141,
+      "red" : 41
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00025687754341264732,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07125.ARW",
+    "gpuMaxError" : 4.246830940246582e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0017746016383171082,
+    "newTiming" : {
+      "blue" : -89,
+      "green" : 5,
+      "master" : 156,
+      "red" : 1
+    },
+    "oldTiming" : {
+      "blue" : -55,
+      "green" : -26,
+      "master" : 156,
+      "red" : 34
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00026914624320801173,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07126.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0011591017246246338,
+    "newTiming" : {
+      "blue" : -89,
+      "green" : 5,
+      "master" : 171,
+      "red" : 1
+    },
+    "oldTiming" : {
+      "blue" : -55,
+      "green" : -26,
+      "master" : 171,
+      "red" : 34
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00027071591549306752,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07127.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.00065341591835021973,
+    "newTiming" : {
+      "blue" : -97,
+      "green" : 5,
+      "master" : 167,
+      "red" : 9
+    },
+    "oldTiming" : {
+      "blue" : -63,
+      "green" : -26,
+      "master" : 167,
+      "red" : 42
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00025128894560513809,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07128.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.00065344572067260742,
+    "newTiming" : {
+      "blue" : -100,
+      "green" : -17,
+      "master" : 199,
+      "red" : -36
+    },
+    "oldTiming" : {
+      "blue" : -66,
+      "green" : -48,
+      "master" : 199,
+      "red" : -3
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00025744630384472731,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07129.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0017238892614841461,
+    "newTiming" : {
+      "blue" : -107,
+      "green" : -18,
+      "master" : 136,
+      "red" : -2
+    },
+    "oldTiming" : {
+      "blue" : -73,
+      "green" : -49,
+      "master" : 136,
+      "red" : 31
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.0002740523832134041,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07130.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0013451278209686279,
+    "newTiming" : {
+      "blue" : -92,
+      "green" : -5,
+      "master" : 103,
+      "red" : 14
+    },
+    "oldTiming" : {
+      "blue" : -58,
+      "green" : -36,
+      "master" : 103,
+      "red" : 47
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00025459283529135609,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07131.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0015305131673812866,
+    "newTiming" : {
+      "blue" : -104,
+      "green" : 25,
+      "master" : 186,
+      "red" : -4
+    },
+    "oldTiming" : {
+      "blue" : -70,
+      "green" : -6,
+      "master" : 186,
+      "red" : 29
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00027566106710728627,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07132.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.00065574049949645996,
+    "newTiming" : {
+      "blue" : -98,
+      "green" : 15,
+      "master" : 153,
+      "red" : 0
+    },
+    "oldTiming" : {
+      "blue" : -64,
+      "green" : -16,
+      "master" : 153,
+      "red" : 33
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00033520167915183739,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07133.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0027796179056167603,
+    "newTiming" : {
+      "blue" : -73,
+      "green" : 4,
+      "master" : 229,
+      "red" : 9
+    },
+    "oldTiming" : {
+      "blue" : -40,
+      "green" : -26,
+      "master" : 229,
+      "red" : 41
+    },
+    "residualD3CV" : [
+      -0.45759963989257812,
+      0.35391044616699219,
+      0.02115631103515625
+    ],
+    "rmsRGBError" : 0.00047635407954939801,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07134.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0017649382352828979,
+    "newTiming" : {
+      "blue" : -86,
+      "green" : 1,
+      "master" : 186,
+      "red" : 2
+    },
+    "oldTiming" : {
+      "blue" : -52,
+      "green" : -30,
+      "master" : 186,
+      "red" : 35
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00031929335731850357,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07135.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0012177973985671997,
+    "newTiming" : {
+      "blue" : -97,
+      "green" : -1,
+      "master" : 236,
+      "red" : -10
+    },
+    "oldTiming" : {
+      "blue" : -63,
+      "green" : -32,
+      "master" : 236,
+      "red" : 23
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.0003163938906547239,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07136.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.002400517463684082,
+    "newTiming" : {
+      "blue" : -127,
+      "green" : -40,
+      "master" : 204,
+      "red" : -18
+    },
+    "oldTiming" : {
+      "blue" : -95,
+      "green" : -69,
+      "master" : 204,
+      "red" : 12
+    },
+    "residualD3CV" : [
+      0.42239761352539062,
+      0.47391319274902344,
+      -0.21884536743164062
+    ],
+    "rmsRGBError" : 0.00055255344773325196,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07137.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.00067502260208129883,
+    "newTiming" : {
+      "blue" : -152,
+      "green" : -57,
+      "master" : 84,
+      "red" : -21
+    },
+    "oldTiming" : {
+      "blue" : -109,
+      "green" : -96,
+      "master" : 84,
+      "red" : 20
+    },
+    "residualD3CV" : [
+      0.02239990234375,
+      0.353912353515625,
+      -0.05884552001953125
+    ],
+    "rmsRGBError" : 0.00020681372768804871,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07138.ARW",
+    "gpuMaxError" : 4.1723251342773438e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.002445906400680542,
+    "newTiming" : {
+      "blue" : -149,
+      "green" : -34,
+      "master" : 167,
+      "red" : -16
+    },
+    "oldTiming" : {
+      "blue" : -117,
+      "green" : -63,
+      "master" : 167,
+      "red" : 14
+    },
+    "residualD3CV" : [
+      0.42239761352539062,
+      0.47391319274902344,
+      -0.21884536743164062
+    ],
+    "rmsRGBError" : 0.00065621977087149585,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07139.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.00079715251922607422,
+    "newTiming" : {
+      "blue" : -155,
+      "green" : -61,
+      "master" : 205,
+      "red" : -37
+    },
+    "oldTiming" : {
+      "blue" : -121,
+      "green" : -92,
+      "master" : 205,
+      "red" : -4
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.0002853248476195499,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07140.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.00088506937026977539,
+    "newTiming" : {
+      "blue" : -158,
+      "green" : -68,
+      "master" : 180,
+      "red" : -12
+    },
+    "oldTiming" : {
+      "blue" : -124,
+      "green" : -99,
+      "master" : 180,
+      "red" : 21
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00029838666432127143,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07141.ARW",
+    "gpuMaxError" : 4.1723251342773438e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0014227926731109619,
+    "newTiming" : {
+      "blue" : -121,
+      "green" : -36,
+      "master" : 212,
+      "red" : -17
+    },
+    "oldTiming" : {
+      "blue" : -87,
+      "green" : -67,
+      "master" : 212,
+      "red" : 16
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00030382026448041809,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07142.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0014956966042518616,
+    "newTiming" : {
+      "blue" : -118,
+      "green" : -53,
+      "master" : 149,
+      "red" : -43
+    },
+    "oldTiming" : {
+      "blue" : -84,
+      "green" : -84,
+      "master" : 149,
+      "red" : -10
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00026638622781646119,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07143.ARW",
+    "gpuMaxError" : 4.1723251342773438e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.00065734982490539551,
+    "newTiming" : {
+      "blue" : -177,
+      "green" : -65,
+      "master" : 226,
+      "red" : -17
+    },
+    "oldTiming" : {
+      "blue" : -146,
+      "green" : -93,
+      "master" : 226,
+      "red" : 13
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      -0.046087265014648438,
+      0.24115371704101562
+    ],
+    "rmsRGBError" : 0.00025060682589715211,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07144.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0012248605489730835,
+    "newTiming" : {
+      "blue" : -101,
+      "green" : -22,
+      "master" : 288,
+      "red" : -21
+    },
+    "oldTiming" : {
+      "blue" : -70,
+      "green" : -50,
+      "master" : 288,
+      "red" : 9
+    },
+    "residualD3CV" : [
+      -0.47760009765625,
+      0.23391151428222656,
+      -0.068843841552734375
+    ],
+    "rmsRGBError" : 0.00052466277520547215,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07145.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0016026422381401062,
+    "newTiming" : {
+      "blue" : -148,
+      "green" : -34,
+      "master" : 217,
+      "red" : -18
+    },
+    "oldTiming" : {
+      "blue" : -114,
+      "green" : -65,
+      "master" : 217,
+      "red" : 15
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00030152418829053676,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07146.ARW",
+    "gpuMaxError" : 2.9802322387695312e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0016666203737258911,
+    "newTiming" : {
+      "blue" : -149,
+      "green" : -61,
+      "master" : 217,
+      "red" : -55
+    },
+    "oldTiming" : {
+      "blue" : -115,
+      "green" : -92,
+      "master" : 217,
+      "red" : -22
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00031228886538434782,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07147.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0014595687389373779,
+    "newTiming" : {
+      "blue" : -117,
+      "green" : -44,
+      "master" : 195,
+      "red" : -23
+    },
+    "oldTiming" : {
+      "blue" : -83,
+      "green" : -75,
+      "master" : 195,
+      "red" : 10
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00032958273277534895,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07148.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.001558452844619751,
+    "newTiming" : {
+      "blue" : -144,
+      "green" : -42,
+      "master" : 219,
+      "red" : -25
+    },
+    "oldTiming" : {
+      "blue" : -110,
+      "green" : -73,
+      "master" : 219,
+      "red" : 8
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00030848847018865607,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07149.ARW",
+    "gpuMaxError" : 4.1723251342773438e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0024080276489257812,
+    "newTiming" : {
+      "blue" : -81,
+      "green" : -33,
+      "master" : 274,
+      "red" : -13
+    },
+    "oldTiming" : {
+      "blue" : -49,
+      "green" : -62,
+      "master" : 274,
+      "red" : 17
+    },
+    "residualD3CV" : [
+      0.42239761352539062,
+      0.47391319274902344,
+      -0.21884536743164062
+    ],
+    "rmsRGBError" : 0.0006467826310603981,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07150.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0014528036117553711,
+    "newTiming" : {
+      "blue" : -111,
+      "green" : -32,
+      "master" : 230,
+      "red" : -1
+    },
+    "oldTiming" : {
+      "blue" : -77,
+      "green" : -63,
+      "master" : 230,
+      "red" : 32
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00030067636477090764,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07151.ARW",
+    "gpuMaxError" : 4.1723251342773438e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0013637393712997437,
+    "newTiming" : {
+      "blue" : -120,
+      "green" : -40,
+      "master" : 275,
+      "red" : 0
+    },
+    "oldTiming" : {
+      "blue" : -90,
+      "green" : -68,
+      "master" : 275,
+      "red" : 29
+    },
+    "residualD3CV" : [
+      -0.23760223388671875,
+      -0.52209091186523438,
+      0.14115524291992188
+    ],
+    "rmsRGBError" : 0.00051219642973720884,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07152.ARW",
+    "gpuMaxError" : 4.76837158203125e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0032476335763931274,
+    "newTiming" : {
+      "blue" : -110,
+      "green" : -29,
+      "master" : 280,
+      "red" : -10
+    },
+    "oldTiming" : {
+      "blue" : -80,
+      "green" : -56,
+      "master" : 280,
+      "red" : 19
+    },
+    "residualD3CV" : [
+      -0.52759933471679688,
+      0.20391082763671875,
+      -0.158843994140625
+    ],
+    "rmsRGBError" : 0.00052837584514405195,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07153.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0014995038509368896,
+    "newTiming" : {
+      "blue" : -136,
+      "green" : -58,
+      "master" : 131,
+      "red" : 3
+    },
+    "oldTiming" : {
+      "blue" : -102,
+      "green" : -89,
+      "master" : 131,
+      "red" : 36
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00030541020950098442,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  },
+  {
+    "filename" : "DSC07154.ARW",
+    "gpuMaxError" : 3.5762786865234375e-07,
+    "lut" : "kodak2383",
+    "maxRGBError" : 0.0010295361280441284,
+    "newTiming" : {
+      "blue" : -182,
+      "green" : -60,
+      "master" : 140,
+      "red" : -2
+    },
+    "oldTiming" : {
+      "blue" : -148,
+      "green" : -91,
+      "master" : 140,
+      "red" : 31
+    },
+    "residualD3CV" : [
+      -0.17760086059570312,
+      0.15391159057617188,
+      0.341156005859375
+    ],
+    "rmsRGBError" : 0.00033940453712290016,
+    "roll" : "\/Users\/bao\/Library\/CloudStorage\/SynologyDrive-BaoNAS\/Photos\/Film\/2026-09-01-2\/RAW",
+    "samplePixels" : 68160
+  }
+]

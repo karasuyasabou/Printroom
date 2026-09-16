@@ -3,8 +3,10 @@ import PrintroomCore
 import SwiftUI
 
 struct EditorView: View {
+  @Environment(\.openWindow) private var openWindow
   @ObservedObject var model: EditorModel
   @State private var resetToken = 0
+  @State private var viewportMode: PreviewViewportMode? = .fit
   @State private var showPreviewLoadingHint = false
   private let accent = Color(red: 0.84, green: 0.71, blue: 0.44)
   var body: some View {
@@ -14,14 +16,16 @@ struct EditorView: View {
       Divider()
       HStack(spacing: 0) {
         VStack(spacing: 0) {
-          previewToolbar
-          if model.isCropping {
-            CropControlsView(model: model)
-            Divider()
-          }
+          ZStack {
+            if model.isCropping {
+              CropControlsView(model: model)
+            } else {
+              previewToolbar
+            }
+          }.frame(height: 38)
           GeometryReader { viewport in
             ZStack {
-              PreviewCanvas(model: model, resetToken: resetToken)
+              PreviewCanvas(model: model, resetToken: resetToken, onViewportChange: { viewportMode = $0 })
                 .frame(width: viewport.size.width, height: viewport.size.height)
               if model.project == nil { emptyState }
               if model.sampling {
@@ -36,7 +40,6 @@ struct EditorView: View {
             .overlay(alignment: .topTrailing) {
               if model.activeFrame != nil && !model.isCropping {
                 HistogramView(model: model)
-                  .frame(width: 248)
                   .padding(12)
               }
             }
@@ -73,10 +76,14 @@ struct EditorView: View {
         Button("另存设置副本…") { model.backupPanel() }
         Button("放弃未保存修改并重新载入", role: .destructive) { model.reloadDiscardingUnsaved() }
       }
+      if model.activeFrame != nil && !model.saveFailure {
+        Button("重新载入照片") { model.errorMessage = nil; model.loadActive() }
+      }
       Button("好", role: .cancel) { model.errorMessage = nil }
     } message: {
       Text(model.errorMessage ?? "")
     }
+    .sheet(item: $model.matrixManager) { kind in MatrixManagerView(model: model, kind: kind) }
     .sheet(isPresented: $model.showExportSummary) { ExportSummaryView(model: model) }
     .onOpenURL { model.open($0) }
     .task(id: previewIsWaiting) {
@@ -95,6 +102,10 @@ struct EditorView: View {
       if model.saveFailure {
         Label("设置未保存", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
         Button("重试保存") { model.flushSave() }.buttonStyle(.link)
+      }
+      if model.isLoading || model.isDetailLoading || model.isNeutralSampling || model.isPreparingGeometry {
+        Text(model.isLoading ? "正在准备图像预览…" : "正在准备原始精度图像…")
+          .font(.caption).foregroundStyle(.secondary)
       }
       Spacer(minLength: 10)
       if model.isExporting {
@@ -118,6 +129,12 @@ struct EditorView: View {
       }.frame(maxWidth: 190, alignment: .leading)
       Spacer(minLength: 10)
       Button {
+        NSApp.keyWindow?.makeFirstResponder(nil)
+        model.returnHome()
+      } label: {
+        Label("回到主页", systemImage: "house")
+      }.disabled(model.project == nil || model.isExporting)
+      Button {
         model.openPanel()
       } label: {
         Label("打开胶卷", systemImage: "folder")
@@ -126,18 +143,9 @@ struct EditorView: View {
       Button {
         model.resetAdjustments()
       } label: {
-        Label("重置参数", systemImage: "arrow.counterclockwise")
+        Label("重置调色", systemImage: "arrow.counterclockwise")
       }.disabled(model.activeFrame == nil)
-        .help("重置当前照片的 Timing 与 Contrast · 可撤销")
-      Button {
-        model.copyParameters()
-      } label: {
-        Label("复制参数", systemImage: "doc.on.doc")
-      }.disabled(model.activeFrame == nil)
-        .help("复制当前照片参数 · ⌘C")
-      Button("应用到 \(model.selection.selectedFrameIDs.count) 张") { model.applyParameters() }
-        .disabled(!model.canApply)
-        .help("应用参数到所选照片 · ⌘V")
+        .help("重置当前照片的 Timing、Contrast 与 Cineon Log LUT · 可撤销")
       Menu {
         Button("导出当前照片…") { model.exportPanel() }.disabled(!model.hasImage)
         Button("导出选中 \(model.selection.selectedFrameIDs.count) 张…") { model.batchExportPanel(allFrames: false) }
@@ -151,12 +159,7 @@ struct EditorView: View {
         Label("导出 TIFF", systemImage: "square.and.arrow.up")
       }.menuStyle(.borderlessButton).fixedSize()
         .disabled(model.project == nil || model.isExporting || model.isCropping)
-      Menu {
-        Button("清理本卷缩略图缓存") { model.clearThumbnailCache() }
-      } label: {
-        Image(systemName: "ellipsis.circle")
-      }.menuStyle(.borderlessButton).fixedSize().disabled(model.project == nil)
-        .help("胶卷管理").accessibilityLabel("胶卷管理")
+
     }.padding(.horizontal, 18).frame(height: 65)
   }
   private var previewToolbar: some View {
@@ -169,60 +172,145 @@ struct EditorView: View {
           .tertiary)
       }
       Spacer()
-      Button {
-        model.beginCrop()
-      } label: {
-        Label("裁剪", systemImage: "crop")
-      }.controlSize(.small).disabled(!model.hasImage || model.isCropping)
-        .help("裁剪与精细角度 · R")
-      Menu("方向") {
-        Button("顺时针 90°") { model.changeOrientation(.rotateClockwise) }
-        Button("逆时针 90°") { model.changeOrientation(.rotateCounterclockwise) }
-        Divider()
-        Button("水平翻转 · 当前画面") { model.changeOrientation(.flipHorizontal) }
-        Button("垂直翻转 · 当前画面") { model.changeOrientation(.flipVertical) }
-        Button("重置方向") { model.changeOrientation(.reset) }
-      }.menuStyle(.borderlessButton).foregroundStyle(.primary).fixedSize()
-        .disabled(!model.hasImage || model.isCropping)
-      Picker("阶段", selection: $model.stage) {
-        ForEach(PipelineStage.allCases, id: \.self) { Text($0.label).tag($0) }
-      }.labelsHidden().frame(width: 95)
-      Button("1:1") { model.inspectNativeResolution() }.controlSize(.small)
-        .disabled(!model.hasImage || model.isCropping)
-        .foregroundStyle(model.detailImage == nil ? Color.primary : accent)
+      HStack(spacing: 4) {
+        Button { model.beginCrop() } label: {
+          PreviewToolLabel(selected: model.isCropping) {
+            Label("裁剪", systemImage: "crop")
+          }
+        }.buttonStyle(.plain)
+          .disabled(!model.hasImage || model.isCropping)
+          .help("裁剪与精细角度 · R")
+        PreviewToolMenu(title: "方向") {
+          Button("顺时针 90°") { model.changeOrientation(.rotateClockwise) }
+          Button("逆时针 90°") { model.changeOrientation(.rotateCounterclockwise) }
+          Divider()
+          Button("水平翻转 · 当前画面") { model.changeOrientation(.flipHorizontal) }
+          Button("垂直翻转 · 当前画面") { model.changeOrientation(.flipVertical) }
+          Divider()
+          Button("重置方向") { model.changeOrientation(.reset) }
+        }.disabled(!model.hasImage || model.isCropping)
+      }
+      previewToolDivider
+      PreviewToolMenu(title: "管线预览", value: pipelinePreviewTitle) {
+        ForEach([PipelineStage.l2, .d3, .final], id: \.self) { stage in
+          Toggle(pipelinePreviewTitle(for: stage), isOn: Binding(
+            get: { model.stage == stage },
+            set: { selected in if selected { model.stage = stage } }
+          ))
+        }
+      }.help("管线预览：\(pipelinePreviewTitle)")
+      previewToolDivider
+      HStack(spacing: 0) {
+        Button { resetToken += 1 } label: {
+          PreviewToolLabel(selected: viewportMode == .fit) { Text("适应") }
+        }.help("适应窗口 · 双击照片复位")
+        Button { model.inspectNativeResolution() } label: {
+          PreviewToolLabel(selected: viewportMode == .native) {
+            Text("100%")
+          }
+        }
         .opacity(model.isDetailLoading ? 0.5 : 1)
-        .help(model.isDetailLoading ? "正在读取原始分辨率区域" : "查看原始分辨率 · ⌘1")
-      Button("适应窗口") { resetToken += 1 }.controlSize(.small)
+        .help(model.activeFrame?.rawProcessing != nil
+          ? "放大代理查看；全尺寸仅用于导出 · ⌘1"
+          : (model.isDetailLoading ? "正在读取原始分辨率区域" : "查看原始分辨率 · ⌘1"))
+      }
+      .buttonStyle(.plain)
+      .padding(2)
+      .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 7))
+      .disabled(!model.hasImage || model.isCropping)
     }.padding(.horizontal, 12).frame(height: 38)
+      .tint(Color(white: 0.8))
   }
-  private var emptyState: some View {
-    VStack(spacing: 20) {
-      Image(systemName: "viewfinder.rectangular").font(.system(size: 52, weight: .ultraLight))
-        .foregroundStyle(accent)
-      Text("一卷底片，一个工作间").font(.title2.weight(.medium))
-      Text("打开线性 TIFF，校准片基，再把调色应用到整组选片。").font(.callout).foregroundStyle(.secondary)
-      Button("打开 TIFF 或文件夹") { model.openPanel() }.buttonStyle(.borderedProminent)
-      Text("16-BIT LINEAR RGB  /  KODAK 2383 D65").font(.system(size: 10, design: .monospaced))
-        .tracking(1.5).foregroundStyle(.tertiary)
+  private var previewToolDivider: some View {
+    Rectangle().fill(.white.opacity(0.10)).frame(width: 1, height: 14)
+      .padding(.horizontal, 4)
+  }
+  private var pipelinePreviewTitle: String { pipelinePreviewTitle(for: model.stage) }
+  private func pipelinePreviewTitle(for stage: PipelineStage) -> String {
+    switch stage {
+    case .l2: "线性"
+    case .d3: "密度"
+    default: "输出"
     }
   }
-  private func heading(_ index: String, _ title: String) -> some View {
+
+  private var emptyState: some View {
+    VStack(spacing: 12) {
+      Image(systemName: "viewfinder.rectangular").font(.system(size: model.recentRolls != nil ? 32 : 52, weight: .ultraLight))
+        .foregroundStyle(accent)
+      HStack(spacing: 10) {
+        Button("打开底片文件夹") { model.openPanel() }.buttonStyle(.borderedProminent)
+        Button { openWindow(id: "cache-manager") } label: {
+          Label("管理缓存", systemImage: "internaldrive")
+        }.buttonStyle(.bordered)
+      }
+      Text("16-BIT LINEAR RGB  /  CINEON LOG LUT").font(.system(size: 10, design: .monospaced))
+        .tracking(1.5).foregroundStyle(.tertiary)
+      if let history = model.recentRolls { RecentRollsView(history: history, model: model) }
+    }
+  }
+  private func heading(_ index: String, _ title: String, bottomPadding: CGFloat = 5) -> some View {
     HStack {
       Text(index).font(.system(size: 10, design: .monospaced)).foregroundStyle(accent)
       Text(title).font(.system(size: 12, weight: .semibold))
       Spacer()
-    }.padding(.bottom, 5)
+    }.padding(.bottom, bottomPadding)
+  }
+  private func matrixPicker(_ kind: MatrixKind) -> some View {
+    VStack(alignment: .leading, spacing: 5) {
+      Text(kind.label).font(.caption).foregroundStyle(.secondary)
+      Picker(kind.label, selection: Binding(
+        get: { kind == .cmos ? model.cmosMatrix : model.matrix },
+        set: { model.setMatrixPreset($0, kind: kind) })) {
+          ForEach(model.matrixOptions(kind), id: \.self) { value in
+            Text(value.label + (model.isMatrixSnapshot(value, kind: kind) ? " · 本卷快照" : ""))
+              .tag(value)
+          }
+        }.labelsHidden().disabled(model.project == nil)
+        .accessibilityLabel(kind.label)
+    }.frame(maxWidth: .infinity, alignment: .leading)
   }
   private var inspector: some View {
     ScrollView {
-      VStack(alignment: .leading, spacing: 19) {
+      VStack(alignment: .leading, spacing: 18) {
         VStack(alignment: .leading, spacing: 10) {
-          heading("01", "FILM BASE 对齐 · 整卷")
-          Button {
-            model.sampling.toggle()
-          } label: {
-            Label(model.sampling ? "取消框选" : "框选片基", systemImage: "viewfinder")
-          }.frame(maxWidth: .infinity).disabled(!model.hasImage || model.isCropping)
+          HStack {
+            heading("01", "矩阵矫正 · 整卷", bottomPadding: 0)
+            Button("管理矩阵") {
+              model.stopTimingKey()
+              model.showMatrixMenu = true
+            }
+            .buttonStyle(.borderless)
+            .popover(isPresented: $model.showMatrixMenu, arrowEdge: .bottom) {
+              VStack(alignment: .leading, spacing: 12) {
+                ForEach(MatrixKind.allCases) { kind in
+                  Button("管理\(kind.label)…") {
+                    model.showMatrixMenu = false
+                    model.reloadMatrixLibrary()
+                    model.matrixManager = kind
+                  }.buttonStyle(.plain)
+                }
+              }.padding(16)
+            }
+          }
+          HStack(spacing: 10) {
+            matrixPicker(.cmos)
+            matrixPicker(.density)
+          }
+        }
+        Divider()
+        VStack(alignment: .leading, spacing: 10) {
+          HStack(spacing: 6) {
+            heading("02", "FILM BASE 对齐 · 整卷", bottomPadding: 0)
+              .fixedSize(horizontal: true, vertical: false)
+            Spacer(minLength: 0)
+            Button {
+              model.sampling.toggle()
+            } label: {
+              Label(model.sampling ? "取消框选" : "框选片基", systemImage: "viewfinder")
+            }.controlSize(.regular).font(.system(size: 13))
+              .fixedSize().disabled(!model.hasImage || model.isCropping)
+          }
           if model.project?.calibrationNeedsReview == true {
             Label("片基来源变化 · 请重新采样", systemImage: "exclamationmark.triangle")
               .foregroundStyle(accent).font(.caption)
@@ -230,15 +318,15 @@ struct EditorView: View {
         }
         Divider()
         VStack(alignment: .leading, spacing: 10) {
-          heading("02", "密度矩阵 · 整卷")
-          Picker("密度矩阵", selection: Binding(get: { model.matrix }, set: { model.setMatrix($0) })) {
-            ForEach(PrintDensityMatrix.allCases, id: \.self) { Text($0.label).tag($0) }
-          }.labelsHidden()
-        }
-        Divider()
-        VStack(alignment: .leading, spacing: 10) {
           HStack(spacing: 8) {
-            heading("03", "COLOR TIMING")
+            Text("03").font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+            Text("TIMING").font(.system(size: 11, weight: .medium))
+            Spacer(minLength: 0)
+            Picker("Timing 模式", selection: $model.timingMode) {
+              Text("简易").tag(TimingMode.simple)
+              Text("RGB").tag(TimingMode.rgb)
+            }.pickerStyle(.segmented).labelsHidden().frame(width: 108)
+              .help("切换 Timing 控件与快捷键，保持照片参数")
             Button {
               model.toggleNeutralPicker()
             } label: {
@@ -251,21 +339,51 @@ struct EditorView: View {
               .help(model.neutralPicking ? "点击照片，使 Final 取样位置中性并保持亮度 · I / Esc 取消" : "Final 中性点吸管 (I) · 保持亮度")
               .accessibilityLabel(model.neutralPicking ? "取消 Final 中性点吸管" : "标定 Final 中性点，保持亮度")
           }
-          timingRow("Master", \.master, color: .white)
-          timingRow("Red", \.red, color: ChannelColors.red)
-          timingRow("Green", \.green, color: ChannelColors.green)
-          timingRow("Blue", \.blue, color: ChannelColors.blue)
+          VStack(spacing: 9) {
+            if model.timingMode == .simple {
+              simpleTimingRow(.exposure, color: .white)
+              simpleTimingRow(.temperature, color: .orange)
+              simpleTimingRow(.tint, color: .purple)
+              Color.clear.frame(height: 24)
+            } else {
+              timingRow("Master", \.master, color: .white)
+              timingRow("Red", \.red, color: ChannelColors.red)
+              timingRow("Green", \.green, color: ChannelColors.green)
+              timingRow("Blue", \.blue, color: ChannelColors.blue)
+            }
+          }
         }.disabled(model.activeFrame == nil)
         Divider()
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 9) {
           heading("04", "RGB CONTRAST")
           contrastRow("Master", \.master, color: .white)
           contrastRow("Red", \.red, color: ChannelColors.red)
           contrastRow("Green", \.green, color: ChannelColors.green)
           contrastRow("Blue", \.blue, color: ChannelColors.blue)
         }.disabled(model.activeFrame == nil)
+        Divider()
+        HStack(spacing: 6) {
+          heading("05", "Cineon Log LUT", bottomPadding: 0)
+            .fixedSize(horizontal: true, vertical: false)
+          Picker("Cineon Log LUT", selection: Binding(
+            get: { model.adjustments.cineonLogLUT },
+            set: { value in model.edit { $0.cineonLogLUT = value } })) {
+              ForEach(CineonLogLUT.allCases, id: \.self) { lut in Text(lut.label).tag(lut) }
+            }.labelsHidden()
+        }.disabled(model.activeFrame == nil)
       }.padding(16)
     }.background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+  }
+  private func simpleTimingRow(_ axis: SimpleTimingAxis, color: Color) -> some View {
+    HStack(spacing: 6) {
+      Text(axis.title).font(.system(size: 11)).frame(width: 28, alignment: .leading)
+      AdjustmentRow(title: axis.help,
+        value: Binding(get: { axis.value(in: model.adjustments.timing) },
+          set: { model.setSimpleTiming(axis, value: $0) }),
+        range: axis.range, step: 1, fractionDigits: 0, color: color,
+        onEditingChanged: { if $0 { model.beginAdjustment() } else { model.endAdjustment() } },
+        resetValue: 0, quantizesValue: false, valueWidth: 72)
+    }
   }
   private func timingRow(
     _ title: String, _ path: WritableKeyPath<TimingParameters, Int>, color: Color
@@ -300,9 +418,34 @@ struct EditorView: View {
         ).font(.caption2).foregroundStyle(.secondary)
         Spacer()
         if let snapshot = model.snapshot {
-          Text("已复制：\(snapshot.sourceName)").font(.caption2).foregroundStyle(accent)
+          Text("已复制调色：\(snapshot.sourceName)").font(.caption2).foregroundStyle(accent)
         }
-        Text("⌘ 多选  ·  Shift 连选").font(.caption2).foregroundStyle(.tertiary)
+        Button("同步…") { model.beginSync() }
+          .disabled(!model.canSync)
+          .help(model.isCropping ? "先完成当前照片裁剪，再同步" : "把当前照片的设置同步到其余所选照片")
+          .popover(isPresented: $model.showSync, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 14) {
+              Text("同步当前照片").font(.headline)
+              Text("来源：\(model.activeFrame?.filename ?? "")").lineLimit(2)
+              Text("目标：其余 \(model.syncTargetIDs.count) 张").foregroundStyle(.secondary)
+              Divider()
+              Toggle("RGB Timing", isOn: $model.syncTiming)
+              Toggle("RGB Contrast", isOn: $model.syncContrast)
+              Toggle("Cineon Log LUT", isOn: $model.syncLUT)
+              Toggle("裁剪 · 范围与精细角度", isOn: $model.syncCrop)
+              Text("保留每张照片的旋转与翻转").font(.caption).foregroundStyle(.secondary)
+              HStack {
+                Button("取消") { model.showSync = false }.keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("应用到其余 \(model.syncTargetIDs.count) 张") { model.syncCurrentSettings() }
+                  .buttonStyle(.borderedProminent)
+                  .disabled(!model.canSync || !model.hasSyncSelection)
+              }
+            }.toggleStyle(.checkbox).padding(18).frame(width: 310)
+          }
+          .onChange(of: model.selection.selectedFrameIDs) { _, _ in model.showSync = false }
+          .onChange(of: model.selection.activeFrameID) { _, _ in model.showSync = false }
+          .onChange(of: model.isCropping) { _, _ in model.showSync = false }
       }
       ScrollViewReader { proxy in
         ScrollView(.horizontal) {
@@ -322,6 +465,26 @@ struct EditorView: View {
                 } label: {
                   thumbnail(frame, index: index).contentShape(Rectangle())
                 }.buttonStyle(.plain).id(frame.id)
+                  .contextMenu {
+                    Button("复制调色 · 当前照片（⌘C）") { model.copyParameters() }
+                    Button("粘贴调色到所选照片（⌘V）") { model.applyParameters() }
+                      .disabled(!model.canApply)
+                    Divider()
+                    Group {
+                      Button("水平翻转\(model.selection.selectedFrameIDs.count)张底片") {
+                        model.changeSelectedOrientations(.flipHorizontal)
+                      }
+                      Button("垂直翻转\(model.selection.selectedFrameIDs.count)张底片") {
+                        model.changeSelectedOrientations(.flipVertical)
+                      }
+                      Button("顺时针旋转\(model.selection.selectedFrameIDs.count)张底片") {
+                        model.changeSelectedOrientations(.rotateClockwise)
+                      }
+                      Button("逆时针旋转\(model.selection.selectedFrameIDs.count)张底片") {
+                        model.changeSelectedOrientations(.rotateCounterclockwise)
+                      }
+                    }.disabled(!model.canChangeSelectedOrientations)
+                  }
               }
             }
           }.padding(.vertical, 2)
@@ -337,7 +500,6 @@ struct EditorView: View {
     let selected = model.selection.selectedFrameIDs.contains(frame.id)
     return VStack(spacing: 4) {
       ZStack {
-        Rectangle().fill(Color.black.opacity(0.4))
         if let image = model.thumbnails[frame.id] {
           Image(decorative: image, scale: 1).resizable().aspectRatio(contentMode: .fit)
         } else {

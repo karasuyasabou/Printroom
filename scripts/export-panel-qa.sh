@@ -20,7 +20,9 @@ app_sources=()
 for source_file in Sources/PrintroomApp/*.swift; do
   [[ "$source_file" == "Sources/PrintroomApp/PrintroomApp.swift" ]] || app_sources+=("$source_file")
 done
-xcrun swiftc -parse-as-library -swift-version 6 -O -module-name ExportPanelQA \
+source scripts/native-raw-link.sh
+printroom_native_link_args "$release_root" "$qa_root"
+xcrun swiftc "${native_raw_flags[@]}" -parse-as-library -swift-version 6 -O -module-name ExportPanelQA \
   -module-cache-path "$CLANG_MODULE_CACHE_PATH" -I "$release_root/Modules" \
   "${app_sources[@]}" scripts/ExportPanelQA.swift \
   "$release_root"/PrintroomCore.build/*.swift.o -o "$qa_root/export-panel-qa"

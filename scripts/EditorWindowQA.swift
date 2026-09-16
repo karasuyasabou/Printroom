@@ -30,7 +30,11 @@ import SwiftUI
       try await keyboard()
       return
     }
-    let model = EditorModel()
+    let recentSuite = "Printroom.RecentWindowQA.\(UUID())"
+    let recentDefaults = UserDefaults(suiteName: recentSuite)!
+    defer { recentDefaults.removePersistentDomain(forName: recentSuite) }
+    let history = RecentRolls(defaults: recentDefaults)
+    let model = EditorModel(recentRolls: history, timingDefaults: recentDefaults)
     model.errorMessage = nil
     let frames = (1...4).map { FrameRecord(filename: "frame-\($0).tiff") }
     var project = RollProject()
@@ -55,13 +59,27 @@ import SwiftUI
       styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.title = "Printroom · UI QA"
-    let host = NSHostingView(rootView: EditorView(model: model))
+    let histogramDefaults = UserDefaults(suiteName: "Printroom.EditorWindowQA.\(UUID())")!
+    histogramDefaults.set(true, forKey: "histogramExpanded")
+    let host = NSHostingView(rootView: EditorView(model: model).defaultAppStorage(histogramDefaults))
     window.contentView = host
     window.orderFront(nil)
     defer { window.orderOut(nil) }
     func capture(_ name: String) async throws {
       host.layoutSubtreeIfNeeded()
       try await Task.sleep(for: .milliseconds(350))
+      if CommandLine.arguments.contains("--appearance") {
+        guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+          throw PrintroomError.invalid("Offscreen bitmap unavailable")
+        }
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        guard let png = bitmap.representation(using: .png, properties: [:]) else {
+          throw PrintroomError.invalid("Offscreen PNG unavailable")
+        }
+        try png.write(to: URL(fileURLWithPath: "scratch/editor-ui-qa/\(name).png"))
+        print("Rendered \(name): \(host.bounds.size)")
+        return
+      }
       let process = Process()
       process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
       process.arguments = ["-x", "-o", "-l", String(window.windowNumber),
@@ -71,7 +89,140 @@ import SwiftUI
       guard process.terminationStatus == 0 else { throw PrintroomError.invalid("Screenshot failed") }
       print("Saved \(name): \(host.bounds.size)")
     }
+    if CommandLine.arguments.contains("--histogram") {
+      let portrait = try FrameOrientation.identity.applying(.rotateClockwise).transform(buffer)
+      model.thumbnails[frames[1].id] = try DisplayImage.make(portrait, profile: nil, diagnostic: true)
+      func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap { descendants($0) } }
+      window.makeKeyAndOrderFront(nil)
+      NSApp.activate(ignoringOtherApps: true)
+      try await Task.sleep(for: .milliseconds(500))
+      host.layoutSubtreeIfNeeded()
+      guard let canvas = descendants(host).compactMap({ $0 as? CanvasView }).first,
+        let panel = descendants(host).compactMap({ $0 as? HistogramPointerView }).first else {
+        throw PrintroomError.invalid("Missing cursor surfaces")
+      }
+      let previousPointer = NSEvent.mouseLocation
+      let screenHeight = NSScreen.screens[0].frame.maxY
+      defer { CGWarpMouseCursorPosition(CGPoint(x: previousPointer.x, y: screenHeight - previousPointer.y)) }
+      func move(_ view: NSView, _ point: CGPoint, expected: NSCursor) async throws {
+        let location = view.convert(point, to: nil)
+        let screen = window.convertPoint(toScreen: location)
+        CGWarpMouseCursorPosition(CGPoint(x: screen.x, y: screenHeight - screen.y))
+        let event = NSEvent.mouseEvent(with: .mouseMoved, location: location, modifierFlags: [],
+          timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+          context: nil, eventNumber: 1, clickCount: 0, pressure: 0)!
+        NSApp.postEvent(event, atStart: false)
+        try await Task.sleep(for: .milliseconds(250))
+        canvas.refreshCursor()
+        guard NSCursor.current === expected else {
+          let hit = host.hitTest(host.convert(location, from: nil))
+          throw PrintroomError.invalid("Unexpected cursor at \(point), key=\(window.isKeyWindow), hit=\(String(describing: hit)), image=\(model.previewImage != nil)")
+        }
+      }
+      let center = CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY)
+      try await move(canvas, center, expected: .openHand)
+      try await move(panel, CGPoint(x: panel.bounds.midX, y: panel.bounds.midY), expected: .arrow)
+      try await move(panel, CGPoint(x: panel.bounds.maxX - 14, y: panel.bounds.maxY - 18), expected: .arrow)
+      try await move(canvas, center, expected: .openHand)
+      print("PASS: actual pointer enters chart/header as arrow and exits as hand")
+      // 90% dark background, 10% subject spread over midtones. In-memory only.
+      var nightPixels = [SIMD4<Float>](repeating: SIMD4<Float>(0, 0, 0, 1), count: 90_000)
+      for i in 0..<10_000 {
+        let v = Float(70 + i % 100) / 256
+        nightPixels.append(SIMD4<Float>(v, v + 0.03, v + 0.06, 1))
+      }
+      let night = PixelBuffer(width: 400, height: 250, pixels: nightPixels)
+      model.histogram = try HistogramStatistics.compute(night, stage: .final)
+      try await capture("23-histogram-night-rgb")
+      model.histogramStage = .d3
+      model.stage = .d3
+      model.histogram = try HistogramStatistics.compute(night, stage: .d3)
+      try await capture("24-histogram-night-density")
+      histogramDefaults.set(false, forKey: "histogramExpanded")
+      try await capture("25-histogram-collapsed")
+      histogramDefaults.set(true, forKey: "histogramExpanded")
+      model.histogramStage = .final
+      model.histogram = try HistogramStatistics.compute(night, stage: .final)
+      try await capture("26-histogram-expanded-final")
+      print("HISTOGRAM UI QA PASSED: Final and Density RGB layout, collapse and expand")
+      return
+    }
+    if CommandLine.arguments.contains("--timing") {
+      func sliders(_ view: NSView) -> [NSSlider] {
+        (view as? NSSlider).map { [$0] } ?? view.subviews.flatMap { sliders($0) }
+      }
+      let before = model.project!.frames
+      model.timingMode = .simple
+      try await capture("20-timing-simple")
+      let simple = sliders(host)
+      guard simple.count == 7,
+        let contrast = simple.first(where: { $0.accessibilityLabel() == "Contrast Master" }) else {
+        throw PrintroomError.invalid("Expected three simple and four contrast sliders")
+      }
+      let contrastFrame = contrast.convert(contrast.bounds, to: host)
+      model.timingMode = .rgb
+      try await capture("21-timing-rgb")
+      let rgb = sliders(host)
+      guard rgb.count == 8,
+        let rgbContrast = rgb.first(where: { $0.accessibilityLabel() == "Contrast Master" }),
+        abs(rgbContrast.convert(rgbContrast.bounds, to: host).minY - contrastFrame.minY) < 1,
+        model.project!.frames == before else {
+        throw PrintroomError.invalid("Mode changed layout or photo parameters")
+      }
+      print("TIMING QA PASSED: 7/8 sliders, fixed Contrast position, unchanged photo parameters")
+      return
+    }
+    if CommandLine.arguments.contains("--appearance") {
+      try await capture("10-gray-preview")
+      for (stage, name) in [(PipelineStage.l2, "15-toolbar-linear"), (.d3, "16-toolbar-density"), (.final, "17-toolbar-output")] {
+        model.stage = stage
+        model.previewImage = preview
+        model.histogram = try HistogramStatistics.compute(buffer, stage: stage)
+        try await capture(name)
+      }
+      histogramDefaults.set(false, forKey: "histogramExpanded")
+      try await capture("11-histogram-collapsed")
+      histogramDefaults.set(true, forKey: "histogramExpanded")
+      try await capture("12-histogram-expanded")
+      model.project = nil
+      model.previewImage = nil
+      model.histogram = nil
+      try await capture("09-empty-state")
+      for index in 1...8 {
+        history.record(folder: URL(fileURLWithPath: "/Volumes/底片档案/2026/上海街头 · Kodak 5219 第\(index)卷"), projectID: UUID())
+      }
+      try await capture("13-recent-rolls")
+      history.remove(history.entries[2])
+      try await capture("14-recent-removed")
+      return
+    }
+    model.selectAll()
     try await capture("01-final-minimum-window")
+    func scrollViews(_ view: NSView) -> [NSScrollView] {
+      (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews($0) }
+    }
+    guard let inspector = scrollViews(host).first(where: { $0.bounds.width < 400 && $0.bounds.height > 250 }),
+      let document = inspector.documentView else { throw PrintroomError.invalid("Missing inspector scroll view") }
+    document.scroll(NSPoint(x: 0, y: document.isFlipped ? max(0, document.bounds.height - inspector.contentView.bounds.height) : 0))
+    inspector.reflectScrolledClipView(inspector.contentView)
+    try await capture("22-cineon-log-lut")
+    model.beginSync()
+    try await capture("06-sync-minimum-window")
+    for popup in NSApp.windows where popup !== window && popup.isVisible {
+      let process = Process()
+      process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+      process.arguments = ["-x", "-o", "-l", String(popup.windowNumber),
+        "scratch/editor-ui-qa/07-sync-popover-\(popup.windowNumber).png"]
+      try process.run()
+      process.waitUntilExit()
+      guard process.terminationStatus == 0 else { throw PrintroomError.invalid("Popover screenshot failed") }
+    }
+    guard !model.hasSyncSelection else { throw PrintroomError.invalid("Sync defaults must be empty") }
+    model.showSync = false
+    model.beginCrop()
+    model.previewImage = preview
+    try await capture("08-crop-without-sync")
+    model.cancelCrop()
     model.stage = .d3
     model.previewImage = preview
     model.histogram = try HistogramStatistics.compute(buffer, stage: .d3)
@@ -83,6 +234,11 @@ import SwiftUI
     model.exportDetail = "正在导出 frame-2.tiff · 2 / 4"
     try await capture("03-export-save-status-minimum-window")
     model.isExporting = false
+    model.saveFailure = false
+    model.project = nil
+    model.previewImage = nil
+    model.histogram = nil
+    try await capture("09-empty-state")
   }
 
   @MainActor static func keyboard() async throws {

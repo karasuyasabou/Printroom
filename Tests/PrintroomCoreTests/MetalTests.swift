@@ -20,8 +20,8 @@ final class MetalTests: XCTestCase {
       width: 4, height: 4,
       samples: Array(repeating: [UInt16(13107), 26214, 39321], count: 16).flatMap { $0 })
     var maximum: Float = 0
-    var stageMaximum = [Float](repeating: 0, count: 7)
-    var stageMaximumRMS = [Double](repeating: 0, count: 7)
+    var stageMaximum = [Float](repeating: 0, count: PipelineStage.allCases.count)
+    var stageMaximumRMS = [Double](repeating: 0, count: PipelineStage.allCases.count)
     for matrix in PrintDensityMatrix.allCases {
       let calibration = try Pipeline.calibrate(
         image: image, rect: PixelRect(x: 0, y: 0, width: 4, height: 4), matrix: matrix,
@@ -62,7 +62,7 @@ final class MetalTests: XCTestCase {
       print("Metal stage \(stage.label): max=\(stageMaximum[stage.rawValue]) worst-run RMS=\(stageMaximumRMS[stage.rawValue])")
     }
     print(
-      "Metal agreement: \(gpu.deviceName), \(pixels.count) pixels × 2 matrices × 3 adjustments × 7 stages; max error \(maximum)"
+      "Metal agreement: \(gpu.deviceName), \(pixels.count) pixels × 2 matrices × 3 adjustments × \(PipelineStage.allCases.count) stages; max error \(maximum)"
     )
   }
 }

@@ -1,0 +1,2702 @@
+{
+  "adobe-runs": [
+    {
+      "input": "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07119.ARW",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07119/direct.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-l",
+        "-p0",
+        "-dng1.1",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07119",
+        "-o",
+        "direct.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07119.ARW"
+      ],
+      "seconds": 0.798695959005272,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 198355582
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07119.ARW",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07119/pre.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-p0",
+        "-cr5.4",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07119",
+        "-o",
+        "pre.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07119.ARW"
+      ],
+      "seconds": 0.5268510000023525,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 32857732
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07119/pre.dng",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07119/two.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-l",
+        "-p0",
+        "-dng1.1",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07119",
+        "-o",
+        "two.dng",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07119/pre.dng"
+      ],
+      "seconds": 0.8670947920181789,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 198355920
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07120.ARW",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07120/pre.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-p0",
+        "-cr5.4",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07120",
+        "-o",
+        "pre.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07120.ARW"
+      ],
+      "seconds": 0.5427431249991059,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 32222960
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07120/pre.dng",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07120/two.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-l",
+        "-p0",
+        "-dng1.1",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07120",
+        "-o",
+        "two.dng",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07120/pre.dng"
+      ],
+      "seconds": 0.8809250839985907,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 198355920
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07120.ARW",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07120/direct.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-l",
+        "-p0",
+        "-dng1.1",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07120",
+        "-o",
+        "direct.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07120.ARW"
+      ],
+      "seconds": 0.8175614170031622,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 198355582
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07121.ARW",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07121/direct.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-l",
+        "-p0",
+        "-dng1.1",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07121",
+        "-o",
+        "direct.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07121.ARW"
+      ],
+      "seconds": 0.8094745830167085,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 198355582
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07121.ARW",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07121/pre.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-p0",
+        "-cr5.4",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07121",
+        "-o",
+        "pre.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07121.ARW"
+      ],
+      "seconds": 0.5432003330206499,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 30739330
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07121/pre.dng",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07121/two.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-l",
+        "-p0",
+        "-dng1.1",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07121",
+        "-o",
+        "two.dng",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07121/pre.dng"
+      ],
+      "seconds": 0.873488457989879,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 198355920
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07122.ARW",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07122/pre.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-p0",
+        "-cr5.4",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07122",
+        "-o",
+        "pre.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07122.ARW"
+      ],
+      "seconds": 0.5393381660105661,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 30490718
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07122/pre.dng",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07122/two.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-l",
+        "-p0",
+        "-dng1.1",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07122",
+        "-o",
+        "two.dng",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07122/pre.dng"
+      ],
+      "seconds": 0.8852420830226038,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 198355920
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07122.ARW",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07122/direct.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-l",
+        "-p0",
+        "-dng1.1",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07122",
+        "-o",
+        "direct.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07122.ARW"
+      ],
+      "seconds": 0.8154555830114987,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 198355582
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07123.ARW",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07123/direct.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-l",
+        "-p0",
+        "-dng1.1",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07123",
+        "-o",
+        "direct.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07123.ARW"
+      ],
+      "seconds": 0.8488062090182211,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 198355582
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07123.ARW",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07123/pre.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-p0",
+        "-cr5.4",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07123",
+        "-o",
+        "pre.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07123.ARW"
+      ],
+      "seconds": 0.5432123749924358,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 33552048
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07123/pre.dng",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07123/two.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-l",
+        "-p0",
+        "-dng1.1",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07123",
+        "-o",
+        "two.dng",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07123/pre.dng"
+      ],
+      "seconds": 0.877497957990272,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 198355920
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07124.ARW",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07124/pre.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-p0",
+        "-cr5.4",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07124",
+        "-o",
+        "pre.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07124.ARW"
+      ],
+      "seconds": 0.5700260830053594,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 33339178
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07124/pre.dng",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07124/two.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-l",
+        "-p0",
+        "-dng1.1",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07124",
+        "-o",
+        "two.dng",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07124/pre.dng"
+      ],
+      "seconds": 0.8909464169992134,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 198355920
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07124.ARW",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07124/direct.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-l",
+        "-p0",
+        "-dng1.1",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07124",
+        "-o",
+        "direct.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07124.ARW"
+      ],
+      "seconds": 0.8338372079888359,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 198355582
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07125.ARW",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07125/direct.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-l",
+        "-p0",
+        "-dng1.1",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07125",
+        "-o",
+        "direct.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07125.ARW"
+      ],
+      "seconds": 0.8276899580087047,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 198355582
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07125.ARW",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07125/pre.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-p0",
+        "-cr5.4",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07125",
+        "-o",
+        "pre.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07125.ARW"
+      ],
+      "seconds": 0.5456764590053353,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 32223262
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07125/pre.dng",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07125/two.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-l",
+        "-p0",
+        "-dng1.1",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07125",
+        "-o",
+        "two.dng",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07125/pre.dng"
+      ],
+      "seconds": 0.875135083013447,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 198355920
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07126.ARW",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07126/pre.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-p0",
+        "-cr5.4",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07126",
+        "-o",
+        "pre.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07126.ARW"
+      ],
+      "seconds": 0.5698971659876406,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 34264614
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07126/pre.dng",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07126/two.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-l",
+        "-p0",
+        "-dng1.1",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07126",
+        "-o",
+        "two.dng",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07126/pre.dng"
+      ],
+      "seconds": 0.8797176250081975,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 198355920
+    },
+    {
+      "input": "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07126.ARW",
+      "output": "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07126/direct.dng",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-l",
+        "-p0",
+        "-dng1.1",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07126",
+        "-o",
+        "direct.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07126.ARW"
+      ],
+      "seconds": 0.82097645898466,
+      "exit": 0,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n",
+      "bytes": 198355582
+    }
+  ],
+  "adobe-variants": [
+    {
+      "name": "modern",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-l",
+        "-p0",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07119",
+        "-o",
+        "modern.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07119.ARW"
+      ],
+      "seconds": 0.9420598750002682,
+      "exit": 0,
+      "bytes": 198355582,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n"
+    },
+    {
+      "name": "linear_cr54",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-l",
+        "-p0",
+        "-cr5.4",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07119",
+        "-o",
+        "linear_cr54.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07119.ARW"
+      ],
+      "seconds": 0.5535672910045832,
+      "exit": 0,
+      "bytes": 32857732,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n"
+    },
+    {
+      "name": "compressed",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-c",
+        "-l",
+        "-p0",
+        "-dng1.1",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07119",
+        "-o",
+        "compressed.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07119.ARW"
+      ],
+      "seconds": 0.9049142500152811,
+      "exit": 0,
+      "bytes": 107062516,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n"
+    }
+  ],
+  "adobe-order": [
+    {
+      "name": "cr_first",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-cr5.4",
+        "-u",
+        "-l",
+        "-p0",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07119",
+        "-o",
+        "cr_first.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07119.ARW"
+      ],
+      "seconds": 0.5315352909965441,
+      "exit": 0,
+      "bytes": 32857732,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n"
+    },
+    {
+      "name": "pre_cr_first",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-cr5.4",
+        "-u",
+        "-p0",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07119",
+        "-o",
+        "pre_cr_first.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07119.ARW"
+      ],
+      "seconds": 0.5513395829766523,
+      "exit": 0,
+      "bytes": 32857732,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n"
+    },
+    {
+      "name": "no_linear",
+      "command": [
+        "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter",
+        "-u",
+        "-p0",
+        "-dng1.1",
+        "-d",
+        "/Users/bao/Desktop/Printroom/scratch/raw-adobe-study/DSC07119",
+        "-o",
+        "no_linear.dng",
+        "/Users/bao/Desktop/Printroom/TEST/RAW/DSC07119.ARW"
+      ],
+      "seconds": 0.5209607079741545,
+      "exit": 0,
+      "bytes": 66341598,
+      "log": "SPL-LOG-1002: starting logger thread \nSPL-LOG-1003: terminating logger thread \n*** GPU Warning: GPU3 disabled via cr_config at init time. ***\n"
+    }
+  ],
+  "comparisons": [
+    {
+      "frame": "DSC07119",
+      "dng_pixels": {
+        "samples": 99010560,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      },
+      "dng_hash": "4407d06e664cd63d223a07f914d23ada3a4aa3c996f2de3c012bb9699b287a5c",
+      "dng_tag_differences": {
+        "StripOffsets": [
+          "(334800,)",
+          "(334462,)"
+        ]
+      },
+      "rgb_pixels": {
+        "samples": 98224128,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      },
+      "rgb_hash": "f2cc1e1c2ee79c209c89d8ef0ab888a210fc809c1c3ccb156c078c30af1eea0f",
+      "baseline": {
+        "libraw": "0.22.1-Release",
+        "variant": "baseline",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.234769
+      },
+      "direct": {
+        "libraw": "0.22.1-Release",
+        "variant": "baseline",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.220177
+      },
+      "affine_formula_diff": {
+        "samples": 98224128,
+        "changed": 94495733,
+        "changed_fraction": 0.9620419638645201,
+        "max_abs": 2048,
+        "mae": 114.88285531025534,
+        "rms": 189.72062720718029,
+        "changed_rgb": [
+          31168188,
+          31784640,
+          31542905
+        ]
+      },
+      "rgb_min": [
+        0,
+        0,
+        0
+      ],
+      "rgb_max": [
+        16730,
+        63487,
+        63487
+      ],
+      "zero_rgb": [
+        37575,
+        633,
+        2167
+      ],
+      "saturated_rgb": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "frame": "DSC07120",
+      "dng_pixels": {
+        "samples": 99010560,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      },
+      "dng_hash": "5fdf5677969b5a6fa889a66db960d2098dc7b1c80d1b5ab36bc390335eaeb3d0",
+      "dng_tag_differences": {
+        "StripOffsets": [
+          "(334800,)",
+          "(334462,)"
+        ]
+      },
+      "rgb_pixels": {
+        "samples": 98224128,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      },
+      "rgb_hash": "6feecbee3b9e6f105c448ab08b9d68fd0fe64a34cfb5671f9889bd835ada84b5",
+      "baseline": {
+        "libraw": "0.22.1-Release",
+        "variant": "baseline",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.288881
+      },
+      "direct": {
+        "libraw": "0.22.1-Release",
+        "variant": "baseline",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.198354
+      },
+      "affine_formula_diff": {
+        "samples": 98224128,
+        "changed": 94387367,
+        "changed_fraction": 0.9609387115149549,
+        "max_abs": 2048,
+        "mae": 104.59000150146409,
+        "rms": 180.82405697087316,
+        "changed_rgb": [
+          31119886,
+          31729457,
+          31538024
+        ]
+      },
+      "rgb_min": [
+        0,
+        0,
+        0
+      ],
+      "rgb_max": [
+        16738,
+        63487,
+        63487
+      ],
+      "zero_rgb": [
+        60043,
+        1095,
+        4108
+      ],
+      "saturated_rgb": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "frame": "DSC07121",
+      "dng_pixels": {
+        "samples": 99010560,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      },
+      "dng_hash": "a77ce9c8d0edce212455248ba2eab7bc8c5758a5496875dffe552779f00e620d",
+      "dng_tag_differences": {
+        "StripOffsets": [
+          "(334800,)",
+          "(334462,)"
+        ]
+      },
+      "rgb_pixels": {
+        "samples": 98224128,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      },
+      "rgb_hash": "3dbc3d495219245c3b04dc8ddd54c992a06bb822ef002d2743f5ece64aed78ef",
+      "baseline": {
+        "libraw": "0.22.1-Release",
+        "variant": "baseline",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.238712
+      },
+      "direct": {
+        "libraw": "0.22.1-Release",
+        "variant": "baseline",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.194384
+      },
+      "affine_formula_diff": {
+        "samples": 98224128,
+        "changed": 94125127,
+        "changed_fraction": 0.9582688990631711,
+        "max_abs": 2048,
+        "mae": 93.42428712627512,
+        "rms": 176.85451655517738,
+        "changed_rgb": [
+          31061960,
+          31651171,
+          31411996
+        ]
+      },
+      "rgb_min": [
+        0,
+        0,
+        0
+      ],
+      "rgb_max": [
+        16752,
+        63487,
+        63487
+      ],
+      "zero_rgb": [
+        52746,
+        961,
+        3938
+      ],
+      "saturated_rgb": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "frame": "DSC07122",
+      "dng_pixels": {
+        "samples": 99010560,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      },
+      "dng_hash": "05a21b03e650e335f2cbf0f42c6ad00c0f3547dcd00d3f1eb8574f091be7c3bb",
+      "dng_tag_differences": {
+        "StripOffsets": [
+          "(334800,)",
+          "(334462,)"
+        ]
+      },
+      "rgb_pixels": {
+        "samples": 98224128,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      },
+      "rgb_hash": "1e0f15f96649d0c25f418865cd22bbb6a0557ac1d899d7242021f0b19be33cc8",
+      "baseline": {
+        "libraw": "0.22.1-Release",
+        "variant": "baseline",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.243941
+      },
+      "direct": {
+        "libraw": "0.22.1-Release",
+        "variant": "baseline",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.19557
+      },
+      "affine_formula_diff": {
+        "samples": 98224128,
+        "changed": 94008707,
+        "changed_fraction": 0.9570836505669972,
+        "max_abs": 2048,
+        "mae": 87.53959994432326,
+        "rms": 175.42759177972093,
+        "changed_rgb": [
+          31029504,
+          31582550,
+          31396653
+        ]
+      },
+      "rgb_min": [
+        0,
+        0,
+        0
+      ],
+      "rgb_max": [
+        16640,
+        63487,
+        63487
+      ],
+      "zero_rgb": [
+        125161,
+        3661,
+        14765
+      ],
+      "saturated_rgb": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "frame": "DSC07123",
+      "dng_pixels": {
+        "samples": 99010560,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      },
+      "dng_hash": "37ffc60d96eff75e50652b9b87167e02c312d9326e2ebda58a5c1410044a12af",
+      "dng_tag_differences": {
+        "StripOffsets": [
+          "(334800,)",
+          "(334462,)"
+        ]
+      },
+      "rgb_pixels": {
+        "samples": 98224128,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      },
+      "rgb_hash": "0c97da92db2286b6eef140551405740ee98b88376608ad6aa817c90ed07d89c3",
+      "baseline": {
+        "libraw": "0.22.1-Release",
+        "variant": "baseline",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.259423
+      },
+      "direct": {
+        "libraw": "0.22.1-Release",
+        "variant": "baseline",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.192779
+      },
+      "affine_formula_diff": {
+        "samples": 98224128,
+        "changed": 94624132,
+        "changed_fraction": 0.9633491681392172,
+        "max_abs": 2048,
+        "mae": 126.6299900163023,
+        "rms": 199.27102847047905,
+        "changed_rgb": [
+          31209218,
+          31824920,
+          31589994
+        ]
+      },
+      "rgb_min": [
+        0,
+        0,
+        0
+      ],
+      "rgb_max": [
+        16809,
+        63487,
+        63487
+      ],
+      "zero_rgb": [
+        44961,
+        540,
+        1454
+      ],
+      "saturated_rgb": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "frame": "DSC07124",
+      "dng_pixels": {
+        "samples": 99010560,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      },
+      "dng_hash": "77f61abcc395757845aa75bdd4804288e6e5fd1e0027d8cb009864ca6af983ea",
+      "dng_tag_differences": {
+        "StripOffsets": [
+          "(334800,)",
+          "(334462,)"
+        ]
+      },
+      "rgb_pixels": {
+        "samples": 98224128,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      },
+      "rgb_hash": "087206ae8b500fd57aae98be4893c598d7f9cb7ca6225d2f95f2be2dd9ce8774",
+      "baseline": {
+        "libraw": "0.22.1-Release",
+        "variant": "baseline",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.226382
+      },
+      "direct": {
+        "libraw": "0.22.1-Release",
+        "variant": "baseline",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.196488
+      },
+      "affine_formula_diff": {
+        "samples": 98224128,
+        "changed": 94386281,
+        "changed_fraction": 0.9609276551683921,
+        "max_abs": 2048,
+        "mae": 123.7942215379097,
+        "rms": 198.84961670097752,
+        "changed_rgb": [
+          31145905,
+          31729703,
+          31510673
+        ]
+      },
+      "rgb_min": [
+        0,
+        0,
+        0
+      ],
+      "rgb_max": [
+        16653,
+        63487,
+        63487
+      ],
+      "zero_rgb": [
+        58497,
+        1162,
+        4885
+      ],
+      "saturated_rgb": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "frame": "DSC07125",
+      "dng_pixels": {
+        "samples": 99010560,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      },
+      "dng_hash": "1d4606f339343827f9476c6780ecbfb2449bb802de2933c941be4cd31a3190bd",
+      "dng_tag_differences": {
+        "StripOffsets": [
+          "(334800,)",
+          "(334462,)"
+        ]
+      },
+      "rgb_pixels": {
+        "samples": 98224128,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      },
+      "rgb_hash": "9a9767ae074033e5a00f0566e58aa597aa1d3554222fef0e5c25df9aac8a13c2",
+      "baseline": {
+        "libraw": "0.22.1-Release",
+        "variant": "baseline",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.183203
+      },
+      "direct": {
+        "libraw": "0.22.1-Release",
+        "variant": "baseline",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.181382
+      },
+      "affine_formula_diff": {
+        "samples": 98224128,
+        "changed": 94570349,
+        "changed_fraction": 0.9628016142836107,
+        "max_abs": 2048,
+        "mae": 111.68636269288133,
+        "rms": 190.62939655590313,
+        "changed_rgb": [
+          31172694,
+          31847543,
+          31550112
+        ]
+      },
+      "rgb_min": [
+        0,
+        0,
+        0
+      ],
+      "rgb_max": [
+        16725,
+        63487,
+        63487
+      ],
+      "zero_rgb": [
+        28267,
+        567,
+        1946
+      ],
+      "saturated_rgb": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "frame": "DSC07126",
+      "dng_pixels": {
+        "samples": 99010560,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      },
+      "dng_hash": "46b12534f3a5a1e34c519ccc43bb65b7ccb6539d2d75fcdab4ffdec428748fc7",
+      "dng_tag_differences": {
+        "StripOffsets": [
+          "(334800,)",
+          "(334462,)"
+        ]
+      },
+      "rgb_pixels": {
+        "samples": 98224128,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      },
+      "rgb_hash": "16f77972776f1ab007b452d26a6201238812542ae891fd8a55f79d4c0b7c22d5",
+      "baseline": {
+        "libraw": "0.22.1-Release",
+        "variant": "baseline",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.183011
+      },
+      "direct": {
+        "libraw": "0.22.1-Release",
+        "variant": "baseline",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.183127
+      },
+      "affine_formula_diff": {
+        "samples": 98224128,
+        "changed": 94758159,
+        "changed_fraction": 0.9647136699447207,
+        "max_abs": 2048,
+        "mae": 143.74242834713687,
+        "rms": 211.67721460042213,
+        "changed_rgb": [
+          31271419,
+          31866904,
+          31619836
+        ]
+      },
+      "rgb_min": [
+        0,
+        0,
+        0
+      ],
+      "rgb_max": [
+        16713,
+        63487,
+        63487
+      ],
+      "zero_rgb": [
+        27539,
+        441,
+        959
+      ],
+      "saturated_rgb": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "variations": {
+    "no_crop": {
+      "metadata": {
+        "libraw": "0.22.1-Release",
+        "variant": "no_crop",
+        "width": 7040,
+        "height": 4688,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 0,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "seconds_decode_copy": 0.209249
+      },
+      "difference": {
+        "shape_a": [
+          4672,
+          7008,
+          3
+        ],
+        "shape_b": [
+          4688,
+          7040,
+          3
+        ]
+      },
+      "aligned_crop_difference": {
+        "samples": 98224128,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    "bilinear": {
+      "metadata": {
+        "libraw": "0.22.1-Release",
+        "variant": "bilinear",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.193785
+      },
+      "difference": {
+        "samples": 98224128,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    "half": {
+      "metadata": {
+        "libraw": "0.22.1-Release",
+        "variant": "half",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.190725
+      },
+      "difference": {
+        "samples": 98224128,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      },
+      "note": "half_size did not reduce this linear DNG"
+    },
+    "matrix": {
+      "metadata": {
+        "libraw": "0.22.1-Release",
+        "variant": "matrix",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.209774
+      },
+      "difference": {
+        "samples": 98224128,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    "camera_wb": {
+      "metadata": {
+        "libraw": "0.22.1-Release",
+        "variant": "camera_wb",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.196012
+      },
+      "difference": {
+        "samples": 98224128,
+        "changed": 65479952,
+        "changed_fraction": 0.6666381604324347,
+        "max_abs": 37720,
+        "mae": 1488.4407761196924,
+        "rms": 2954.2962627261,
+        "changed_rgb": [
+          0,
+          32740743,
+          32739209
+        ]
+      }
+    },
+    "auto_bright": {
+      "metadata": {
+        "libraw": "0.22.1-Release",
+        "variant": "auto_bright",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.201413
+      },
+      "difference": {
+        "samples": 98224128,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    "auto_max": {
+      "metadata": {
+        "libraw": "0.22.1-Release",
+        "variant": "auto_max",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 63487,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.193482
+      },
+      "difference": {
+        "samples": 98224128,
+        "changed": 94495733,
+        "changed_fraction": 0.9620419638645201,
+        "max_abs": 2048,
+        "mae": 114.88285531025534,
+        "rms": 189.72062720718029,
+        "changed_rgb": [
+          31168188,
+          31784640,
+          31542905
+        ]
+      }
+    },
+    "no_scale": {
+      "metadata": {
+        "libraw": "0.22.1-Release",
+        "variant": "no_scale",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.177232
+      },
+      "difference": {
+        "samples": 98224128,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    "black0": {
+      "metadata": {
+        "libraw": "0.22.1-Release",
+        "variant": "black0",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.191516
+      },
+      "difference": {
+        "samples": 98224128,
+        "changed": 0,
+        "changed_fraction": 0.0,
+        "max_abs": 0,
+        "mae": 0.0,
+        "rms": 0.0,
+        "changed_rgb": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    "srgb": {
+      "metadata": {
+        "libraw": "0.22.1-Release",
+        "variant": "srgb",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.208394
+      },
+      "difference": {
+        "samples": 98224128,
+        "changed": 98099559,
+        "changed_fraction": 0.9987317881814131,
+        "max_abs": 16730,
+        "mae": 1087.7604962805065,
+        "rms": 1541.928398166922,
+        "changed_rgb": [
+          32701021,
+          32709910,
+          32688628
+        ]
+      }
+    },
+    "gamma": {
+      "metadata": {
+        "libraw": "0.22.1-Release",
+        "variant": "gamma",
+        "width": 7008,
+        "height": 4672,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 0,
+        "maximum_before": 65535,
+        "black_after": 0,
+        "maximum_after": 65535,
+        "crop_status": 1,
+        "before": [
+          7040,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7008,
+          4672,
+          12,
+          8
+        ],
+        "seconds_decode_copy": 0.19284
+      },
+      "difference": {
+        "samples": 98224128,
+        "changed": 98183753,
+        "changed_fraction": 0.9995889502831727,
+        "max_abs": 15768,
+        "mae": 7627.81175679157,
+        "rms": 8576.534690579583,
+        "changed_rgb": [
+          32703801,
+          32740743,
+          32739209
+        ]
+      }
+    },
+    "raw_direct": {
+      "metadata": {
+        "libraw": "0.22.1-Release",
+        "variant": "raw_direct",
+        "width": 7028,
+        "height": 4688,
+        "channels": 3,
+        "bits": 16,
+        "black_before": 512,
+        "maximum_before": 16383,
+        "black_after": 0,
+        "maximum_after": 15871,
+        "crop_status": 0,
+        "before": [
+          7028,
+          4688,
+          0,
+          0
+        ],
+        "after": [
+          7028,
+          4688,
+          0,
+          0
+        ],
+        "seconds_decode_copy": 0.649285
+      },
+      "difference": {
+        "shape_a": [
+          4672,
+          7008,
+          3
+        ],
+        "shape_b": [
+          4688,
+          7028,
+          3
+        ]
+      }
+    }
+  },
+  "extra-results": {
+    "adobe_variants": {
+      "modern": {
+        "shape": [
+          4688,
+          7040,
+          3
+        ],
+        "photometric": 34892,
+        "compression": 1,
+        "bytes": 198355582,
+        "dng_difference": {
+          "samples": 99010560,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        },
+        "rgb_difference": {
+          "samples": 98224128,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        },
+        "decode": {
+          "libraw": "0.22.1-Release",
+          "variant": "baseline",
+          "width": 7008,
+          "height": 4672,
+          "channels": 3,
+          "bits": 16,
+          "black_before": 0,
+          "maximum_before": 65535,
+          "black_after": 0,
+          "maximum_after": 65535,
+          "crop_status": 1,
+          "before": [
+            7040,
+            4688,
+            0,
+            0
+          ],
+          "after": [
+            7008,
+            4672,
+            12,
+            8
+          ],
+          "seconds_decode_copy": 0.184443
+        },
+        "wall_seconds": 0.7446544999838807
+      },
+      "linear_cr54": {
+        "shape": [
+          4688,
+          7040
+        ],
+        "photometric": 32803,
+        "compression": 7,
+        "bytes": 32857732,
+        "dng_difference": {
+          "shape_a": [
+            4688,
+            7040,
+            3
+          ],
+          "shape_b": [
+            4688,
+            7040
+          ]
+        }
+      },
+      "compressed": {
+        "shape": [
+          4688,
+          7040,
+          3
+        ],
+        "photometric": 34892,
+        "compression": 7,
+        "bytes": 107062516,
+        "dng_difference": {
+          "samples": 99010560,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        },
+        "rgb_difference": {
+          "samples": 98224128,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        },
+        "decode": {
+          "libraw": "0.22.1-Release",
+          "variant": "baseline",
+          "width": 7008,
+          "height": 4672,
+          "channels": 3,
+          "bits": 16,
+          "black_before": 0,
+          "maximum_before": 65535,
+          "black_after": 0,
+          "maximum_after": 65535,
+          "crop_status": 1,
+          "before": [
+            7040,
+            4688,
+            0,
+            0
+          ],
+          "after": [
+            7008,
+            4672,
+            12,
+            8
+          ],
+          "seconds_decode_copy": 1.07931
+        },
+        "wall_seconds": 1.419079041981604
+      },
+      "cr_first": {
+        "shape": [
+          4688,
+          7040
+        ],
+        "photometric": 32803,
+        "compression": 7,
+        "bytes": 32857732,
+        "dng_difference": {
+          "shape_a": [
+            4688,
+            7040,
+            3
+          ],
+          "shape_b": [
+            4688,
+            7040
+          ]
+        }
+      },
+      "pre_cr_first": {
+        "shape": [
+          4688,
+          7040
+        ],
+        "photometric": 32803,
+        "compression": 7,
+        "bytes": 32857732,
+        "dng_difference": {
+          "shape_a": [
+            4688,
+            7040,
+            3
+          ],
+          "shape_b": [
+            4688,
+            7040
+          ]
+        }
+      },
+      "no_linear": {
+        "shape": [
+          4688,
+          7040
+        ],
+        "photometric": 32803,
+        "compression": 1,
+        "bytes": 66341598,
+        "dng_difference": {
+          "shape_a": [
+            4688,
+            7040,
+            3
+          ],
+          "shape_b": [
+            4688,
+            7040
+          ]
+        }
+      },
+      "libraw_raw_crop": {
+        "decode": {
+          "libraw": "0.22.1-Release",
+          "variant": "baseline",
+          "width": 7008,
+          "height": 4672,
+          "channels": 3,
+          "bits": 16,
+          "black_before": 512,
+          "maximum_before": 16383,
+          "black_after": 0,
+          "maximum_after": 15871,
+          "crop_status": 1,
+          "before": [
+            7028,
+            4688,
+            0,
+            0
+          ],
+          "after": [
+            7008,
+            4672,
+            12,
+            8
+          ],
+          "seconds_decode_copy": 0.699171
+        },
+        "rgb_difference": {
+          "samples": 98224128,
+          "changed": 96772407,
+          "max_abs": 9129,
+          "mae": 125.46231791439268,
+          "rms": 210.70007078932494
+        }
+      },
+      "proxy_box_vs_nearest": {
+        "difference": {
+          "samples": 5116800,
+          "changed": 5076992,
+          "max_abs": 46987,
+          "mae": 207.89579033771108,
+          "rms": 782.618024864488
+        },
+        "seconds": 0.1259616670140531
+      },
+      "proxy_box_roundtrip_exact": true,
+      "native_child_peak_rss_bytes_upper_bound": 726056960,
+      "memory_probe_wall_seconds": 0.4820510419958737
+    },
+    "first_pass_CFA": [
+      {
+        "frame": "DSC07119",
+        "difference": {
+          "samples": 33003520,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        }
+      },
+      {
+        "frame": "DSC07120",
+        "difference": {
+          "samples": 33003520,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        }
+      },
+      {
+        "frame": "DSC07121",
+        "difference": {
+          "samples": 33003520,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        }
+      },
+      {
+        "frame": "DSC07122",
+        "difference": {
+          "samples": 33003520,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        }
+      },
+      {
+        "frame": "DSC07123",
+        "difference": {
+          "samples": 33003520,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        }
+      },
+      {
+        "frame": "DSC07124",
+        "difference": {
+          "samples": 33003520,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        }
+      },
+      {
+        "frame": "DSC07125",
+        "difference": {
+          "samples": 33003520,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        }
+      },
+      {
+        "frame": "DSC07126",
+        "difference": {
+          "samples": 33003520,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        }
+      }
+    ],
+    "source_reference": [
+      {
+        "frame": "DSC07119",
+        "source_reference_difference": {
+          "samples": 98224128,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        },
+        "subtract_only_difference": {
+          "samples": 98224128,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        }
+      },
+      {
+        "frame": "DSC07120",
+        "source_reference_difference": {
+          "samples": 98224128,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        },
+        "subtract_only_difference": {
+          "samples": 98224128,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        }
+      },
+      {
+        "frame": "DSC07121",
+        "source_reference_difference": {
+          "samples": 98224128,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        },
+        "subtract_only_difference": {
+          "samples": 98224128,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        }
+      },
+      {
+        "frame": "DSC07122",
+        "source_reference_difference": {
+          "samples": 98224128,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        },
+        "subtract_only_difference": {
+          "samples": 98224128,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        }
+      },
+      {
+        "frame": "DSC07123",
+        "source_reference_difference": {
+          "samples": 98224128,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        },
+        "subtract_only_difference": {
+          "samples": 98224128,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        }
+      },
+      {
+        "frame": "DSC07124",
+        "source_reference_difference": {
+          "samples": 98224128,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        },
+        "subtract_only_difference": {
+          "samples": 98224128,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        }
+      },
+      {
+        "frame": "DSC07125",
+        "source_reference_difference": {
+          "samples": 98224128,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        },
+        "subtract_only_difference": {
+          "samples": 98224128,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        }
+      },
+      {
+        "frame": "DSC07126",
+        "source_reference_difference": {
+          "samples": 98224128,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        },
+        "subtract_only_difference": {
+          "samples": 98224128,
+          "changed": 0,
+          "max_abs": 0,
+          "mae": 0.0,
+          "rms": 0.0
+        }
+      }
+    ]
+  },
+  "printroom-io": [
+    {
+      "frame": "DSC07119",
+      "fullSampleSHA256": "f2cc1e1c2ee79c209c89d8ef0ab888a210fc809c1c3ccb156c078c30af1eea0f",
+      "height": 4672,
+      "proxy_roundtrip_exact": true,
+      "proxyHeight": 1066,
+      "proxyWidth": 1600,
+      "roi_exact": true,
+      "seconds": 0.49540209770202637,
+      "source_reference_exact": true,
+      "width": 7008
+    },
+    {
+      "frame": "DSC07120",
+      "fullSampleSHA256": "6feecbee3b9e6f105c448ab08b9d68fd0fe64a34cfb5671f9889bd835ada84b5",
+      "height": 4672,
+      "proxy_roundtrip_exact": true,
+      "proxyHeight": 1066,
+      "proxyWidth": 1600,
+      "roi_exact": true,
+      "seconds": 0.4549139738082886,
+      "source_reference_exact": true,
+      "width": 7008
+    },
+    {
+      "frame": "DSC07121",
+      "fullSampleSHA256": "3dbc3d495219245c3b04dc8ddd54c992a06bb822ef002d2743f5ece64aed78ef",
+      "height": 4672,
+      "proxy_roundtrip_exact": true,
+      "proxyHeight": 1066,
+      "proxyWidth": 1600,
+      "roi_exact": true,
+      "seconds": 0.4576970338821411,
+      "source_reference_exact": true,
+      "width": 7008
+    },
+    {
+      "frame": "DSC07122",
+      "fullSampleSHA256": "1e0f15f96649d0c25f418865cd22bbb6a0557ac1d899d7242021f0b19be33cc8",
+      "height": 4672,
+      "proxy_roundtrip_exact": true,
+      "proxyHeight": 1066,
+      "proxyWidth": 1600,
+      "roi_exact": true,
+      "seconds": 0.4444000720977783,
+      "source_reference_exact": true,
+      "width": 7008
+    },
+    {
+      "frame": "DSC07123",
+      "fullSampleSHA256": "0c97da92db2286b6eef140551405740ee98b88376608ad6aa817c90ed07d89c3",
+      "height": 4672,
+      "proxy_roundtrip_exact": true,
+      "proxyHeight": 1066,
+      "proxyWidth": 1600,
+      "roi_exact": true,
+      "seconds": 0.41040897369384766,
+      "source_reference_exact": true,
+      "width": 7008
+    },
+    {
+      "frame": "DSC07124",
+      "fullSampleSHA256": "087206ae8b500fd57aae98be4893c598d7f9cb7ca6225d2f95f2be2dd9ce8774",
+      "height": 4672,
+      "proxy_roundtrip_exact": true,
+      "proxyHeight": 1066,
+      "proxyWidth": 1600,
+      "roi_exact": true,
+      "seconds": 0.4076169729232788,
+      "source_reference_exact": true,
+      "width": 7008
+    },
+    {
+      "frame": "DSC07125",
+      "fullSampleSHA256": "9a9767ae074033e5a00f0566e58aa597aa1d3554222fef0e5c25df9aac8a13c2",
+      "height": 4672,
+      "proxy_roundtrip_exact": true,
+      "proxyHeight": 1066,
+      "proxyWidth": 1600,
+      "roi_exact": true,
+      "seconds": 0.42723309993743896,
+      "source_reference_exact": true,
+      "width": 7008
+    },
+    {
+      "frame": "DSC07126",
+      "fullSampleSHA256": "16f77972776f1ab007b452d26a6201238812542ae891fd8a55f79d4c0b7c22d5",
+      "height": 4672,
+      "proxy_roundtrip_exact": true,
+      "proxyHeight": 1066,
+      "proxyWidth": 1600,
+      "roi_exact": true,
+      "seconds": 0.40717899799346924,
+      "source_reference_exact": true,
+      "width": 7008
+    }
+  ],
+  "raw_before_sha256": "72ea849752201540853449acb07e3b95d810c2ebe8d429b0f050713ac303b4e7  TEST/RAW/DSC07119.ARW\n4df1a7e0b3b1108672c3b9c5424ae2b2c6e1722d08a44f01cb6e9c572a4ddec1  TEST/RAW/DSC07120.ARW\n1e716e60b83dae34f30135070d7fa03adb21f6cc1c82261eade73494daabe37c  TEST/RAW/DSC07121.ARW\nb57b74b9618a2b171fc59035b56d557f580a19b3ac8465b3593812afa3d605c2  TEST/RAW/DSC07122.ARW\nc4d5e4c8116dbe1dde6e76977ba5b0342c95ee82bc2d0996fe2d7d2c5da00a94  TEST/RAW/DSC07123.ARW\n308edd54f5ce55e2b831e6c1e2187a7ba67019488e9ed39edd366ee0ba377e2b  TEST/RAW/DSC07124.ARW\n59d9a6d78d843206ab9563d535df26416ceae6d88096648b35f41598fe6c9ba8  TEST/RAW/DSC07125.ARW\nd0dcb95960f44555f499eb35baaf11b35e119f7a41d0b1cdcf07e661c4a47427  TEST/RAW/DSC07126.ARW\n",
+  "environment": {
+    "numpy": "2.3.5",
+    "tifffile": "2026.8.23",
+    "rawpy": "0.27.1",
+    "imagecodecs": "2026.8.16",
+    "libraw": [
+      0,
+      22,
+      1
+    ],
+    "macOS": "26.6.2",
+    "adobe": "18.1.1 (2422)",
+    "adobe_gpu_warning": "GPU3 disabled via cr_config at init time",
+    "source_ref_exif": "disabled (pixel output unchanged; metadata appearance not a comparison claim)"
+  },
+  "source_hashes": {
+    "internal/convert/convert.go": "84789ecc2c836414339125d0aaf75f30eb5a71bbfe74699c8c2b79dd15bcbc91",
+    "pkg/dngconverter/converter.go": "54448d95a7551f9215429cb632b272d2e4d0940573cee416e697cd9702c96a19",
+    "pkg/golibraw/options.go": "512546c0325401678a78f468de27dc0083e15f8644b5831a5695aba178ffc66f",
+    "pkg/golibraw/process.go": "4fea4cda46ddad49dcf8a356775b20e5d02dd7ba1e587a3361850d763ce42d48",
+    "pkg/golibraw/pipeline.go": "8620969762b478d36a55a2063672b7f04fc5f5a5370531f2ce6f76414af7e33a",
+    "pkg/golibtiff/io.go": "1abf0ea7c4ee630b99f6d601a5fe01635567efd6145fa1a7db8097476ee6a465"
+  },
+  "artifact_sizes": {
+    "DSC07119/direct.dng": 198355582,
+    "DSC07119/pre.dng": 32857732,
+    "DSC07119/compressed.dng": 107062516,
+    "DSC07119/proxy.tiff": 8661179,
+    "DSC07119/proxy-box.tiff": 8724538,
+    "reference/DSC07119.ARW.tiff": 196448396
+  },
+  "final_raw_integrity": [
+    {
+      "path": "TEST/RAW/DSC07119.ARW",
+      "sha256": "72ea849752201540853449acb07e3b95d810c2ebe8d429b0f050713ac303b4e7",
+      "unchanged": true
+    },
+    {
+      "path": "TEST/RAW/DSC07120.ARW",
+      "sha256": "4df1a7e0b3b1108672c3b9c5424ae2b2c6e1722d08a44f01cb6e9c572a4ddec1",
+      "unchanged": true
+    },
+    {
+      "path": "TEST/RAW/DSC07121.ARW",
+      "sha256": "1e716e60b83dae34f30135070d7fa03adb21f6cc1c82261eade73494daabe37c",
+      "unchanged": true
+    },
+    {
+      "path": "TEST/RAW/DSC07122.ARW",
+      "sha256": "b57b74b9618a2b171fc59035b56d557f580a19b3ac8465b3593812afa3d605c2",
+      "unchanged": true
+    },
+    {
+      "path": "TEST/RAW/DSC07123.ARW",
+      "sha256": "c4d5e4c8116dbe1dde6e76977ba5b0342c95ee82bc2d0996fe2d7d2c5da00a94",
+      "unchanged": true
+    },
+    {
+      "path": "TEST/RAW/DSC07124.ARW",
+      "sha256": "308edd54f5ce55e2b831e6c1e2187a7ba67019488e9ed39edd366ee0ba377e2b",
+      "unchanged": true
+    },
+    {
+      "path": "TEST/RAW/DSC07125.ARW",
+      "sha256": "59d9a6d78d843206ab9563d535df26416ceae6d88096648b35f41598fe6c9ba8",
+      "unchanged": true
+    },
+    {
+      "path": "TEST/RAW/DSC07126.ARW",
+      "sha256": "d0dcb95960f44555f499eb35baaf11b35e119f7a41d0b1cdcf07e661c4a47427",
+      "unchanged": true
+    }
+  ],
+  "printroom_TIFFCodec_sha256": "614609b21852aefb7f9f45aaff29ffa1de56bc859552932b21acc0bf61326a96"
+}

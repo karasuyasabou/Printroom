@@ -1,0 +1,63 @@
+{
+  "strategy": "diffuse-white-v1",
+  "size": 65,
+  "referenceCV": 685,
+  "records": [
+    {
+      "name": "Kodak 2383",
+      "path": "assets/DerivedLUTs/diffuse-white-v1/Kodak 2383.cube",
+      "sha256": "652199a63b1d38998dbd70247d6ea13c8c17963cfcdc0fc0508a42056739a207",
+      "sourceSHA256": "90f625d8c09c4be0f05ffcd65a28d2f2d8f5011105f1ba6278e8b91073372be8",
+      "shiftCV": [
+        -32.78268161887805,
+        30.93641320323061,
+        -34.274174096956344
+      ],
+      "originalWhite": [
+        0.8683882611389161,
+        0.8308356185913086,
+        0.8698567684936523
+      ],
+      "targetWhite": [
+        0.8427819333843544,
+        0.8427819333843544,
+        0.8427819333843544
+      ],
+      "bakedWhite": [
+        0.8427819336040039,
+        0.8427819331706543,
+        0.8427819336218263
+      ],
+      "resamplingMaxError": 0.00815037304774528,
+      "resamplingRMSError": 0.000222551168324647
+    },
+    {
+      "name": "Fujifilm 3513DI",
+      "path": "assets/DerivedLUTs/diffuse-white-v1/Fujifilm 3513DI.cube",
+      "sha256": "03839ed74c1d52766d3b1ae200460260cb0a0078e8f666b00c483fc695ee0757",
+      "sourceSHA256": "415227d60acfc17fba778901f385a140a26ecb9ca7b3eba636c3f49a96d926b7",
+      "shiftCV": [
+        -22.535519031637534,
+        39.896519249005976,
+        -73.31380230785355
+      ],
+      "originalWhite": [
+        0.8539467190856934,
+        0.8299507985229492,
+        0.8906631885681152
+      ],
+      "targetWhite": [
+        0.8400561695159154,
+        0.8400561695159154,
+        0.8400561695159154
+      ],
+      "bakedWhite": [
+        0.8400561695605469,
+        0.8400561693779296,
+        0.8400561692885742
+      ],
+      "resamplingMaxError": 0.02831970079588087,
+      "resamplingRMSError": 0.0009347243143338647
+    }
+  ]
+}

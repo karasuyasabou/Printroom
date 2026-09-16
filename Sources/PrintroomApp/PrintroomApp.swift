@@ -3,9 +3,13 @@ import PrintroomCore
 import SwiftUI
 
 @main struct PrintroomApp: App {
-  @StateObject private var model = EditorModel()
+  @StateObject private var history: RecentRolls
+  @StateObject private var model: EditorModel
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
   init() {
+    let history = RecentRolls()
+    _history = StateObject(wrappedValue: history)
+    _model = StateObject(wrappedValue: EditorModel(recentRolls: history))
     if CommandLine.arguments.contains("--verify-resources") {
       do {
         let assets = try AppAssets()
@@ -23,7 +27,7 @@ import SwiftUI
           guard converted.count == 3 else { throw PrintroomError.invalid("输出 profile 冒烟检查失败") }
         }
         print(
-          "Printroom 0.3.3: bundled ICC/LUT and four output profiles verified; Metal \(assets.gpu.deviceName) rendered successfully; \(DisplayImage.presentationVersion) preview verified"
+          "Printroom: bundled ICC/LUT and four output profiles verified; Metal \(assets.gpu.deviceName) rendered successfully; \(DisplayImage.presentationVersion) preview verified"
         )
         exit(0)
       } catch {
@@ -33,13 +37,21 @@ import SwiftUI
     }
   }
   var body: some Scene {
-    Window("Printroom 0.3.3", id: "editor") {
+    Window("Printroom", id: "editor") {
       EditorView(model: model).onAppear { delegate.model = model }
     }.defaultSize(width: 1360, height: 900)
       .commands {
+        ShortcutHelpCommands()
+        CacheManagerCommands()
         CommandGroup(replacing: .newItem) {
-          Button("打开 TIFF 或胶卷…") { model.openPanel() }.keyboardShortcut("o").disabled(
+          Button("打开 TIFF、ARW 或胶卷…") { model.openPanel() }.keyboardShortcut("o").disabled(
             model.isExporting)
+          Menu("最近打开的胶卷") {
+            if history.entries.isEmpty { Text("暂无最近胶卷") }
+            ForEach(history.entries) { entry in
+              Button("\(entry.url.lastPathComponent) — \(entry.path)") { model.openRecent(entry) }
+            }
+          }.disabled(model.isExporting || history.entries.isEmpty)
         }
         CommandGroup(replacing: .saveItem) {
           Button("保存胶卷设置") { model.flushSave() }.keyboardShortcut("s")
@@ -73,15 +85,28 @@ import SwiftUI
         }
         CommandMenu("调色") {
           // Routed by ShortcutView so native text copy/paste keeps priority.
-          Button("复制参数（⌘C）") { model.copyParameters() }.disabled(model.activeFrame == nil)
-          Button("应用到所选照片（⌘V）") { model.applyParameters() }.disabled(!model.canApply)
+          Button("复制调色（⌘C）") { model.copyParameters() }.disabled(model.activeFrame == nil)
+          Button("粘贴调色到所选照片（⌘V）") { model.applyParameters() }.disabled(!model.canApply)
         }
       }
+    Window("管理缓存", id: "cache-manager") {
+      CacheManagerView()
+    }.windowResizability(.contentSize)
+    Window("键盘快捷键", id: "keyboard-shortcuts") {
+      KeyboardShortcutsView()
+    }
+    .defaultSize(width: 620, height: 720)
+    .windowResizability(.contentSize)
   }
 }
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
   weak var model: EditorModel?
+  private var cacheMaintenanceTimer: Timer?
   func applicationDidFinishLaunching(_ notification: Notification) {
+    RAWSourceService.shared.scheduleMaintenance()
+    cacheMaintenanceTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in
+      RAWSourceService.shared.scheduleMaintenance()
+    }
     NSApp.setActivationPolicy(.regular)
     NSApp.activate(ignoringOtherApps: true)
   }

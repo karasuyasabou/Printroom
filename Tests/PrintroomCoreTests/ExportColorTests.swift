@@ -337,6 +337,32 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
     }
   }
 
+  func testPrefixUsesOriginalRollNumbersAndZIP() async throws {
+    let folder = try temporary()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    for name in ["a.tiff", "b.tiff", "c.tiff"] { try fixture(folder.appendingPathComponent(name)) }
+    let project = try ProjectStore.open(folder: folder)
+    XCTAssertEqual(project.exportSettings.compression, .deflate)
+    let engine = ExportEngine(useCPUReference: true)
+    let single = try ExportRequest(project: project, targetIDs: [project.frames[1].id],
+      destinationDirectory: folder, filenamePrefix: "假日")
+    let result = try await engine.run(single, lut: identityLUT(), p3Profile: p3())
+    let url = try XCTUnwrap(result.results.first?.destination)
+    XCTAssertEqual(url.lastPathComponent, "假日-02.tiff")
+    XCTAssertEqual(tiffTag(try Data(contentsOf: url), 259), Data([8, 0]))
+    _ = try TIFFCodec.read(url: url)
+    let batch = try ExportRequest(project: project,
+      targetIDs: [project.frames[1].id, project.frames[2].id],
+      destinationDirectory: folder, filenamePrefix: "假日")
+    let repeated = try await engine.run(batch, lut: identityLUT(), p3Profile: p3())
+    XCTAssertEqual(repeated.results.compactMap { $0.destination?.lastPathComponent },
+      ["假日-02-1.tiff", "假日-03.tiff"])
+    for prefix in ["", "../bad", "bad:name"] {
+      XCTAssertThrowsError(try ExportRequest(project: project, targetIDs: [project.frames[1].id],
+        destinationDirectory: folder, filenamePrefix: prefix))
+    }
+  }
+
   func testFailureContinuesConflictSuffixAndProtectsAllOriginals() async throws {
     let folder = try temporary()
     defer { try? FileManager.default.removeItem(at: folder) }

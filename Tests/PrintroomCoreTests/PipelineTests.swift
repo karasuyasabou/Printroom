@@ -83,7 +83,7 @@ final class PipelineTests: XCTestCase {
       let base = image.pixel(x: 0, y: 0)
       assertRGB(
         try Pipeline.process(
-          base, calibration: calibration, adjustments: .init(), lut: lut, stage: .l1),
+          base, calibration: calibration, adjustments: .init(), lut: lut, stage: .l2),
         SIMD3(repeating: 0.75))
       for stage in [PipelineStage.d2, .d3] {
         let actualCV =
@@ -199,7 +199,7 @@ final class PipelineTests: XCTestCase {
     }
   }
 
-  func testMatrixChangeReusesSavedBaseAndGainWithoutTouchingOriginal() throws {
+  func testExplicitOffsetCalculationReusesSavedBaseAndGainWithoutTouchingOriginal() throws {
     let original = try Pipeline.calibrate(
       image: constantImage(), rect: .init(x: 0, y: 0, width: 4, height: 4),
       matrix: .identity, sourceFrameID: UUID())

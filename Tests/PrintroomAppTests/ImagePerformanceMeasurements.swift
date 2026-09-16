@@ -16,7 +16,7 @@ struct ImagePerformanceMeasurements {
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
       .deletingLastPathComponent().deletingLastPathComponent()
     let urls = try FileManager.default.contentsOfDirectory(
-      at: root.appendingPathComponent("TEST"), includingPropertiesForKeys: nil)
+      at: root.appendingPathComponent("TEST/TIFF"), includingPropertiesForKeys: nil)
       .filter { ["tif", "tiff"].contains($0.pathExtension.lowercased()) }
       .sorted { $0.lastPathComponent < $1.lastPathComponent }
     #expect(urls.count == 10)
@@ -127,7 +127,7 @@ extension ImagePerformanceMeasurements {
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
       .deletingLastPathComponent().deletingLastPathComponent()
     let sources = try FileManager.default.contentsOfDirectory(
-      at: root.appendingPathComponent("TEST"), includingPropertiesForKeys: nil)
+      at: root.appendingPathComponent("TEST/TIFF"), includingPropertiesForKeys: nil)
       .filter { ["tif", "tiff"].contains($0.pathExtension.lowercased()) }
       .sorted { $0.lastPathComponent < $1.lastPathComponent }
     #expect(sources.count == 10)

@@ -16,7 +16,7 @@ mkdir -p scratch/viewport-qa/roll
 python3 - <<'PY'
 import struct
 from pathlib import Path
-source = Path('TEST/DSC07079.tiff').read_bytes()
+source = Path('TEST/TIFF/DSC07079.tiff').read_bytes()
 Path('scratch/viewport-qa/roll/.printroom.json').unlink(missing_ok=True)
 order = '<' if source[:2] == b'II' else '>'
 offset = struct.unpack_from(order + 'I', source, 4)[0]
@@ -35,7 +35,9 @@ app_sources=()
 for source_file in Sources/PrintroomApp/*.swift; do
   [[ "$source_file" == "Sources/PrintroomApp/PrintroomApp.swift" ]] || app_sources+=("$source_file")
 done
-xcrun swiftc -parse-as-library -module-name ViewportWindowQA "${optimization[@]}" -I ".build/$configuration/Modules" \
+source scripts/native-raw-link.sh
+printroom_native_link_args "$PWD/.build/$configuration" "$PWD/scratch/viewport-qa"
+xcrun swiftc "${native_raw_flags[@]}" -parse-as-library -module-name ViewportWindowQA "${optimization[@]}" -I ".build/$configuration/Modules" \
   "${app_sources[@]}" scripts/ViewportWindowQA.swift \
   .build/"$configuration"/PrintroomCore.build/*.swift.o -o scratch/viewport-qa/window-qa
 cp -R .build/"$configuration"/Printroom_PrintroomCore.bundle scratch/viewport-qa/

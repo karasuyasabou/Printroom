@@ -257,7 +257,7 @@ final class NeutralTimingTests: XCTestCase, @unchecked Sendable {
   }
 
   func testRealTIFFOriginalNeighbourhoodFinalFit() throws {
-    let source = root.appendingPathComponent("TEST/DSC07079.tiff")
+    let source = root.appendingPathComponent("TEST/TIFF/DSC07079.tiff")
     guard FileManager.default.fileExists(atPath: source.path) else { throw XCTSkip("Local reference TIFF unavailable") }
     let image = try TIFFCodec.readRegion(url: source, rect: PixelRect(x: 3500, y: 2300, width: 11, height: 11))
     let input = image.preview(maxDimension: 11)

@@ -73,6 +73,121 @@ final class TIFFCodecTests: XCTestCase {
     }
   }
 
+  func testBigTIFFSamplesPreviewRegionAndICC() throws {
+    try inTemporaryDirectory { directory in
+      let classic = directory.appendingPathComponent("classic.tif")
+      let big = directory.appendingPathComponent("big.tif")
+      for little in [true, false] {
+        for compression: UInt32 in [1, 8, 32946] {
+          for predictor: UInt32 in [1, 2] {
+            for orientation: UInt32 in 1...8 {
+              let profile = descriptionProfile("Unrelated linear RGB")
+              try fixture(little: little, compression: compression, predictor: predictor,
+                orientation: orientation, profile: profile).write(to: classic)
+              try fixture(big: true, little: little, compression: compression, predictor: predictor,
+                orientation: orientation, profile: profile).write(to: big)
+              let reference = try TIFFCodec.read(url: classic)
+              XCTAssertEqual(try TIFFCodec.read(url: big).samples, reference.samples)
+              let metadata = try TIFFCodec.metadata(url: big)
+              XCTAssertEqual(metadata.width, reference.width)
+              XCTAssertEqual(metadata.height, reference.height)
+              XCTAssertEqual(metadata.embeddedProfileName, "Unrelated linear RGB")
+              XCTAssertEqual(try TIFFCodec.readPreview(url: big, maxDimension: 2).samples,
+                try TIFFCodec.readPreview(url: classic, maxDimension: 2).samples)
+              let rect = PixelRect(x: 1, y: 1, width: 1, height: 1)
+              XCTAssertEqual(try TIFFCodec.readRegion(url: big, rect: rect).samples,
+                try TIFFCodec.readRegion(url: classic, rect: rect).samples)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  func testBigTIFFAddressesBeyondFourGiB() throws {
+    try inTemporaryDirectory { directory in
+      for little in [true, false] {
+        let url = directory.appendingPathComponent(UUID().uuidString + ".tif")
+        let shift: UInt64 = 1 << 32
+        let bytes = try fixture(big: true, addressShift: shift, little: little,
+          profile: descriptionProfile("High address ICC"))
+        try Data(bytes.prefix(16)).write(to: url)
+        let file = try FileHandle(forWritingTo: url)
+        try file.seek(toOffset: shift + 16)
+        try file.write(contentsOf: bytes.dropFirst(16))
+        try file.close()
+        XCTAssertEqual(try TIFFCodec.read(url: url).samples, known)
+        XCTAssertEqual(try TIFFCodec.metadata(url: url).embeddedProfileName, "High address ICC")
+        XCTAssertEqual(try TIFFCodec.readRegion(url: url,
+          rect: PixelRect(x: 0, y: 1, width: 3, height: 1)).samples, Array(known.suffix(9)))
+      }
+    }
+  }
+
+  func testBigTIFFLargeImageSupportsBoundedPreviewAndRegion() throws {
+    try inTemporaryDirectory { directory in
+      let url = directory.appendingPathComponent("large-sparse.tif")
+      let width = 65_536, height = 11_000, rowBytes = width * 6
+      let tags: [(UInt16, UInt16, UInt64, UInt64)] = [
+        (256, 4, 1, UInt64(width)), (257, 4, 1, UInt64(height)),
+        (258, 3, 3, 16 | (16 << 16) | (16 << 32)), (259, 3, 1, 1),
+        (262, 3, 1, 2), (273, 16, UInt64(height), 256),
+        (277, 3, 1, 3), (278, 4, 1, 1),
+        (279, 16, UInt64(height), UInt64(256 + height * 8)),
+      ]
+      var bytes = Data([73, 73, 43, 0, 8, 0, 0, 0])
+      bytes.append(contentsOf: encoded(16, size: 8, little: true))
+      bytes.append(contentsOf: encoded(tags.count, size: 8, little: true))
+      for (tag, type, count, value) in tags {
+        bytes.append(contentsOf: encoded(tag, size: 2, little: true))
+        bytes.append(contentsOf: encoded(type, size: 2, little: true))
+        bytes.append(contentsOf: encoded(count, size: 8, little: true))
+        bytes.append(contentsOf: encoded(value, size: 8, little: true))
+      }
+      bytes.append(Data(repeating: 0, count: 256 - bytes.count))
+      let pixelStart = 256 + height * 16
+      for row in 0..<height {
+        bytes.append(contentsOf: encoded(pixelStart + row * rowBytes, size: 8, little: true))
+      }
+      for _ in 0..<height {
+        bytes.append(contentsOf: encoded(rowBytes, size: 8, little: true))
+      }
+      try bytes.write(to: url)
+      let file = try FileHandle(forWritingTo: url)
+      try file.truncate(atOffset: UInt64(pixelStart + height * rowBytes))
+      try file.close()
+      let metadata = try TIFFCodec.metadata(url: url)
+      XCTAssertEqual(metadata.width, width)
+      XCTAssertEqual(metadata.height, height)
+      XCTAssertEqual(try TIFFCodec.readPreview(url: url, maxDimension: 1).samples, [0, 0, 0])
+      XCTAssertEqual(try TIFFCodec.readRegion(url: url,
+        rect: PixelRect(x: width - 1, y: height - 1, width: 1, height: 1)).samples, [0, 0, 0])
+    }
+  }
+
+  func testBigTIFFMalformedHeadersAndCounts() throws {
+    try inTemporaryDirectory { directory in
+      let url = directory.appendingPathComponent("broken.tif")
+      let good = try fixture(big: true)
+      let ifd = Int(good.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 8, as: UInt64.self) })
+      for (offset, bytes) in [
+        (2, encoded(44, size: 2, little: true)),
+        (4, encoded(4, size: 2, little: true)),
+        (6, encoded(1, size: 2, little: true)),
+        (8, encoded(UInt64.max, size: 8, little: true)),
+        (ifd, encoded(UInt64.max, size: 8, little: true)),
+        (ifd + 12, encoded(UInt64.max, size: 8, little: true)),
+      ] {
+        var bad = good
+        bad.replaceSubrange(offset..<(offset + bytes.count), with: bytes)
+        try bad.write(to: url)
+        XCTAssertThrowsError(try TIFFCodec.metadata(url: url))
+      }
+      try Data(good.prefix(12)).write(to: url)
+      XCTAssertThrowsError(try TIFFCodec.read(url: url))
+    }
+  }
+
   func testRejectsUnsupportedAndMalformedFiles() throws {
     try inTemporaryDirectory { directory in
       let url = directory.appendingPathComponent("invalid.tiff")
@@ -370,13 +485,13 @@ final class TIFFCodecTests: XCTestCase {
   // Independent fixture layout: pixel strips precede the IFD; production writes
   // its IFD and metadata first. A 3x2 fixture has one strip per row.
   private func fixture(
-    little: Bool = true, compression: UInt32 = 1, predictor: UInt32 = 1,
+    big: Bool = false, addressShift: UInt64 = 0, little: Bool = true, compression: UInt32 = 1, predictor: UInt32 = 1,
     orientation: UInt32? = nil, profile: Data? = nil,
     overrides: [UInt16: [UInt32]] = [:]
   ) throws -> Data {
-    var file = Data(repeating: 0, count: 8)
-    var offsets: [UInt32] = []
-    var counts: [UInt32] = []
+    var file = Data(repeating: 0, count: big ? 16 : 8)
+    var offsets: [UInt64] = []
+    var counts: [UInt64] = []
     for y in 0..<2 {
       var raw = Data()
       for x in 0..<3 {
@@ -400,55 +515,59 @@ final class TIFFCodecTests: XCTestCase {
         packed.count = Int(length)
         raw = packed
       }
-      offsets.append(UInt32(file.count))
-      counts.append(UInt32(raw.count))
+      offsets.append(UInt64(file.count) + addressShift)
+      counts.append(UInt64(raw.count))
       file.append(raw)
     }
-    if file.count % 2 != 0 { file.append(0) }
-    let ifd = UInt32(file.count)
-    var tags: [UInt16: [UInt32]] = [
-      256: [3], 257: [2], 258: [16, 16, 16], 259: [compression],
-      262: [2], 273: offsets, 277: [3], 278: [1], 279: counts, 284: [1], 317: [predictor],
+    while file.count % (big ? 8 : 2) != 0 { file.append(0) }
+    let ifd = UInt64(file.count) + addressShift
+    var tags: [UInt16: [UInt64]] = [
+      256: [3], 257: [2], 258: [16, 16, 16], 259: [UInt64(compression)],
+      262: [2], 273: offsets, 277: [3], 278: [1], 279: counts, 284: [1], 317: [UInt64(predictor)],
     ]
-    if let orientation { tags[274] = [orientation] }
-    tags.merge(overrides) { _, new in new }
+    if let orientation { tags[274] = [UInt64(orientation)] }
+    tags.merge(overrides.mapValues { $0.map(UInt64.init) }) { _, new in new }
     let tagIDs = (Array(tags.keys) + (profile == nil ? [] : [34675])).sorted()
-    var directory = Data(encoded(UInt32(tagIDs.count), size: 2, little: little))
-    var extra = Data()
+    var directory = Data(encoded(UInt32(tagIDs.count), size: big ? 8 : 2, little: little))
+    let directoryEnd = (big ? 8 : 2) + tagIDs.count * (big ? 20 : 12) + (big ? 8 : 4)
+    let padding = big ? (8 - directoryEnd % 8) % 8 : 0
+    var extra = Data(repeating: 0, count: padding)
     for tag in tagIDs {
-      let type: UInt32 = tag == 34675 ? 7 : [256, 257, 273, 278, 279, 324].contains(tag) ? 4 : 3
+      let type: UInt32 = tag == 34675 ? 7 : [256, 257, 273, 278, 279, 324].contains(tag) ? (big && [273, 279].contains(tag) ? 16 : 4) : 3
       let values = tags[tag] ?? []
       let payload =
         tag == 34675
-        ? profile! : Data(values.flatMap { encoded($0, size: type == 4 ? 4 : 2, little: little) })
+        ? profile! : Data(values.flatMap { encoded($0, size: type == 16 ? 8 : type == 4 ? 4 : 2, little: little) })
       directory.append(contentsOf: encoded(UInt32(tag), size: 2, little: little))
       directory.append(contentsOf: encoded(type, size: 2, little: little))
       directory.append(
         contentsOf: encoded(
-          UInt32(tag == 34675 ? payload.count : values.count), size: 4, little: little))
-      if payload.count <= 4 {
+          UInt32(tag == 34675 ? payload.count : values.count), size: big ? 8 : 4, little: little))
+      if payload.count <= (big ? 8 : 4) {
         directory.append(payload)
-        directory.append(Data(repeating: 0, count: 4 - payload.count))
+        directory.append(Data(repeating: 0, count: (big ? 8 : 4) - payload.count))
       } else {
         directory.append(
           contentsOf: encoded(
-            ifd + UInt32(2 + tagIDs.count * 12 + 4 + extra.count), size: 4, little: little))
+            ifd + UInt64((big ? 8 : 2) + tagIDs.count * (big ? 20 : 12) + (big ? 8 : 4) + extra.count), size: big ? 8 : 4, little: little))
         extra.append(payload)
-        if extra.count % 2 != 0 { extra.append(0) }
+        while extra.count % (big ? 8 : 2) != 0 { extra.append(0) }
       }
     }
-    directory.append(Data(repeating: 0, count: 4))
+    directory.append(Data(repeating: 0, count: big ? 8 : 4))
     file.append(directory)
     file.append(extra)
     file.replaceSubrange(
-      0..<8,
+      0..<(big ? 16 : 8),
       with: (little ? [0x49, 0x49] : [0x4d, 0x4d])
-        + encoded(42, size: 2, little: little) + encoded(ifd, size: 4, little: little))
+        + encoded(big ? 43 : 42, size: 2, little: little)
+        + (big ? encoded(8, size: 2, little: little) + encoded(0, size: 2, little: little) : [])
+        + encoded(ifd, size: big ? 8 : 4, little: little))
     return file
   }
 
-  private func encoded(_ value: UInt32, size: Int, little: Bool) -> [UInt8] {
-    (0..<size).map { UInt8(truncatingIfNeeded: value >> ((little ? $0 : size - 1 - $0) * 8)) }
+  private func encoded<T: BinaryInteger>(_ value: T, size: Int, little: Bool) -> [UInt8] {
+    (0..<size).map { UInt8(truncatingIfNeeded: UInt64(value) >> ((little ? $0 : size - 1 - $0) * 8)) }
   }
 
   private func descriptionProfile(_ name: String) -> Data {

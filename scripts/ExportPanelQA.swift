@@ -120,6 +120,8 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
       record("PASS \(name): accessory visible on presentation; 4 ICC × 2 compression choices; cancel preserves project bytes and creates no export")
     }
 
+    model.select(frames[1].id)
+    model.select(frames[0].id, command: true)
     let confirms: [(String, ProjectExportSettings, Set<UUID>, () -> Void)] = [
       ("04-current-p3", .init(profile: .p3, compression: .none), [frames[1].id], { self.model.exportPanel() }),
       ("05-current-srgb", .init(profile: .sRGB, compression: .deflate), [frames[1].id], { self.model.exportPanel() }),
@@ -143,6 +145,9 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
       try require(Set(summary.results.map(\.id)) == expectedIDs, "\(name): wrong target set")
       for result in summary.results {
         guard let url = result.destination else { throw QAError("\(name): output URL missing") }
+        let rollNumber = frames.firstIndex { $0.id == result.id }! + 1
+        try require(url.lastPathComponent == name + String(format: "-%02d.tiff", rollNumber),
+          "Original roll number must survive subset export")
         try verifyTIFF(url, settings: settings, p3: assets.profile)
         record("READBACK \(url.lastPathComponent): \(settings.profile.label), compression=\(settings.compression.rawValue), RGB 16-bit, exact ICC bytes, 24×16")
       }
@@ -247,9 +252,13 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
           try require(!control.isHiddenOrHasHiddenAncestor && !control.visibleRect.isEmpty,
             "\(name): option control clipped/hidden")
         }
-        try require(options.settings == initial, "\(name): initial preferences not loaded")
+        var defaults = initial
+        defaults.compression = .deflate
+        try require(options.settings == defaults, "\(name): initial ICC / default ZIP not loaded")
+        try require(options.filenamePrefix == "roll", "Default prefix uses roll folder")
+        options.prefixField.stringValue = name
         try require(options.profilePopUp.itemTitles == OutputColorProfile.allCases.map(\.label), "Four ICC choices")
-        try require(options.compressionPopUp.itemTitles == ["无压缩", "Deflate"], "Two compression choices")
+        try require(options.compressionPopUp.itemTitles == ["无压缩", "ZIP"], "Two compression choices")
         try capture(panel, suffix: "initial")
         for profileIndex in OutputColorProfile.allCases.indices {
           for compressionIndex in TIFFCompression.allCases.indices {

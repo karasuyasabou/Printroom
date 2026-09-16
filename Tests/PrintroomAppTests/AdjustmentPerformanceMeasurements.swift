@@ -16,7 +16,7 @@ struct AdjustmentPerformanceMeasurements {
     let mode = try #require(ProcessInfo.processInfo.environment["PRINTROOM_ADJUSTMENT_PERFORMANCE"])
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
       .deletingLastPathComponent().deletingLastPathComponent()
-    let source = root.appendingPathComponent("TEST/DSC07079.tiff")
+    let source = root.appendingPathComponent("TEST/TIFF/DSC07079.tiff")
     let service = ImageService()
     let assets = try AppAssets()
     let input = try await service.preview(source).0

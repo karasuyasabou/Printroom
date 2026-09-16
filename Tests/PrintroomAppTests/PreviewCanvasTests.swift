@@ -26,6 +26,45 @@ struct PreviewCanvasTests {
         clickCount: clicks, pressure: 1))
   }
 
+  @Test func cropToolbarReusesCanvasAndViewportAtMinimumWindowSize() async throws {
+    _ = NSApplication.shared
+    let model = EditorModel()
+    let frame = FrameRecord(filename: "layout.tiff")
+    var project = RollProject()
+    project.frames = [frame]
+    model.project = project
+    model.selection.click(frame.id, ordered: [frame.id])
+    model.sourceWidth = 300
+    model.sourceHeight = 200
+    model.previewImage = try image()
+    let host = NSHostingView(rootView: EditorView(model: model))
+    let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1060, height: 720),
+      styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = host
+    defer { window.close() }
+    func canvasIn(_ view: NSView) -> CanvasView? {
+      if let canvas = view as? CanvasView { return canvas }
+      return view.subviews.lazy.compactMap { canvasIn($0) }.first
+    }
+    host.layoutSubtreeIfNeeded()
+    try await Task.sleep(for: .milliseconds(50))
+    let canvas = try #require(canvasIn(host))
+    let before = canvas.convert(canvas.bounds, to: host)
+    for _ in 0..<3 {
+      model.beginCrop()
+      host.layoutSubtreeIfNeeded()
+      try await Task.sleep(for: .milliseconds(50))
+      #expect(canvasIn(host) === canvas)
+      #expect(canvas.convert(canvas.bounds, to: host) == before)
+      model.cancelCrop()
+      host.layoutSubtreeIfNeeded()
+      try await Task.sleep(for: .milliseconds(50))
+      #expect(canvasIn(host) === canvas)
+      #expect(canvas.convert(canvas.bounds, to: host) == before)
+    }
+  }
+
   @Test func hostedEditorKeepsPanelsOutsideCanvasDuringTransformsAndResize() async throws {
     _ = NSApplication.shared
     let model = EditorModel()
@@ -190,6 +229,36 @@ struct PreviewCanvasTests {
     #expect(
       canvas.intrinsicContentSize
         == NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric))
+  }
+
+  @Test func toolbarZoomSelectionTracksViewportAndDoubleClick() async throws {
+    let model = EditorModel()
+    model.previewImage = try image(width: 1200, height: 800)
+    let canvas = CanvasView(frame: CGRect(x: 0, y: 0, width: 500, height: 400))
+    canvas.model = model
+    var reported: PreviewViewportMode?
+    canvas.onViewportChange = { reported = $0 }
+    canvas.resetViewport()
+    try await Task.sleep(for: .milliseconds(20))
+    #expect(reported == .fit)
+    canvas.setNativeZoom()
+    try await Task.sleep(for: .milliseconds(20))
+    #expect(reported == .native)
+    canvas.pan = CGPoint(x: 30, y: 40)
+    canvas.scheduleDetail()
+    try await Task.sleep(for: .milliseconds(20))
+    #expect(reported == .native)
+    canvas.zoom *= 1.2
+    canvas.scheduleDetail()
+    try await Task.sleep(for: .milliseconds(20))
+    #expect(reported == nil)
+    try canvas.mouseDown(with: mouse(.leftMouseDown, CGPoint(x: 100, y: 100), in: canvas, clicks: 2))
+    try await Task.sleep(for: .milliseconds(20))
+    #expect(reported == .fit)
+    canvas.pan.x = 10
+    canvas.scheduleDetail()
+    try await Task.sleep(for: .milliseconds(20))
+    #expect(reported == nil)
   }
 
   @Test func fitAndDoubleClickRecenterAfterZoomPanAndResize() throws {
