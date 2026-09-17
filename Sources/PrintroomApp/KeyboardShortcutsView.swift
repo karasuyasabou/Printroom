@@ -49,6 +49,7 @@ struct KeyboardShortcutsView: View {
             row("R", "进入裁剪")
             row("Enter / Esc", "完成 / 取消裁剪")
             row("W / S / A / D", "裁剪框上 / 下 / 左 / 右移动")
+            row("Q / E", "裁剪角度 −0.1° / +0.1°")
           }
           group("选择与调色快照") {
             row("⌘A", "全选当前胶卷可用照片")

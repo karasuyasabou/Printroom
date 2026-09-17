@@ -76,7 +76,7 @@ struct CineonLUTTests {
     let original = try JSONSerialization.data(withJSONObject: object)
     try original.write(to: folder.appendingPathComponent(".printroom.json"))
     let migrated = try ProjectStore.open(folder: folder)
-    #expect(migrated.schemaVersion == 6)
+    #expect(migrated.schemaVersion == RollProject.currentSchemaVersion)
     #expect(migrated.frames[0].adjustments.cineonLogLUT == .kodak2383)
     try ProjectStore.save(migrated, folder: folder, expectedModification: ProjectStore.modificationDate(folder: folder))
     let backups = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)

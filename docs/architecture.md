@@ -264,21 +264,15 @@ AppAssets只校验并读取原始cube，不再准备白点偏移，CubeLUT只保
 
 独立 `scripts/white-removal-compensation.sh` / `WhiteRemovalCompensation.swift` 只接受明确传入的卷路径，prepare生成原JSON快照、替换JSON及逐帧误差报告，读取已有RAW代理验证输出，不触发RAW转换。apply要求Printroom退出，并核验所有原文件和候选SHA；逐卷在NSFileCoordinator写协调中重验源字节，先独占保存`.printroom-before-white-removal-UUID.json`，再原子替换并回读校验。仅写Timing、algorithmVersion与updatedAt，其他JSON字段保持；v5拒绝再次补偿。两卷按顺序独立提交，任一失败停止并报告已完成卷，不能声称跨目录原子事务。
 
-## 0.3.31 相纸 LUT 注册与导出
 
-CineonLogLUT 增加五个稳定 DiVERE 相纸枚举值，路径与SHA固定。AppAssets 在初始化时验证并加载全部注册表；预览、缩略图、吸管通过同一选择查表。ExportEngine 接收只读 LUT 字典，未知/缺少新增 LUT 明确失败，不能回退 Kodak 或 Fuji。运行任务继续使用帧选择快照。
 
 schema 6 与算法 v5 保持：仅扩展已存在的逐帧枚举，旧应用遇到新枚举会拒绝解码，不会默认为旧 LUT 并覆盖。只用原有 LUT 的项目行为保持。新选项继承复制、重置、同步、撤销和缓存身份；转换策略见 pipeline.md §8。派生表在随包 Assets/assets/DerivedLUTs，MIT源材料及许可证随包提供。
 
 
-## 0.3.32 相纸曝光定位版本
-
-五个相纸选择保留帧枚举与菜单名称，注册资源更新为DerivedLUTs/gray2383-neutral-v3和新SHA，策略为divere-paper-gray2383-neutral-v3。schema6及密度算法v5保持；按用户要求，已有相纸帧也采用统一且中性的中灰定位，存储Timing不修改。缓存身份包含LUT SHA，不复用旧表缩略图。旧应用仍带旧表，不用于本轮外观验收；当前包只打包v3，源码保留历史派生表。偏移仅烘焙进新增相纸资源，不增加运行时偏移字段或全局校正器。
 
 
-## 0.3.33 已移除相纸选择的兼容
 
-当前枚举仅Kodak2383/Fujifilm3513DI。解码时只将五个明确的历史divere标识映射为默认Kodak2383；其他未知标识继续报错。读取不立即写磁盘；首次覆盖含历史标识的项目时，沿既有文件协调/冲突检查流程独占写入`.printroom-retired-paper-luts-UUID.json`原字节备份，失败则停止保存。再次保存不重复备份。帧Timing/Contrast/裁剪等字段保持，缩略图选择和SHA改变后重建。schema6和密度算法v5不变；这是撤销资源的显式兼容策略，不修改两个保留LUT的算法。
+
 
 
 ## 0.3.34 统一磁盘缓存策略（取代上述固定限额）
@@ -305,3 +299,13 @@ AppAssets按CineonLogLUT.path/sha256加载两份diffuse-white-v1派生表；原�
 ## 0.3.37 RAW 缓存命中不触发全库维护
 
 取代0.3.34中每次RAW读取均请求维护的触发规则。普通metadata、preview、region命中只更新访问时间，不请求独占缓存锁及全库扫描；全尺寸导出仅有临时文件，也不因读取请求维护。新增代理发布或旧目录迁移成功后请求异步维护，应用启动、每小时、缩略图维护与策略修改继续请求维护。预算、TTL、活动读者保护、同源互斥及四路限制保持。显式clearCache行为保持。测试/工具中改变独立服务的容量后，需要显式scheduleMaintenance以执行新策略。
+
+## 0.3.39 自动裁切、自由比例与项目schema7
+
+项目升级schema7，读取schema1–6沿既有规则迁移。首次覆盖schema6保存原JSON字节备份`.printroom-schema6-UUID.json`；读取不直接修改，备份失败停止保存。旧版拒绝schema7，避免忽略自由比例或检查状态。几何版本仍为2、色彩算法仍v6。
+
+FrameCrop新增可选`freeRatio`，固定比例旧数据缺失时不改变行为；自由比例数学契约见pipeline。FrameRecord新增可选`cropOrigin`（automatic/manual）及`cropNeedsReview`（旧数据缺省false）。旧的非空crop且无origin视作已有手动裁剪；手动重置全图也保存manual来源，防止下次普通自动操作又将它裁掉。手动完成、实际修改后切图、同步裁剪和显式确认清除该帧待检查标记并标为manual。取消未提交草稿不改变持久状态。
+
+AutoCropService后台两遍处理：首遍逐张提取少量seed形成整卷模板，第二遍只对应用目标重新读代理并复用seed进行拟合；内存不保留全卷代理或全尺寸原图。普通自动操作只覆盖无手动裁剪帧或既有自动帧；覆盖入口才覆盖全部可用帧。所有可用帧均可贡献模板，缺失帧跳过。用户取消、切卷、回主页和撤销会使任务generation失效，迟到结果不发布。
+
+检测期间核对源修订（RAW含处理身份），提交前核对项目ID、目录、目标身份及裁剪/检查状态。目标被编辑、源变化、解码失败或结果不完整时整组不提交；同时发生的调色/方向操作保留当前值。成功以单事务提交每张裁剪与检查状态，整组一次撤销/重做、自动保存、刷新相应缩略图；保存失败沿既有保存冲突处理。检查筛选是会话状态，标记随项目保存，导出仍按现有固定快照工作且不受标记阻塞。

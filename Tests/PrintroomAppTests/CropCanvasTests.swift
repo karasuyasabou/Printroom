@@ -34,6 +34,41 @@ struct CropCanvasTests {
       context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
   }
 
+  @Test func freeHandlesResizeEachDimensionAndKeepOppositeAnchor() {
+    let initial = CGRect(x: 100, y: 90, width: 300, height: 200)
+    for x in -1...1 {
+      for y in -1...1 where x != 0 || y != 0 {
+        let resized = CanvasView.resizedCropRect(initial, handle: .init(x: x, y: y),
+          delta: CGPoint(x: 32, y: -19), ratio: nil)
+        #expect(resized.width == initial.width + CGFloat(x) * 32)
+        #expect(resized.height == initial.height - CGFloat(y) * 19)
+        if x < 0 { #expect(resized.maxX == initial.maxX) }
+        if x > 0 { #expect(resized.minX == initial.minX) }
+        if y < 0 { #expect(resized.maxY == initial.maxY) }
+        if y > 0 { #expect(resized.minY == initial.minY) }
+      }
+    }
+    let minimum = CanvasView.resizedCropRect(initial, handle: .init(x: 1, y: 1),
+      delta: CGPoint(x: -1000, y: -1000), ratio: nil)
+    #expect(minimum == CGRect(x: 100, y: 90, width: 1, height: 1))
+  }
+
+  @Test func freeEdgeDragKeepsOtherDimensionThroughModelConversion() throws {
+    let (model, canvas) = try fixture()
+    model.updateCropDraft(FrameCrop(aspect: .free, width: 0.6, freeRatio: 1.8))
+    let before = try #require(model.cropDraftGeometry)
+    let rect = try #require(canvas.cropRect)
+    let start = CGPoint(x: rect.maxX, y: rect.midY)
+    let end = CGPoint(x: start.x - canvas.imageRect.width * 30 / 600, y: start.y)
+    try canvas.mouseDown(with: mouse(.leftMouseDown, at: start, in: canvas))
+    try canvas.mouseDragged(with: mouse(.leftMouseDragged, at: end, in: canvas))
+    try canvas.mouseUp(with: mouse(.leftMouseUp, at: end, in: canvas))
+    let after = try #require(model.cropDraftGeometry)
+    #expect(after.outputWidth == before.outputWidth - 30)
+    #expect(after.outputHeight == before.outputHeight)
+    #expect(model.cropDraft?.aspect == .free)
+  }
+
   @Test func cornersAndEdgesKeepRatioAndTheirOppositeAnchor() {
     let rect = CGRect(x: 100, y: 90, width: 300, height: 200)
     for ratio in [1.5, 4.0 / 3, 1, 7.0 / 6] {

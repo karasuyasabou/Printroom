@@ -29,14 +29,10 @@ public struct ContrastParameters: Codable, Equatable, Sendable {
 }
 public enum CineonLogLUT: String, CaseIterable, Codable, Sendable {
   case fujifilm3513DI, kodak2383
-  // Removed options remain readable only for old project/clipboard compatibility.
-  static let retiredRawValues: Set<String> = ["divereEktacolorEdge", "divereEnduraPremier",
-    "diverePortraEndura", "divereSupraEndura", "divereUltraEndura"]
   public init(from decoder: Decoder) throws {
     let container = try decoder.singleValueContainer()
     let raw = try container.decode(String.self)
-    if Self.retiredRawValues.contains(raw) { self = .kodak2383 }
-    else if let selection = Self(rawValue: raw) { self = selection }
+    if let selection = Self(rawValue: raw) { self = selection }
     else { throw DecodingError.dataCorruptedError(in: container, debugDescription: "未知 LUT：\(raw)") }
   }
   public var label: String {

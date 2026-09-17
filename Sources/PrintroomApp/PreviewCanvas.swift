@@ -240,7 +240,8 @@ struct PreviewCanvas: NSViewRepresentable {
       cropGesture = CropGesture(handle: handle, initialPoint: p, initialRect: geometry.rect,
         originalCrop: model.cropDraft,
         draft: model.displayedCropDraft ?? FrameCrop(
-          portrait: model.displayHeight > model.displayWidth, geometryVersion: 1))
+          aspect: .free, geometryVersion: 1,
+          freeRatio: Double(model.displayWidth) / Double(model.displayHeight)))
     }
     if model?.sampling == true { selectionRect = CGRect(origin: p, size: .zero) }
   }
@@ -439,16 +440,29 @@ extension CanvasView {
     let dx = (point.x - gesture.initialPoint.x) / imageRect.width * displaySize.width
     let dy = (point.y - gesture.initialPoint.y) / imageRect.height * displaySize.height
     let rect = Self.resizedCropRect(gesture.initialRect, handle: gesture.handle,
-      delta: CGPoint(x: dx, y: dy), ratio: gesture.draft.ratio)
+      delta: CGPoint(x: dx, y: dy),
+      ratio: gesture.draft.aspect == .free ? nil : gesture.draft.ratio)
     var draft = gesture.draft
+    if draft.aspect == .free {
+      let ratio = Double(rect.width / rect.height)
+      draft.freeRatio = draft.portrait ? 1 / ratio : ratio
+    }
     draft.centerX = min(2, max(-1, rect.midX / displaySize.width))
     draft.centerY = min(2, max(-1, rect.midY / displaySize.height))
     draft.width = min(2, max(1 / displaySize.width, rect.width / displaySize.width))
     model.updateDisplayedCropDraft(draft)
   }
-  static func resizedCropRect(_ initial: CGRect, handle: CropHandle, delta: CGPoint, ratio: Double) -> CGRect {
+  static func resizedCropRect(_ initial: CGRect, handle: CropHandle, delta: CGPoint, ratio: Double?) -> CGRect {
     if handle == .move { return initial.offsetBy(dx: delta.x, dy: delta.y) }
-    let sx = CGFloat(handle.x), sy = CGFloat(handle.y), ratio = CGFloat(ratio)
+    let sx = CGFloat(handle.x), sy = CGFloat(handle.y)
+    guard let fixedRatio = ratio else {
+      let width = handle.x == 0 ? initial.width : max(1, initial.width + sx * delta.x)
+      let height = handle.y == 0 ? initial.height : max(1, initial.height + sy * delta.y)
+      let centerX = initial.midX + sx * (width - initial.width) / 2
+      let centerY = initial.midY + sy * (height - initial.height) / 2
+      return CGRect(x: centerX - width / 2, y: centerY - height / 2, width: width, height: height)
+    }
+    let ratio = CGFloat(fixedRatio)
     let width: CGFloat
     if handle.x == 0 { width = max(1, initial.height + sy * delta.y) * ratio }
     else if handle.y == 0 { width = max(1, initial.width + sx * delta.x) }

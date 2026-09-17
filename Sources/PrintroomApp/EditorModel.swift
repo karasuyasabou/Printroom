@@ -80,6 +80,25 @@ import UniformTypeIdentifiers
   @Published private(set) var isCropping = false
   @Published var cropDraft: FrameCrop?
   @Published var cropViewportToken = 0
+  @Published private(set) var isAutoCropping = false
+  @Published private(set) var autoCropProgressText = ""
+  @Published private(set) var autoCropCompletedRun = 0
+  @Published var reviewOnlyPendingCrops = false
+  @Published private var cropReviewSession = false
+  private var autoCropTask: Task<Void, Never>?
+  private var autoCropGeneration = UUID()
+  typealias AutoCropRunner = @Sendable ([AutoCropInput], Set<UUID>, @escaping @Sendable (String) async -> Void) async throws -> [AutoCropOutput]
+  var autoCropRunner: AutoCropRunner = { inputs, targets, progress in
+    try await AutoCropService.run(inputs: inputs, targets: targets, progress: progress)
+  }
+  var pendingAutoCropFrameIDs: Set<UUID> {
+    Set(project?.frames.filter { !$0.isMissing && $0.cropNeedsReview }.map(\.id) ?? [])
+  }
+  var cropReviewAvailable: Bool { cropReviewSession || !pendingAutoCropFrameIDs.isEmpty }
+  var canStartAutoCrop: Bool {
+    project != nil && !isAutoCropping && !isCropping && !isLoading && !isExporting
+      && project?.frames.contains(where: { !$0.isMissing }) == true
+  }
   @Published var status = "打开 TIFF 或 ARW，开始整卷调色"
   @Published var errorMessage: String?
   @Published var isLoading = false
@@ -243,6 +262,8 @@ import UniformTypeIdentifiers
       errorMessage = "文件不存在：\(url.lastPathComponent)"
       return
     }
+    cancelAutoCrop()
+    resetAutoCropReview()
     cancelGeometryPreparation()
     let targetFolder = isDirectory.boolValue ? url : url.deletingLastPathComponent()
     let preferred = isDirectory.boolValue ? nil : url
@@ -292,6 +313,8 @@ import UniformTypeIdentifiers
     stopTimingKey()
     endAdjustment()
     guard saveCropBeforeSwitching(), flushSave() else { return }
+    cancelAutoCrop()
+    resetAutoCropReview()
     project = nil
     folder = nil
     selection = SelectionState()
@@ -333,7 +356,7 @@ import UniformTypeIdentifiers
     dirty = true
     scheduleSave()
   }
-  private func saveCropBeforeSwitching() -> Bool {
+  private func saveCropBeforeSwitching(confirm: Bool = false) -> Bool {
     // A loading frame has no editable draft; nil must not clear its saved crop.
     guard isCropping, !isLoading, sourceWidth > 0, sourceHeight > 0,
       var next = project,
@@ -343,7 +366,12 @@ import UniformTypeIdentifiers
       next.frames[index].crop = try cropDraft?.sourceCoordinates(sourceWidth: sourceWidth,
         sourceHeight: sourceHeight, orientation: orientation)
         .constrained(sourceWidth: sourceWidth, sourceHeight: sourceHeight)
-      guard let old = project, next.frames != old.frames else { return true }
+      guard let old = project else { return true }
+      if confirm || next.frames[index].crop != old.frames[index].crop {
+        next.frames[index].cropOrigin = .manual
+        next.frames[index].cropNeedsReview = false
+      }
+      guard next.frames != old.frames else { return true }
       registerUndo(old: old, name: "裁剪照片")
       project = next
       dirty = true
@@ -356,7 +384,7 @@ import UniformTypeIdentifiers
     }
   }
   func selectAdjacentFrame(_ delta: Int) {
-    let frames = project?.frames.filter { !$0.isMissing } ?? []
+    let frames = project?.frames.filter { !$0.isMissing && (!isCropping || !reviewOnlyPendingCrops || $0.cropNeedsReview) } ?? []
     guard !frames.isEmpty else { return }
     guard let index = frames.firstIndex(where: { $0.id == selection.activeFrameID }) else {
       select(frames[0].id)
@@ -432,7 +460,7 @@ import UniformTypeIdentifiers
         sourceHeight = result.2
         embeddedProfile = result.3
         if isCropping {
-          let initial = frame.crop ?? FrameCrop(portrait: sourceHeight > sourceWidth)
+          let initial = frame.crop ?? FrameCrop(aspect: .free, freeRatio: Double(sourceWidth) / Double(sourceHeight))
           cropDraft = try initial.sourceCoordinates(sourceWidth: sourceWidth,
             sourceHeight: sourceHeight, orientation: frame.orientation)
           cropViewportToken += 1
@@ -618,13 +646,142 @@ import UniformTypeIdentifiers
     } catch { errorMessage = error.localizedDescription }
   }
 
+  private func resetAutoCropReview() {
+    reviewOnlyPendingCrops = false
+    cropReviewSession = false
+  }
+  func cancelAutoCrop() {
+    autoCropTask?.cancel()
+    autoCropTask = nil
+    autoCropGeneration = UUID()
+    isAutoCropping = false
+    autoCropProgressText = ""
+  }
+  func autoCropTargetCount(preserveExisting: Bool) -> Int {
+    project?.frames.filter {
+      !$0.isMissing && (!preserveExisting || ($0.crop == nil && $0.cropOrigin == nil))
+    }.count ?? 0
+  }
+  func startAutoCrop(preserveExisting: Bool = true, inwardPercent: Double = 0) {
+    guard canStartAutoCrop, let old = project, let folder else { return }
+    guard inwardPercent.isFinite, (0...5).contains(inwardPercent) else {
+      errorMessage = "向内裁切百分比必须在 0% 到 5% 之间。"
+      return
+    }
+    stopTimingKey()
+    endAdjustment()
+    let frames = old.frames.filter { !$0.isMissing }
+    let targets = Set(frames.filter {
+      !preserveExisting || ($0.crop == nil && $0.cropOrigin == nil)
+    }.map(\.id))
+    guard !targets.isEmpty else {
+      autoCropCompletedRun += 1
+      return
+    }
+    let inputs = frames.map { AutoCropInput(id: $0.id, url: folder.appendingPathComponent($0.filename)) }
+    let generation = UUID()
+    autoCropGeneration = generation
+    isAutoCropping = true
+    autoCropProgressText = "准备自动裁切…"
+    let runner = autoCropRunner
+    autoCropTask = Task {
+      do {
+        let results = try await runner(inputs, targets) { [weak model = self] text in
+          await model?.updateAutoCropProgress(text, generation: generation)
+        }
+        guard !Task.isCancelled, autoCropGeneration == generation,
+          var next = project, next.id == old.id, self.folder == folder else { return }
+        guard Set(results.map(\.id)) == targets, results.count == targets.count else {
+          throw PrintroomError.invalid("自动裁切未得到完整结果，原裁剪已保留。")
+        }
+        // Do not overwrite crop edits made while analysis was running. Unrelated
+        // timing, orientation and calibration edits are retained from current state.
+        for result in results {
+          guard let before = old.frames.first(where: { $0.id == result.id }),
+            let index = next.frames.firstIndex(where: { $0.id == result.id }),
+            next.frames[index].filename == before.filename,
+            next.frames[index].crop == before.crop,
+            next.frames[index].cropOrigin == before.cropOrigin,
+            next.frames[index].cropNeedsReview == before.cropNeedsReview,
+            !next.frames[index].isMissing,
+            try AutoCropSourceStamp(result.source.url) == result.source else {
+            throw PrintroomError.invalid("照片或裁剪已改变，请重新运行自动裁切。")
+          }
+          var crop = result.crop
+          crop.width *= 1 - inwardPercent * 0.02
+          try crop.validate()
+          next.frames[index].crop = crop
+          next.frames[index].cropOrigin = .automatic
+          next.frames[index].cropNeedsReview = result.needsReview
+        }
+        guard let current = project else { return }
+        if current.frames != next.frames {
+          registerUndo(old: current, name: "自动裁切 \(results.count) 张")
+          retainCropPreview()
+          project = next
+          dirty = true
+          cropViewportToken += 1
+          render()
+          refreshThumbnails(affectedIDs: targets)
+          scheduleSave(immediate: true)
+        }
+        isAutoCropping = false
+        autoCropProgressText = ""
+        autoCropTask = nil
+        autoCropCompletedRun += 1
+      } catch {
+        guard !Task.isCancelled, autoCropGeneration == generation else { return }
+        isAutoCropping = false
+        autoCropProgressText = ""
+        autoCropTask = nil
+        if !(error is CancellationError) { errorMessage = error.localizedDescription }
+      }
+    }
+  }
+  private func updateAutoCropProgress(_ text: String, generation: UUID) {
+    guard autoCropGeneration == generation else { return }
+    autoCropProgressText = text
+  }
+  func reviewAutoCrops() {
+    guard !isAutoCropping, let frames = project?.frames.filter({ !$0.isMissing }), !frames.isEmpty else { return }
+    let target = frames.first(where: { $0.cropNeedsReview })
+      ?? frames.first(where: { $0.cropOrigin == .automatic }) ?? frames.first!
+    guard saveCropBeforeSwitching() else { return }
+    cropReviewSession = true
+    reviewOnlyPendingCrops = !pendingAutoCropFrameIDs.isEmpty
+    // Loading in crop mode creates the correct draft for this frame and keeps the
+    // review controls usable when the currently displayed frame is still loading.
+    selection.click(target.id, ordered: frames.map(\.id))
+    project?.lastActiveFrameID = target.id
+    dirty = true
+    scheduleSave()
+    loadActive(preservingCropMode: true)
+  }
+  func confirmCropAndAdvance() {
+    guard isCropping, !isLoading, let id = selection.activeFrameID,
+      let frames = project?.frames.filter({ !$0.isMissing }),
+      let index = frames.firstIndex(where: { $0.id == id }),
+      saveCropBeforeSwitching(confirm: true) else { return }
+    let remaining = project?.frames.filter { !$0.isMissing && (!reviewOnlyPendingCrops || $0.cropNeedsReview) } ?? []
+    let after = Set(frames.dropFirst(index + 1).map(\.id))
+    if let next = remaining.first(where: { after.contains($0.id) }) {
+      select(next.id)
+    } else if reviewOnlyPendingCrops, let next = remaining.first {
+      select(next.id)
+    } else {
+      reviewOnlyPendingCrops = false
+      commitCrop()
+      cropReviewSession = false
+    }
+  }
+
   func beginCrop() {
-    guard !isCropping, !isLoading, !isPreviewPlaceholder, activeFrame != nil,
+    guard !isAutoCropping, !isCropping, !isLoading, !isPreviewPlaceholder, activeFrame != nil,
       sourceWidth > 0, sourceHeight > 0 else { return }
     stopTimingKey()
     cancelSampling()
     sampling = false
-    let initial = activeFrame?.crop ?? FrameCrop(portrait: sourceHeight > sourceWidth)
+    let initial = activeFrame?.crop ?? FrameCrop(aspect: .free, freeRatio: Double(sourceWidth) / Double(sourceHeight))
     do {
       let draft = try initial.sourceCoordinates(sourceWidth: sourceWidth,
         sourceHeight: sourceHeight, orientation: orientation)
@@ -651,6 +808,13 @@ import UniformTypeIdentifiers
     next.centerX += horizontal
     next.centerY += vertical
     updateDisplayedCropDraft(next)
+  }
+  func nudgeCropAngle(_ delta: Double) {
+    guard isCropping, delta.isFinite else { return }
+    var draft = displayedCropDraft
+      ?? FrameCrop(aspect: .free, geometryVersion: 1, freeRatio: Double(displayWidth) / Double(max(1, displayHeight)))
+    draft.angleDegrees = (min(10, max(-10, draft.angleDegrees + delta)) * 100).rounded() / 100
+    updateDisplayedCropDraft(draft)
   }
   func resetCropDraft() {
     guard isCropping else { return }
@@ -776,6 +940,8 @@ import UniformTypeIdentifiers
         let metadata = try geometryMetadata(folder.appendingPathComponent(frame.filename))
         next.frames[index].crop = try sourceCrop?.constrained(sourceWidth: metadata.width,
           sourceHeight: metadata.height)
+        next.frames[index].cropOrigin = .manual
+        next.frames[index].cropNeedsReview = false
       }
       let changed = next.frames != old.frames
       retainCropPreview()
@@ -960,6 +1126,8 @@ import UniformTypeIdentifiers
   }
   private func restore(_ value: RollProject, name: String) {
     guard let old = project else { return }
+    cancelAutoCrop()
+    resetAutoCropReview()
     registerUndo(old: old, name: name)
     cancelSampling()
     sampling = false
@@ -1053,6 +1221,8 @@ import UniformTypeIdentifiers
           let metadata = try geometryMetadata(url)
           next.frames[index].crop = try crop?.constrained(sourceWidth: metadata.width,
             sourceHeight: metadata.height)
+          next.frames[index].cropOrigin = .manual
+          next.frames[index].cropNeedsReview = false
         }
       }
       guard next.frames != old.frames else {

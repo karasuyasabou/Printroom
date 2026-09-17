@@ -57,7 +57,11 @@ final class ProjectMigrationRelocationTests: XCTestCase {
     XCTAssertEqual(migrated.algorithmVersion, project.algorithmVersion)
     XCTAssertEqual(migrated.id, project.id)
     XCTAssertEqual(migrated.frames, project.frames)
-    XCTAssertEqual(migrated.calibration, project.calibration)
+    var expectedCalibration = project.calibration
+    // Legacy one-matrix projects seed both matrix stages from the saved matrix.
+    expectedCalibration.cmosMatrix = project.calibration.matrix
+    expectedCalibration.sampledCMOSMatrix = project.calibration.sampledDensityMatrix
+    XCTAssertEqual(migrated.calibration, expectedCalibration)
     XCTAssertEqual(migrated.exportSettings.profile, .p3)
     XCTAssertEqual(migrated.exportSettings.compression, .none)
     XCTAssertEqual(migrated.exportSettings.profileSHA256, ProjectAssetIdentity.expectedICCSHA256)

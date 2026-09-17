@@ -5,6 +5,8 @@ private let legacyAlgorithmVersion = "printroom-density-v1"
 private let migratingSchemaOne = CodingUserInfoKey(rawValue: "printroom.migratingSchemaOne")!
 private let migratingLegacyCrop = CodingUserInfoKey(rawValue: "printroom.migratingLegacyCrop")!
 
+public enum CropOrigin: String, Codable, Sendable { case automatic, manual }
+
 public struct FrameRecord: Identifiable, Codable, Equatable, Sendable {
   public var id: UUID
   public var filename: String
@@ -13,6 +15,8 @@ public struct FrameRecord: Identifiable, Codable, Equatable, Sendable {
   public var orientation: FrameOrientation
   /// nil retains the original full-frame image and exact original sampling path.
   public var crop: FrameCrop?
+  public var cropOrigin: CropOrigin?
+  public var cropNeedsReview: Bool
   public var isMissing: Bool
   public var sourceSize: Int64
   /// Source modification time, in seconds since 1970. Used with size for cache invalidation.
@@ -24,13 +28,16 @@ public struct FrameRecord: Identifiable, Codable, Equatable, Sendable {
     id: UUID = UUID(), filename: String, adjustments: FrameAdjustments = .init(),
     isMissing: Bool = false, sourceSize: Int64 = 0, sourceModified: Double = 0,
     orientation: FrameOrientation = .identity, crop: FrameCrop? = nil,
-    rawProcessing: RAWProcessingIdentity? = nil
+    rawProcessing: RAWProcessingIdentity? = nil,
+    cropOrigin: CropOrigin? = nil, cropNeedsReview: Bool = false
   ) {
     self.id = id
     self.filename = filename
     self.adjustments = adjustments
     self.orientation = orientation
     self.crop = crop
+    self.cropOrigin = cropOrigin
+    self.cropNeedsReview = cropNeedsReview
     self.isMissing = isMissing
     self.sourceSize = sourceSize
     self.sourceModified = sourceModified
@@ -38,7 +45,7 @@ public struct FrameRecord: Identifiable, Codable, Equatable, Sendable {
   }
 
   private enum CodingKeys: String, CodingKey {
-    case id, filename, adjustments, orientation, crop, isMissing, sourceSize, sourceModified, rawProcessing
+    case id, filename, adjustments, orientation, crop, cropOrigin, cropNeedsReview, isMissing, sourceSize, sourceModified, rawProcessing
   }
 
   public init(from decoder: Decoder) throws {
@@ -49,6 +56,8 @@ public struct FrameRecord: Identifiable, Codable, Equatable, Sendable {
     isMissing = try values.decode(Bool.self, forKey: .isMissing)
     sourceSize = try values.decode(Int64.self, forKey: .sourceSize)
     sourceModified = try values.decode(Double.self, forKey: .sourceModified)
+    cropOrigin = try values.decodeIfPresent(CropOrigin.self, forKey: .cropOrigin)
+    cropNeedsReview = try values.decodeIfPresent(Bool.self, forKey: .cropNeedsReview) ?? false
     rawProcessing = try values.decodeIfPresent(RAWProcessingIdentity.self, forKey: .rawProcessing)
     if decoder.userInfo[migratingSchemaOne] as? Bool == true {
       // Schema 1 never had a user transform. Reject a conflicting extension rather than
@@ -82,6 +91,8 @@ public struct FrameRecord: Identifiable, Codable, Equatable, Sendable {
     try values.encode(adjustments, forKey: .adjustments)
     try values.encode(orientation, forKey: .orientation)
     try values.encode(crop, forKey: .crop)
+    try values.encodeIfPresent(cropOrigin, forKey: .cropOrigin)
+    try values.encode(cropNeedsReview, forKey: .cropNeedsReview)
     try values.encode(isMissing, forKey: .isMissing)
     try values.encode(sourceSize, forKey: .sourceSize)
     try values.encode(sourceModified, forKey: .sourceModified)
@@ -152,7 +163,7 @@ public struct ProjectExportSettings: Codable, Equatable, Sendable {
 }
 
 public struct RollProject: Codable, Sendable {
-  public static let currentSchemaVersion = 6
+  public static let currentSchemaVersion = 7
 
   public var schemaVersion = currentSchemaVersion
   public var algorithmVersion = projectAlgorithmVersion
@@ -323,18 +334,7 @@ public enum ProjectStore {
           let existing = try decode(original)
           guard existing.id == project.id else { throw ProjectStoreError.externalConflict }
           let header = try JSONDecoder().decode(Header.self, from: original)
-          let rawObject = try JSONSerialization.jsonObject(with: original) as? [String: Any]
-          let rawFrames = rawObject?["frames"] as? [[String: Any]] ?? []
-          let hasRetiredLUT = rawFrames.contains { frame in
-            guard let adjustments = frame["adjustments"] as? [String: Any],
-              let selection = adjustments["cineonLogLUT"] as? String else { return false }
-            return CineonLogLUT.retiredRawValues.contains(selection)
-          }
-          if hasRetiredLUT {
-            let backup = coordinated.deletingLastPathComponent().appendingPathComponent(
-              ".printroom-retired-paper-luts-\(UUID().uuidString).json")
-            try original.write(to: backup, options: .withoutOverwriting)
-          } else if header.algorithmVersion == legacyAlgorithmVersion {
+          if header.algorithmVersion == legacyAlgorithmVersion {
             // Preserve exact original settings before the first save under the new image behavior.
             // Exclusive creation never overwrites another backup; any failure aborts replacement.
             let backup = coordinated.deletingLastPathComponent().appendingPathComponent(
@@ -411,7 +411,8 @@ public enum ProjectStore {
     }
     if let collision = project.frames.first(where: { $0.filename == source.filename && $0.id != frameID }) {
       guard collision.adjustments == FrameAdjustments(), collision.orientation == .identity,
-        collision.crop == nil, project.calibration.sourceFrameID != collision.id
+        collision.crop == nil, collision.cropOrigin == nil, !collision.cropNeedsReview,
+        project.calibration.sourceFrameID != collision.id
       else {
         throw ProjectStoreError.invalidProject("目标照片已有调色、方向、裁剪或片基来源设置，不能合并")
       }
@@ -448,7 +449,7 @@ public enum ProjectStore {
     do {
       let decoder = JSONDecoder()
       let header = try decoder.decode(Header.self, from: data)
-      guard [1, 2, 3, 4, 5, RollProject.currentSchemaVersion].contains(header.schemaVersion) else {
+      guard [1, 2, 3, 4, 5, 6, RollProject.currentSchemaVersion].contains(header.schemaVersion) else {
         throw ProjectStoreError.unsupportedSchema(header.schemaVersion)
       }
       guard [legacyAlgorithmVersion, "printroom-density-v2", "printroom-density-v3", "printroom-density-v4", "printroom-density-v5", projectAlgorithmVersion].contains(header.algorithmVersion) else {

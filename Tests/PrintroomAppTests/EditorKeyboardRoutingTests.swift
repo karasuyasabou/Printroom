@@ -80,6 +80,48 @@ struct EditorKeyboardRoutingTests {
     #expect(model.project?.frames[0].crop?.centerY == 0.5)
   }
 
+  @Test func qeAdjustsCropAngleWithRepeatBoundsAndFocusProtection() throws {
+    let (model, window, router, thumbnails) = fixture()
+    defer { router.stopMonitoring(); window.close() }
+    model.sourceWidth = 200
+    model.sourceHeight = 200
+    model.beginCrop()
+    let original = model.project
+    #expect(router.handle(try key(12, "q", window: window), from: window))
+    #expect(model.displayedCropDraft?.angleDegrees == -0.1)
+    #expect(router.handle(try key(12, "q", window: window, repeatKey: true), from: window))
+    #expect(model.displayedCropDraft?.angleDegrees == -0.2)
+    #expect(router.handle(try key(14, "e", window: window), from: window))
+    #expect(model.displayedCropDraft?.angleDegrees == -0.1)
+    for modifiers: NSEvent.ModifierFlags in [[.option], [.shift]] {
+      _ = router.handle(try key(14, "e", window: window, modifiers: modifiers), from: window)
+      #expect(model.displayedCropDraft?.angleDegrees == -0.1)
+    }
+    let text = NSTextView(frame: .zero)
+    window.contentView?.addSubview(text)
+    window.makeFirstResponder(text)
+    #expect(!router.handle(try key(14, "e", window: window), from: window))
+    #expect(model.displayedCropDraft?.angleDegrees == -0.1)
+    window.makeFirstResponder(thumbnails)
+    model.isLoading = true
+    _ = router.handle(try key(14, "e", window: window), from: window)
+    #expect(model.displayedCropDraft?.angleDegrees == -0.1)
+    model.isLoading = false
+    for (code, character, expected) in [(UInt16(14), "e", 10.0), (UInt16(12), "q", -10.0)] {
+      for _ in 0..<220 {
+        _ = router.handle(try key(code, character, window: window, repeatKey: true), from: window)
+      }
+      #expect(model.displayedCropDraft?.angleDegrees == expected)
+    }
+    #expect(model.project?.frames == original?.frames)
+    #expect(model.adjustments == FrameAdjustments())
+    model.resetCropDraft()
+    _ = router.handle(try key(14, "e", window: window), from: window)
+    #expect(model.displayedCropDraft?.angleDegrees == 0.1)
+    model.cancelCrop()
+    #expect(model.project?.frames == original?.frames)
+  }
+
   @Test func commandCopyCapturesSnapshotWithoutAdjustingBlue() throws {
     let (model, window, router, _) = fixture()
     defer { router.stopMonitoring(); window.close() }

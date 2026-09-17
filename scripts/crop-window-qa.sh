@@ -10,13 +10,13 @@ if [[ "${1:-}" == "--release" ]]; then
   optimization=(-O)
 fi
 if [[ " $* " != *" --skip-build "* ]]; then
-  swift build -c "$configuration" --disable-sandbox
+  swift build --build-system native -c "$configuration" --disable-sandbox
 fi
 mkdir -p scratch/crop-qa/roll
 python3 - <<'PY'
 from pathlib import Path
-import shutil
-source = Path('TEST/TIFF/DSC07079.tiff')
+import shutil, os
+source = Path(os.environ.get('PRINTROOM_CROP_QA_SOURCE', 'TEST/TIFF/DSC07079.tiff'))
 roll = Path('scratch/crop-qa/roll')
 for name in ['01-original.tiff', '02-sync.tiff']:
     target = roll / name

@@ -7,7 +7,7 @@ if [ "$#" -ne 0 ]; then
   echo "Usage: scripts/build-app.sh (always replaces output/Printroom.app)" >&2
   exit 1
 fi
-swift build -c release --disable-sandbox
+swift build --build-system native -c release --disable-sandbox
 mkdir -p "$PWD/output"
 staging=$(mktemp -d "$PWD/output/.printroom-package.XXXXXX")
 trap 'rm -rf "$staging"' EXIT
@@ -33,8 +33,8 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>Printroom</string>
 <key>CFBundleIconFile</key><string>Printroom</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.3.37</string>
-<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleShortVersionString</key><string>0.3.40</string>
+<key>CFBundleVersion</key><string>2</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>CFBundleDocumentTypes</key><array><dict><key>CFBundleTypeName</key><string>TIFF or Sony RAW Image</string><key>CFBundleTypeRole</key><string>Viewer</string><key>LSHandlerRank</key><string>Alternate</string><key>LSItemContentTypes</key><array><string>public.tiff</string><string>com.sony.arw-raw-image</string></array></dict></array>

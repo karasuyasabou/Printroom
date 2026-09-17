@@ -246,11 +246,6 @@ RAWSourceServiceTests覆盖固定四槽、同源混合请求、跨实例、取�
 运行 `scripts/test.sh --filter 'SelectionCropTests|CropEditingTests|RAWGeometryTests|EditorKeyboardRoutingTests'`，验证点击和左右键切图保存、原片裁剪与方向保留、项目立即回读、重置全图、逐次撤销重做、扩选保持草稿、快速加载不覆盖裁剪与取消行为。实际证据见 [acceptance-0.3.29.md](acceptance-0.3.29.md)。
 
 
-## 0.3.32 相纸470 CV中灰校准
-
-直接相关验收：源曲线方法对照、最终表470 CV相对于2383的亮度/中性、三个2.048密度窗口、CPU/Metal、选择持久化与七种LUT混合导出回读。执行范围和数值见acceptance-0.3.32.md，未执行的全尺寸及外观验证继续待执行。
-
-
 ## 0.3.34 缓存管理
 
 `scripts/test.sh --filter 'DiskCachePolicyTests|RAWSourceServiceTests|ThumbnailMigrationTests|ImageServiceTests'` 检查统一预算/跨类型LRU、期限边界、永不、持久化与非法值、陌生文件/符号链接保护、现有RAW并发维护及缩略图迁移。`bash scripts/cache-window-qa.sh` 截取独立管理窗口检查布局。实际结果和未验证项见acceptance-0.3.34.md。
@@ -264,3 +259,11 @@ DiffuseWhiteTests覆盖两份表685 CV的ICC亮度及RGB中性、不同通道反
 ## 0.3.37 缓存命中与维护频率
 
 `scripts/test.sh -c release --filter 'RAWSourceServiceTests|RAWPrewarmerTests|DiskCachePolicyTests|ThumbnailMigrationTests'`：验证命中不新增维护、新代理仍触发维护、显式维护继续运行，以及损坏重建/四路/取消/容量/期限回归。性能用 `PRINTROOM_RAW_MEASURE_BACKGROUND=1 PRINTROOM_RAW_MEASURE_ROLL=/path/to/RAW scripts/test.sh -c release --filter RAWPreviewPerformanceMeasurements`，读取指定卷项目及前六帧，不保存项目；正常服务可能更新或重建应用缓存。记录读取与包含直方图的渲染耗时，不等同于窗口呈现时间。
+
+## 0.3.39 自动裁切与自由比例
+
+`AutoCropTests`覆盖解析旋转帧、无边缘帧和可选76帧代理对照；`AutoCropProjectTests`覆盖schema6字节备份与自由比例/来源/检查标记重开；`AutoCropEditingTests`覆盖普通保留/覆盖、手动全图、整组撤销、检查队列、取消/切卷迟到结果、并发目标修改/保留调色及不完整结果拒绝。`CropTests`新增自由裁框整数样本、D4转换、重复拟合、边界、分块导出与预览对照；`CropCanvasTests`验证独立边角拖拽。窗口使用`PRINTROOM_CROP_QA_SOURCE=/path/to/proxy.tiff bash scripts/crop-window-qa.sh --release --autocrop`，源只复制到scratch；验证原生批量、最小窗口、筛选、确认、自由拖拽及重开，截图仅本测试窗口。实际证据见acceptance-0.3.39.md。
+
+## 0.3.40 自动裁切设置与检查流程
+
+`AutoCropTests`新增首尾帧四边通过要求，并确认严格规则只改变检查标记、不改变检测框；`AutoCropEditingTests`覆盖保留旧版/手动/既有自动裁切、取消勾选后整卷覆盖、0–5%内收、整组撤销及检查队列。窗口验证检查独立入口、设置对话框运行中保持、进度与取消、完成自动进入仅看待检查，以及检查控件只在裁切栏出现且清零后隐藏。实际执行范围见acceptance-0.3.40.md。

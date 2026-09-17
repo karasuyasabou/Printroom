@@ -2,11 +2,12 @@ import Foundation
 import CoreGraphics
 
 public enum CropAspectRatio: String, CaseIterable, Codable, Sendable {
-  case threeTwo = "3:2", fourThree = "4:3", square = "1:1", sevenSix = "7:6"
-  public var label: String { rawValue }
+  case free = "free", threeTwo = "3:2", fourThree = "4:3", square = "1:1", sevenSix = "7:6"
+  public var label: String { self == .free ? "自由" : rawValue }
   public var ratio: Double { Double(units.width) / Double(units.height) }
   public var units: (width: Int, height: Int) {
     switch self {
+    case .free: (1, 1)
     case .threeTwo: (3, 2)
     case .fourThree: (4, 3)
     case .square: (1, 1)
@@ -24,19 +25,26 @@ public struct FrameCrop: Codable, Equatable, Hashable, Sendable {
   public var geometryVersion: Int
   public var aspect: CropAspectRatio
   public var portrait: Bool
+  /// Unconstrained width/height ratio before the portrait toggle. Missing in older projects.
+  public var freeRatio: Double?
   public var centerX: Double
   public var centerY: Double
   /// Width divided by full source width (v2), or oriented full width (legacy v1).
   public var width: Double
   public var angleDegrees: Double
-  public var ratio: Double { portrait ? 1 / aspect.ratio : aspect.ratio }
+  public var ratio: Double {
+    let base = aspect == .free ? (freeRatio ?? 1) : aspect.ratio
+    return portrait ? 1 / base : base
+  }
 
   public init(
     aspect: CropAspectRatio = .threeTwo, portrait: Bool = false,
     centerX: Double = 0.5, centerY: Double = 0.5, width: Double = 1,
-    angleDegrees: Double = 0, geometryVersion: Int = currentGeometryVersion
+    angleDegrees: Double = 0, geometryVersion: Int = currentGeometryVersion,
+    freeRatio: Double? = nil
   ) {
     self.aspect = aspect
+    self.freeRatio = freeRatio
     self.portrait = portrait
     self.centerX = centerX
     self.centerY = centerY
@@ -49,7 +57,8 @@ public struct FrameCrop: Codable, Equatable, Hashable, Sendable {
     guard [1, Self.currentGeometryVersion].contains(geometryVersion),
       centerX.isFinite, centerY.isFinite, width.isFinite, angleDegrees.isFinite,
       (-1...2).contains(centerX), (-1...2).contains(centerY), width > 0, width <= 2,
-      (-10...10).contains(angleDegrees)
+      (-10...10).contains(angleDegrees),
+      freeRatio.map({ $0.isFinite && $0 > 0 && (1 / $0).isFinite }) ?? true
     else { throw PrintroomError.invalid("裁剪版本、范围或角度无效。") }
   }
 
@@ -184,17 +193,35 @@ public struct CropGeometry: Sendable {
     let c = cos(radians), s = sin(radians)
     cosine = c
     sine = s
-    let base = fitted.aspect.units
-    let unitW = fitted.portrait ? base.height : base.width
-    let unitH = fitted.portrait ? base.width : base.height
-    // Exact integer ratios also make every zero-angle crop an integer copy.
-    let maximum = min(w / (abs(c) * Double(unitW) + abs(s) * Double(unitH)),
-                      h / (abs(s) * Double(unitW) + abs(c) * Double(unitH)))
-    let maximumUnits = Int(floor(maximum + 1e-9))
-    guard maximumUnits >= 1 else { throw PrintroomError.invalid("图像太小，无法容纳所选裁剪比例。") }
-    let count = max(1, min(maximumUnits, Int(floor(fitted.width * w / Double(unitW) + 1e-9))))
-    outputWidth = count * unitW
-    outputHeight = count * unitH
+    if fitted.aspect == .free {
+      // Fit continuously first, then quantize each dimension independently. Store
+      // the resulting ratio so subsequent fitting and D4 round trips cannot shave
+      // another pixel off the height through repeated ratio approximation.
+      let ratio = fitted.ratio
+      let maxWidth = min(w / (abs(c) + abs(s) / ratio),
+                         h / (abs(s) + abs(c) / ratio))
+      let requestedWidth = min(fitted.width * w, maxWidth)
+      let requestedHeight = requestedWidth / ratio
+      guard requestedWidth.isFinite, requestedHeight.isFinite,
+        requestedWidth >= 1 - 1e-9, requestedHeight >= 1 - 1e-9
+      else { throw PrintroomError.invalid("图像太小，无法容纳所选裁剪比例。") }
+      outputWidth = max(1, Int(floor(requestedWidth + 1e-9)))
+      outputHeight = max(1, Int(floor(requestedHeight + 1e-9)))
+      let actualRatio = Double(outputWidth) / Double(outputHeight)
+      fitted.freeRatio = fitted.portrait ? 1 / actualRatio : actualRatio
+    } else {
+      let base = fitted.aspect.units
+      let unitW = fitted.portrait ? base.height : base.width
+      let unitH = fitted.portrait ? base.width : base.height
+      // Exact integer ratios also make every zero-angle crop an integer copy.
+      let maximum = min(w / (abs(c) * Double(unitW) + abs(s) * Double(unitH)),
+                        h / (abs(s) * Double(unitW) + abs(c) * Double(unitH)))
+      let maximumUnits = Int(floor(maximum + 1e-9))
+      guard maximumUnits >= 1 else { throw PrintroomError.invalid("图像太小，无法容纳所选裁剪比例。") }
+      let count = max(1, min(maximumUnits, Int(floor(fitted.width * w / Double(unitW) + 1e-9))))
+      outputWidth = count * unitW
+      outputHeight = count * unitH
+    }
     let cw = Double(outputWidth), ch = Double(outputHeight)
     let ex = (abs(c) * cw + abs(s) * ch) / 2
     let ey = (abs(s) * cw + abs(c) * ch) / 2

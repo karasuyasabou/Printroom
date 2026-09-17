@@ -10,7 +10,7 @@ struct CropControlsView: View {
   private var angle: Double { model.displayedCropDraft?.angleDegrees ?? 0 }
   private var ratioLabel: String {
     guard let draft = model.displayedCropDraft else { return "全图" }
-    if draft.portrait && draft.aspect != .square {
+    if draft.portrait && draft.aspect != .square && draft.aspect != .free {
       return draft.aspect.label.split(separator: ":").reversed().joined(separator: ":")
     }
     return draft.aspect.label
@@ -22,6 +22,16 @@ struct CropControlsView: View {
         ForEach(CropAspectRatio.allCases, id: \.self) { aspect in
           Button(aspect.label) {
             var draft = currentDraft()
+            if aspect == .free {
+              // Changing to free keeps the visible rectangle, including full-image reset.
+              let ratio = model.displayedCropDraft?.ratio
+                ?? Double(max(1, model.displayWidth)) / Double(max(1, model.displayHeight))
+              draft.freeRatio = ratio
+              draft.portrait = false
+            } else {
+              if draft.aspect == .free { draft.portrait = draft.ratio < 1 }
+              draft.freeRatio = nil
+            }
             draft.aspect = aspect
             model.updateDisplayedCropDraft(draft)
           }
@@ -35,9 +45,10 @@ struct CropControlsView: View {
         model.updateDisplayedCropDraft(draft)
       } label: {
         Image(systemName: "arrow.triangle.2.circlepath")
-      }.disabled(model.displayedCropDraft?.aspect == .square)
+      }.disabled(model.displayedCropDraft?.aspect == .square || model.displayedCropDraft?.aspect == .free)
         .help("交换裁剪比例的横竖方向").accessibilityLabel("交换裁剪横竖方向")
       Button { nudgeAngle(-0.1) } label: { Image(systemName: "minus") }
+        .help("角度减 0.1° · Q")
         .accessibilityLabel("角度减 0.1 度")
       Slider(value: Binding(get: { angle }, set: { setAngle($0) }), in: -10...10)
         .frame(minWidth: 76, idealWidth: 118, maxWidth: 140)
@@ -45,6 +56,7 @@ struct CropControlsView: View {
         .help("−10° 至 +10° · 双击归零")
         .simultaneousGesture(TapGesture(count: 2).onEnded { setAngle(0) })
       Button { nudgeAngle(0.1) } label: { Image(systemName: "plus") }
+        .help("角度加 0.1° · E")
         .accessibilityLabel("角度加 0.1 度")
       TextField("角度", text: $angleText)
         .textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing)
@@ -60,12 +72,26 @@ struct CropControlsView: View {
         Image(systemName: "arrow.counterclockwise")
       }.help("重置裁剪：恢复完整照片与 0° 角度").accessibilityLabel("重置裁剪")
       Spacer(minLength: 4)
-      Button("取消") { model.cancelCrop() }.fixedSize().help("取消本次裁剪 · Esc")
-      Button("完成") {
-        if angleFocused { commitAngle() }
-        model.commitCrop()
+      if model.cropReviewAvailable && !model.pendingAutoCropFrameIDs.isEmpty {
+        Text("待检查 \(model.pendingAutoCropFrameIDs.count) 张")
+          .font(.caption).foregroundStyle(.secondary).fixedSize()
+        Toggle("仅看待检查", isOn: $model.reviewOnlyPendingCrops)
+          .toggleStyle(.checkbox).fixedSize()
+          .help("缩略图和左右方向键只显示待检查照片")
       }
-      .fixedSize().buttonStyle(.borderedProminent).help("保存当前照片裁剪 · Enter")
+      Button("取消") { model.cancelCrop() }.fixedSize().help("取消本次裁剪 · Esc")
+      Button(model.cropReviewAvailable && !model.pendingAutoCropFrameIDs.isEmpty ? "确认并下一张" : "完成") {
+        if angleFocused { commitAngle() }
+        if model.cropReviewAvailable && !model.pendingAutoCropFrameIDs.isEmpty {
+          model.confirmCropAndAdvance()
+        } else {
+          model.commitCrop()
+        }
+      }
+      .fixedSize().buttonStyle(.borderedProminent)
+      .help(model.cropReviewAvailable && !model.pendingAutoCropFrameIDs.isEmpty
+        ? "保存当前裁剪、清除待检查标记并前往下一张"
+        : "保存当前照片裁剪 · Enter")
     }
     .disabled(model.isLoading || model.sourceWidth == 0 || model.sourceHeight == 0)
     .controlSize(.small)
@@ -78,7 +104,8 @@ struct CropControlsView: View {
 
   private func currentDraft() -> FrameCrop {
     model.displayedCropDraft
-      ?? FrameCrop(portrait: model.displayHeight > model.displayWidth, geometryVersion: 1)
+      ?? FrameCrop(aspect: .free, geometryVersion: 1,
+        freeRatio: Double(max(1, model.displayWidth)) / Double(max(1, model.displayHeight)))
   }
   private func setAngle(_ value: Double) {
     guard value.isFinite else { return }
@@ -90,7 +117,8 @@ struct CropControlsView: View {
   private func nudgeAngle(_ delta: Double) {
     if angleFocused { commitAngle() }
     angleFocused = false
-    setAngle(angle + delta)
+    model.nudgeCropAngle(delta)
+    refreshAngleText()
   }
   private func commitAngle() {
     guard model.isCropping else { return }

@@ -8,6 +8,7 @@ struct EditorView: View {
   @State private var resetToken = 0
   @State private var viewportMode: PreviewViewportMode? = .fit
   @State private var showPreviewLoadingHint = false
+  @State private var showAutoCropDialog = false
   private let accent = Color(red: 0.84, green: 0.71, blue: 0.44)
   var body: some View {
     VStack(spacing: 0) {
@@ -82,6 +83,9 @@ struct EditorView: View {
       Button("好", role: .cancel) { model.errorMessage = nil }
     } message: {
       Text(model.errorMessage ?? "")
+    }
+    .sheet(isPresented: $showAutoCropDialog) {
+      AutoCropDialogView(model: model, isPresented: $showAutoCropDialog)
     }
     .sheet(item: $model.matrixManager) { kind in MatrixManagerView(model: model, kind: kind) }
     .sheet(isPresented: $model.showExportSummary) { ExportSummaryView(model: model) }
@@ -166,19 +170,24 @@ struct EditorView: View {
     HStack {
       Text(model.activeFrame?.filename ?? "预览").font(
         .system(size: 12, weight: .medium, design: .monospaced)
-      ).lineLimit(1)
+      ).lineLimit(1).truncationMode(.middle).layoutPriority(-1)
       if model.sourceWidth > 0 {
         Text("\(model.displayWidth) × \(model.displayHeight)").font(.caption2).foregroundStyle(
           .tertiary)
       }
       Spacer()
       HStack(spacing: 4) {
+        Button { showAutoCropDialog = true } label: {
+          PreviewToolLabel { Label("自动裁切", systemImage: "viewfinder") }
+        }.buttonStyle(.plain).fixedSize()
+          .disabled(!model.canStartAutoCrop)
+          .help("设置并分析整卷自动裁切")
         Button { model.beginCrop() } label: {
           PreviewToolLabel(selected: model.isCropping) {
             Label("裁剪", systemImage: "crop")
           }
-        }.buttonStyle(.plain)
-          .disabled(!model.hasImage || model.isCropping)
+        }.buttonStyle(.plain).fixedSize()
+          .disabled(!model.hasImage || model.isCropping || model.isAutoCropping)
           .help("裁剪与精细角度 · R")
         PreviewToolMenu(title: "方向") {
           Button("顺时针 90°") { model.changeOrientation(.rotateClockwise) }
@@ -417,7 +426,7 @@ struct EditorView: View {
           "\(model.project?.frames.count ?? 0) 张 · 已选 \(model.selection.selectedFrameIDs.count) 张"
         ).font(.caption2).foregroundStyle(.secondary)
         Spacer()
-        if let snapshot = model.snapshot {
+        if let snapshot = model.snapshot, !model.isAutoCropping {
           Text("已复制调色：\(snapshot.sourceName)").font(.caption2).foregroundStyle(accent)
         }
         Button("同步…") { model.beginSync() }
@@ -450,7 +459,7 @@ struct EditorView: View {
       ScrollViewReader { proxy in
         ScrollView(.horizontal) {
           LazyHStack(spacing: 8) {
-            ForEach(Array((model.project?.frames ?? []).enumerated()), id: \.element.id) {
+            ForEach(visibleFilmstripFrames, id: \.element.id) {
               index, frame in
               if frame.isMissing {
                 thumbnail(frame, index: index).id(frame.id).contextMenu {
@@ -495,6 +504,12 @@ struct EditorView: View {
       }
     }.padding(.horizontal, 14).padding(.vertical, 10)
   }
+  private var visibleFilmstripFrames: [(offset: Int, element: FrameRecord)] {
+    let frames = Array((model.project?.frames ?? []).enumerated())
+    guard model.isCropping && model.reviewOnlyPendingCrops else { return frames }
+    return frames.filter { model.pendingAutoCropFrameIDs.contains($0.element.id) }
+  }
+
   private func thumbnail(_ frame: FrameRecord, index: Int) -> some View {
     let active = frame.id == model.selection.activeFrameID
     let selected = model.selection.selectedFrameIDs.contains(frame.id)
@@ -511,11 +526,14 @@ struct EditorView: View {
             Text(String(format: "%02d", index + 1)).font(.system(size: 9, design: .monospaced))
               .padding(3).background(.black.opacity(0.65))
             Spacer()
-            if frame.adjustments != FrameAdjustments() || frame.orientation != .identity || frame.crop != nil {
+          }
+          Spacer()
+          if frame.adjustments != FrameAdjustments() || frame.orientation != .identity || frame.crop != nil {
+            HStack {
+              Spacer()
               Circle().fill(accent).frame(width: 5, height: 5).padding(5)
             }
           }
-          Spacer()
         }
       }.frame(width: 124, height: 78).clipped()
       Text(frame.filename).font(.system(size: 9, design: .monospaced)).lineLimit(1).frame(
@@ -526,5 +544,66 @@ struct EditorView: View {
     ).cornerRadius(5).opacity(frame.isMissing ? 0.4 : 1).accessibilityElement(children: .ignore)
       .accessibilityLabel("\(frame.filename)\(active ? "，当前照片":"")\(selected ? "，已选中":"")")
       .accessibilityAddTraits(.isButton)
+  }
+}
+
+private struct AutoCropDialogView: View {
+  @ObservedObject var model: EditorModel
+  @Binding var isPresented: Bool
+  @State private var preserveExisting = true
+  @State private var inwardPercent = 0
+  @State private var started = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      Text("自动裁切").font(.title3.weight(.semibold))
+
+      Toggle("保留已裁切", isOn: $preserveExisting)
+        .toggleStyle(.checkbox)
+        .disabled(model.isAutoCropping)
+
+      Picker("每边内收", selection: $inwardPercent) {
+        ForEach(0...5, id: \.self) { percent in
+          Text("\(percent)%").tag(percent)
+        }
+      }
+      .pickerStyle(.menu)
+      .disabled(model.isAutoCropping)
+
+      if model.isAutoCropping {
+        VStack(alignment: .leading, spacing: 8) {
+          ProgressView()
+          Text(model.autoCropProgressText)
+            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        }
+      }
+
+      HStack {
+        if model.isAutoCropping {
+          Button("取消分析") {
+            started = false
+            model.cancelAutoCrop()
+          }
+        } else {
+          Button("取消") { isPresented = false }.keyboardShortcut(.cancelAction)
+        }
+        Spacer()
+        Button("开始") {
+          started = true
+          model.startAutoCrop(preserveExisting: preserveExisting, inwardPercent: Double(inwardPercent))
+        }
+        .buttonStyle(.borderedProminent)
+        .keyboardShortcut(.defaultAction)
+        .disabled(model.isAutoCropping)
+      }
+    }
+    .padding(22).frame(width: 300)
+    .interactiveDismissDisabled(model.isAutoCropping)
+    .onChange(of: model.autoCropCompletedRun) { _, _ in
+      guard started else { return }
+      started = false
+      isPresented = false
+      if !model.pendingAutoCropFrameIDs.isEmpty { model.reviewAutoCrops() }
+    }
   }
 }

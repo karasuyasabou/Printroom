@@ -1,0 +1,5 @@
+numpy==2.3.5
+scipy==1.18.1
+pillow>=11
+opencv-python-headless==5.0.0.93
+tifffile==2026.9.15

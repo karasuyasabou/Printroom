@@ -86,6 +86,10 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
       modifiers.intersection([.command, .control]).isEmpty {
       if model.isCropping {
         guard modifiers.isEmpty else { model.stopTimingKey(); return true }
+        if adjustmentKey == "q" || adjustmentKey == "e" {
+          model.nudgeCropAngle(adjustmentKey == "q" ? -0.1 : 0.1)
+          return true
+        }
         let nudge: (Double, Double)? = switch adjustmentKey {
         case "w": (0, -0.003)
         case "s": (0, 0.003)

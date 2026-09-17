@@ -30,6 +30,16 @@ import SwiftUI
     window.makeKeyAndOrderFront(nil)
     if !CommandLine.arguments.contains("--layout-only") { NSApp.activate() }
     defer { window.orderOut(nil) }
+    if CommandLine.arguments.contains("--autocrop") {
+      guard let assets = model.assets else { throw PrintroomError.invalid("QA assets unavailable") }
+      try? FileManager.default.removeItem(at: output.appendingPathComponent("roll/03-lowcontrast.tiff"))
+      try TIFFCodec.write(url: output.appendingPathComponent("roll/03-lowcontrast.tiff"),
+        width: 1600, height: 1066, profile: assets.profile) { rows in
+        [UInt16](repeating: 32000, count: rows.count * 1600 * 3)
+      }
+    } else {
+      try? FileManager.default.removeItem(at: output.appendingPathComponent("roll/03-lowcontrast.tiff"))
+    }
     model.open(output.appendingPathComponent("roll/01-original.tiff"))
 
     func settle() async throws { try await Task.sleep(for: .milliseconds(350)) }
@@ -116,6 +126,53 @@ import SwiftUI
       try process.run()
       process.waitUntilExit()
       guard process.terminationStatus == 0 else { throw PrintroomError.invalid("Crop QA screenshot failed") }
+    }
+
+    if CommandLine.arguments.contains("--autocrop") {
+      window.setContentSize(NSSize(width: 1060, height: 720))
+      try await capture("auto-01-before")
+      model.startAutoCrop()
+      try await capture("auto-02-progress")
+      for _ in 0..<1200 {
+        if !model.isAutoCropping { break }
+        try await Task.sleep(for: .milliseconds(100))
+      }
+      precondition(!model.isAutoCropping)
+      try await ready()
+      precondition(model.project!.frames.allSatisfy { $0.crop?.aspect == .free })
+      precondition(model.pendingAutoCropFrameIDs.count == 1)
+      try await capture("auto-03-complete")
+      let crops = model.project!.frames.map(\.crop)
+      model.undo()
+      precondition(model.project!.frames.allSatisfy { $0.crop == nil })
+      model.redo()
+      precondition(model.project!.frames.map(\.crop) == crops)
+      model.reviewAutoCrops()
+      try await ready()
+      precondition(model.isCropping && model.reviewOnlyPendingCrops)
+      precondition(model.activeFrame!.filename == "03-lowcontrast.tiff")
+      try await capture("auto-04-review-minimum")
+      model.reviewOnlyPendingCrops = false
+      model.select(model.project!.frames[0].id)
+      try await ready()
+      let before = model.cropDraftGeometry!
+      let rect = canvas.cropRect!
+      drag(CGPoint(x: rect.maxX, y: rect.midY), CGPoint(x: rect.maxX - 36, y: rect.midY))
+      let after = model.cropDraftGeometry!
+      precondition(after.outputWidth < before.outputWidth)
+      precondition(after.outputHeight == before.outputHeight)
+      try await capture("auto-05-free-edge")
+      model.reviewAutoCrops()
+      try await ready()
+      model.confirmCropAndAdvance()
+      try await ready()
+      precondition(model.pendingAutoCropFrameIDs.isEmpty && !model.reviewOnlyPendingCrops)
+      precondition(model.flushSave())
+      let reopened = try ProjectStore.open(folder: output.appendingPathComponent("roll"))
+      precondition(reopened.frames == model.project!.frames)
+      try await capture("auto-06-reviewed")
+      print("PASS: native auto crop, review badges/filter/confirm, free independent edge, batch undo/redo and reopen at 1060x720")
+      return
     }
 
     if CommandLine.arguments.contains("--transition-only") {

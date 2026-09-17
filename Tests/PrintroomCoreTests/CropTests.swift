@@ -11,6 +11,122 @@ final class CropTests: XCTestCase {
     })
   }
 
+  func testLegacyFixedCropDecodesWithoutFreeRatioAndKeepsItsGeometry() throws {
+    let legacy = Data(#"{"geometryVersion":2,"aspect":"3:2","portrait":false,"centerX":0.5,"centerY":0.5,"width":0.5,"angleDegrees":0}"#.utf8)
+    let decoded = try JSONDecoder().decode(FrameCrop.self, from: legacy)
+    XCTAssertNil(decoded.freeRatio)
+    XCTAssertEqual(decoded, FrameCrop(width: 0.5))
+    let fit = try CropGeometry(crop: decoded, sourceWidth: 120, sourceHeight: 80)
+    XCTAssertEqual(fit.rect, CGRect(x: 30, y: 20, width: 60, height: 40))
+  }
+
+  func testFreeCropIntegerSamplesAndStableRepeatedFit() throws {
+    let input = ramp(width: 120, height: 80)
+    var crop = FrameCrop(aspect: .free, width: 0.625, freeRatio: 75.0 / 43)
+    let geometry = try CropGeometry(crop: crop, sourceWidth: 120, sourceHeight: 80)
+    XCTAssertEqual(geometry.outputWidth, 75)
+    XCTAssertEqual(geometry.outputHeight, 43)
+    let rendered = try geometry.render(input)
+    let left = Int(geometry.rect.minX), top = Int(geometry.rect.minY)
+    for y in 0..<43 {
+      for x in 0..<75 {
+        XCTAssertEqual(rendered.pixels[y * 75 + x], input.pixels[(top + y) * 120 + left + x])
+      }
+    }
+    crop = try XCTUnwrap(geometry.crop)
+    for _ in 0..<100 {
+      let fitted = try crop.constrained(sourceWidth: 120, sourceHeight: 80)
+      XCTAssertEqual(fitted, crop)
+      crop = fitted
+    }
+  }
+
+  func testFreeCropD4RoundTripsPreserveSourceRegionAndDimensions() throws {
+    for angle in [-7.31, 0, 8.25] {
+      let crop = try FrameCrop(aspect: .free, centerX: 0.45, centerY: 0.55,
+        width: 0.625, angleDegrees: angle, freeRatio: 75.0 / 43)
+        .constrained(sourceWidth: 120, sourceHeight: 80)
+      for orientation in FrameOrientation.allCases {
+        let display = try crop.displayCoordinates(sourceWidth: 120, sourceHeight: 80,
+          orientation: orientation)
+        let roundTrip = try display.sourceCoordinates(sourceWidth: 120, sourceHeight: 80,
+          orientation: orientation)
+        XCTAssertEqual(roundTrip.width, crop.width, accuracy: 1e-12)
+        XCTAssertEqual(roundTrip.ratio, crop.ratio, accuracy: 1e-12)
+        XCTAssertEqual(roundTrip.centerX, crop.centerX, accuracy: 1e-12)
+        XCTAssertEqual(roundTrip.centerY, crop.centerY, accuracy: 1e-12)
+        XCTAssertEqual(roundTrip.angleDegrees, crop.angleDegrees)
+        let geometry = try CropGeometry(crop: crop, sourceWidth: 120, sourceHeight: 80,
+          orientation: orientation)
+        XCTAssertEqual(geometry.outputWidth, orientation.swapsAxes ? 43 : 75)
+        XCTAssertEqual(geometry.outputHeight, orientation.swapsAxes ? 75 : 43)
+        for x in [0.0, Double(geometry.outputWidth)] {
+          for y in [0.0, Double(geometry.outputHeight)] {
+            let source = geometry.sourcePoint(outputX: x, outputY: y)
+            XCTAssertTrue(source.x >= -1e-9 && source.x <= 120 + 1e-9)
+            XCTAssertTrue(source.y >= -1e-9 && source.y <= 80 + 1e-9)
+          }
+        }
+      }
+    }
+  }
+
+  func testFreeCropExportRowsMatchPreviewAndOriginalCropThenD4() throws {
+    let width = 121, height = 83
+    let samples = (0..<(width * height * 3)).map { UInt16(($0 * 313 + 71) % 65536) }
+    let image = LinearImage(width: width, height: height, samples: samples)
+    let full = image.preview(maxDimension: width)
+    for angle in [0.0, -6.27, 9.13] {
+      let crop = FrameCrop(aspect: .free, centerX: 0.43, centerY: 0.61,
+        width: 75.0 / Double(width), angleDegrees: angle, freeRatio: 75.0 / 43)
+      let original = try CropGeometry(crop: crop, sourceWidth: width, sourceHeight: height)
+      let originalPixels = try original.render(full)
+      for orientation in FrameOrientation.allCases {
+        let geometry = try CropGeometry(crop: crop, sourceWidth: width, sourceHeight: height,
+          orientation: orientation)
+        let expected = try orientation.transform(originalPixels)
+        let preview = try geometry.render(full)
+        var exported = [SIMD4<Float>]()
+        for start in stride(from: 0, to: geometry.outputHeight, by: 7) {
+          let block = try geometry.renderRows(image, rows: start..<min(start + 7, geometry.outputHeight))
+          XCTAssertEqual(block.width, expected.width)
+          exported.append(contentsOf: block.pixels)
+        }
+        XCTAssertEqual(preview.width, expected.width)
+        XCTAssertEqual(preview.height, expected.height)
+        if angle == 0 { XCTAssertEqual(exported, preview.pixels) }
+        for index in exported.indices {
+          for channel in 0..<3 {
+            XCTAssertEqual(exported[index][channel], preview.pixels[index][channel], accuracy: 2e-7)
+            XCTAssertEqual(exported[index][channel], expected.pixels[index][channel], accuracy: 2e-7)
+          }
+        }
+      }
+    }
+  }
+
+  func testFreeCropFitsNearBoundaryAndSurvivesCoding() throws {
+    let crop = FrameCrop(aspect: .free, centerX: 1, centerY: 0, width: 1,
+      angleDegrees: 10, freeRatio: 1.731)
+    let fit = try crop.constrained(sourceWidth: 1200, sourceHeight: 800)
+    let data = try JSONEncoder().encode(fit)
+    XCTAssertEqual(try JSONDecoder().decode(FrameCrop.self, from: data), fit)
+    for _ in 0..<100 {
+      XCTAssertEqual(try fit.constrained(sourceWidth: 1200, sourceHeight: 800), fit)
+    }
+    let geometry = try CropGeometry(crop: fit, sourceWidth: 1200, sourceHeight: 800)
+    for x in [0.0, Double(geometry.outputWidth)] {
+      for y in [0.0, Double(geometry.outputHeight)] {
+        let source = geometry.sourcePoint(outputX: x, outputY: y)
+        XCTAssertTrue(source.x >= -1e-9 && source.x <= 1200 + 1e-9)
+        XCTAssertTrue(source.y >= -1e-9 && source.y <= 800 + 1e-9)
+      }
+    }
+    for invalid in [0, -1, Double.infinity, Double.nan] {
+      XCTAssertThrowsError(try FrameCrop(aspect: .free, freeRatio: invalid).validate())
+    }
+  }
+
   func testFullImageKeepsEveryOriginalSampleForAllDirections() throws {
     let input = ramp(width: 12, height: 8)
     for orientation in FrameOrientation.allCases {
@@ -337,7 +453,7 @@ final class CropTests: XCTestCase {
     let migrated = try ProjectStore.open(folder: folder)
     XCTAssertEqual(migrated.frames, project.frames)
     XCTAssertNil(migrated.frames[0].crop)
-    XCTAssertEqual(migrated.algorithmVersion, "printroom-density-v5")
+    XCTAssertEqual(migrated.algorithmVersion, algorithmVersion)
     XCTAssertEqual(migrated.schemaVersion, RollProject.currentSchemaVersion)
     XCTAssertEqual(try Data(contentsOf: settings), bytes)
     XCTAssertThrowsError(try ProjectStore.save(migrated, folder: folder, expectedModification: nil))
