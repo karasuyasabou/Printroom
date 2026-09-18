@@ -64,12 +64,8 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
       XCTAssertEqual(
         SHA256.hash(data: converter.outputProfile).map { String(format: "%02x", $0) }.joined(),
         profile.profileSHA256)
-      if profile == .p3 {
-        XCTAssertEqual(converted.pixels, colors)
-        XCTAssertEqual(converter.outputProfile, sourceData)
-      } else {
-        XCTAssertGreaterThan(abs(converted.pixels[1].x - 0.5), 0.04, "Must convert, not relabel")
-      }
+      XCTAssertGreaterThan(abs(converted.pixels[1].x - 0.5), profile == .rec2020 ? 0.02 : 0.04,
+                           "Must convert, not relabel")
       var maximum: Float = 0
       for (index, color) in colors.enumerated() {
         let original = try XCTUnwrap(
@@ -244,6 +240,8 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
     }
     let original = try Data(contentsOf: source)
     var project = try ProjectStore.open(folder: folder)
+    // The independent affine/density reference assumes no calibration matrices.
+    project.calibration = FilmCalibration()
     let lut = try identityLUT()
     let engine = ExportEngine(useCPUReference: true)
     for angle in [0.0, 6.73] {
@@ -496,6 +494,10 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
     let adobe = rows(
       SIMD3(0.5767309, 0.1855540, 0.1881852),
       SIMD3(0.2973769, 0.6273491, 0.0752741), SIMD3(0.0270343, 0.0706872, 0.9911085))
+    let rec2020 = rows(
+      SIMD3(0.6369580483, 0.1446169036, 0.1688809752),
+      SIMD3(0.2627002120, 0.6779980715, 0.0593017165),
+      SIMD3(0, 0.0280726930, 1.0609850577))
     let proPhotoD50 = rows(
       SIMD3(0.7976749, 0.1351917, 0.0313534),
       SIMD3(0.2880402, 0.7118741, 0.0000857), SIMD3(0, 0, 0.82521))
@@ -503,7 +505,7 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
       SIMD4(0.02, 0.03, 0.01, 1), SIMD4(0.9, 0.1, 0.3, 1),
       SIMD4(0.1, 0.8, 0.2, 1), SIMD4(0.2, 0.3, 0.9, 1), SIMD4(1, 1, 1, 1),
     ]
-    for profile in OutputColorProfile.allCases where profile != .p3 {
+    for profile in OutputColorProfile.allCases {
       let actual = try OutputColorConverter(p3Profile: p3(), output: profile).convert(
         PixelBuffer(width: colors.count, height: 1, pixels: colors))
       var maxError: Double = 0
@@ -513,19 +515,20 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
         let linear: SIMD3<Double>
         switch profile {
         case .sRGB: linear = sRGB.inverse * p3D65 * sourceLinear
+        case .displayP3: linear = sourceLinear
+        case .rec2020: linear = rec2020.inverse * p3D65 * sourceLinear
         case .adobeRGB: linear = adobe.inverse * p3D65 * sourceLinear
         case .proPhoto: linear = proPhotoD50.inverse * bradford * p3D65 * sourceLinear
-        case .p3: fatalError()
         }
         for channel in 0..<3 {
           let value = max(0, linear[channel])
           let encoded: Double
           switch profile {
-          case .sRGB:
+          case .sRGB, .displayP3:
             encoded = value <= 0.0031308 ? 12.92 * value : 1.055 * pow(value, 1 / 2.4) - 0.055
+          case .rec2020: encoded = pow(value, 1 / 2.4)
           case .adobeRGB: encoded = pow(value, 1 / (563.0 / 256))
           case .proPhoto: encoded = value < 1.0 / 512 ? value * 16 : pow(value, 1 / 1.8)
-          case .p3: fatalError()
           }
           let error = abs(min(1, max(0, Double(actual.pixels[index][channel]))) - min(1, encoded))
           maxError = max(maxError, error)
@@ -542,7 +545,7 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
       XCTAssertThrowsError(
         try OutputColorConverter(p3Profile: p3(), output: profile).quantized(input))
     }
-    XCTAssertThrowsError(try OutputColorConverter(p3Profile: Data([0]), output: .p3))
+    XCTAssertThrowsError(try OutputColorConverter(p3Profile: Data([0]), output: .displayP3))
   }
 
   func testGrayTransferAgainstIndependentAnalyticDefinitions() throws {
@@ -556,9 +559,9 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
         let linear = pow(Double(level), 2.600006103515625)
         let expected: Double
         switch profile {
-        case .p3: expected = Double(level)
-        case .sRGB:
+        case .sRGB, .displayP3:
           expected = linear <= 0.0031308 ? 12.92 * linear : 1.055 * pow(linear, 1 / 2.4) - 0.055
+        case .rec2020: expected = pow(linear, 1 / 2.4)
         case .adobeRGB: expected = pow(linear, 1 / (563.0 / 256))
         case .proPhoto:
           expected = linear < 1.0 / 512 ? 16 * linear : pow(linear, 1 / 1.8000030517578125)

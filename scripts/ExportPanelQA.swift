@@ -123,7 +123,7 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
     model.select(frames[1].id)
     model.select(frames[0].id, command: true)
     let confirms: [(String, ProjectExportSettings, Set<UUID>, () -> Void)] = [
-      ("04-current-p3", .init(profile: .p3, compression: .none), [frames[1].id], { self.model.exportPanel() }),
+      ("04-current-display-p3", .init(profile: .displayP3, compression: .none), [frames[1].id], { self.model.exportPanel() }),
       ("05-current-srgb", .init(profile: .sRGB, compression: .deflate), [frames[1].id], { self.model.exportPanel() }),
       ("06-selected-adobe", .init(profile: .adobeRGB, compression: .none), selectedIDs,
         { self.model.batchExportPanel(allFrames: false) }),
@@ -257,18 +257,18 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
         try require(options.settings == defaults, "\(name): initial ICC / default ZIP not loaded")
         try require(options.filenamePrefix == "roll", "Default prefix uses roll folder")
         options.prefixField.stringValue = name
-        try require(options.profilePopUp.itemTitles == OutputColorProfile.allCases.map(\.label), "Four ICC choices")
+        try require(options.profilePopUp.itemTitles == OutputColorProfile.selectable.map(\.label), "Five ICC choices")
         try require(options.compressionPopUp.itemTitles == ["无压缩", "ZIP"], "Two compression choices")
         try capture(panel, suffix: "initial")
-        for profileIndex in OutputColorProfile.allCases.indices {
+        for profileIndex in OutputColorProfile.selectable.indices {
           for compressionIndex in TIFFCompression.allCases.indices {
             options.profilePopUp.selectItem(at: profileIndex)
             options.compressionPopUp.selectItem(at: compressionIndex)
-            try require(options.settings.profile == OutputColorProfile.allCases[profileIndex]
+            try require(options.settings.profile == OutputColorProfile.selectable[profileIndex]
               && options.settings.compression == TIFFCompression.allCases[compressionIndex], "Option selection mapping")
           }
         }
-        options.profilePopUp.selectItem(at: OutputColorProfile.allCases.firstIndex(of: chosen.profile)!)
+        options.profilePopUp.selectItem(at: OutputColorProfile.selectable.firstIndex(of: chosen.profile)!)
         options.compressionPopUp.selectItem(at: TIFFCompression.allCases.firstIndex(of: chosen.compression)!)
         try require(options.settings == chosen, "\(name): draft settings mismatch")
         if confirm && !(panel is NSOpenPanel) {

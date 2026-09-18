@@ -185,6 +185,7 @@ final class MatrixTests: XCTestCase {
   func testSchemaThreeMigrationKeepsPictureAndBacksUpBeforeOverwrite() throws {
     let root = try folder()
     var project = RollProject()
+    project.calibration = FilmCalibration()
     let encoder = JSONEncoder()
     var json = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(project)) as? [String:Any])
     json["schemaVersion"] = 3; json["algorithmVersion"] = "printroom-density-v2"
@@ -206,7 +207,8 @@ final class MatrixTests: XCTestCase {
     var broken = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String:Any])
     var fields = try XCTUnwrap(broken["calibration"] as? [String:Any]); fields.removeValue(forKey: "cmosMatrix"); broken["calibration"] = fields
     try JSONSerialization.data(withJSONObject: broken).write(to: url)
-    XCTAssertThrowsError(try ProjectStore.open(folder: root))
+    let repaired = try ProjectStore.open(folder: root)
+    XCTAssertEqual(repaired.calibration.cmosMatrix, repaired.calibration.matrix)
   }
   func testCustomMatricesCPUAndMetalStagesAndCacheInvalidation() throws {
     let gpu = try MetalPipeline(), session = gpu.makeSession(), cube = try lut()

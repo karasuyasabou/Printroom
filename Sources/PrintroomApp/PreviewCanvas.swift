@@ -30,7 +30,7 @@ struct PreviewCanvas: NSViewRepresentable {
     view.needsDisplay = true
     view.scheduleDetail()
     // Hit-testing can ask SwiftUI to lay out overlays; do it after this update finishes.
-    Task { @MainActor [weak view] in view?.refreshCursor() }
+    Task { @MainActor [weak view] in view?.refreshCursor(); view?.refreshHistogramProbe() }
   }
 }
 @MainActor final class CanvasView: NSView {
@@ -47,6 +47,7 @@ struct PreviewCanvas: NSViewRepresentable {
   var previous: CGPoint?
   var selectionRect: CGRect?
   var cropGesture: CropGesture?
+  private(set) var isPanning = false
   private var cursorTrackingArea: NSTrackingArea?
   // Draw an outlined pipette with an exact tip/hotspot, visible on light and dark photos.
   static let neutralCursor: NSCursor = {
@@ -93,6 +94,7 @@ struct PreviewCanvas: NSViewRepresentable {
     NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
   }
   func cancelGesture() {
+    isPanning = false
     start = nil
     previous = nil
     selectionRect = nil
@@ -247,6 +249,7 @@ struct PreviewCanvas: NSViewRepresentable {
   }
   override func mouseDragged(with event: NSEvent) {
     guard let start, model?.cropPreviewTransition == nil else { return }
+    model?.clearHistogramProbe()
     let p = convert(event.locationInWindow, from: nil)
     guard bounds.contains(p) else {
       // Pause outside; re-entry must not accumulate an off-viewport pan delta.
@@ -261,6 +264,8 @@ struct PreviewCanvas: NSViewRepresentable {
         height: abs(start.y - p.y)
       ).intersection(imageRect).intersection(bounds)
     } else if model?.neutralPicking != true, let previous {
+      isPanning = true
+      refreshCursor()
       pan.x += p.x - previous.x
       pan.y += p.y - previous.y
     }
@@ -270,10 +275,13 @@ struct PreviewCanvas: NSViewRepresentable {
   }
   override func mouseUp(with event: NSEvent) {
     defer {
+      isPanning = false
       start = nil
       previous = nil
       selectionRect = nil
       cropGesture = nil
+      refreshCursor()
+      refreshHistogramProbe()
       needsDisplay = true
     }
     guard start != nil, let model, model.cropPreviewTransition == nil, model.sourceWidth > 0, model.sourceHeight > 0 else { return }
@@ -318,6 +326,7 @@ struct PreviewCanvas: NSViewRepresentable {
     cancelGesture()
     zoom = max(0.25, min(16, zoom * (1 + event.magnification)))
     scheduleDetail()
+    refreshHistogramProbe()
     needsDisplay = true
   }
   override func scrollWheel(with event: NSEvent) {
@@ -335,6 +344,7 @@ struct PreviewCanvas: NSViewRepresentable {
       pan.y += event.scrollingDeltaY
     }
     scheduleDetail()
+    refreshHistogramProbe()
     needsDisplay = true
   }
   override func updateTrackingAreas() {
@@ -369,7 +379,21 @@ struct PreviewCanvas: NSViewRepresentable {
       if handle.x != 0 { return .resizeLeftRight }
       if handle.y != 0 { return .resizeUpDown }
     }
-    return .openHand
+    return isPanning ? .closedHand : .arrow
+  }
+  func refreshHistogramProbe() {
+    guard let model else { return }
+    guard let window, window.isKeyWindow, window.attachedSheet == nil,
+      NSApp.modalWindow == nil, !isPanning, start == nil else {
+      model.clearHistogramProbe(); return
+    }
+    let p = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+    let rect = imageRect
+    guard bounds.contains(p), rect.contains(p), rect.width > 0, rect.height > 0,
+      !isOverHistogram(p) else { model.clearHistogramProbe(); return }
+    model.probeHistogram(
+      displayX: Int((p.x - rect.minX) / rect.width * displaySize.width),
+      displayY: Int((p.y - rect.minY) / rect.height * displaySize.height))
   }
   func refreshCursor() {
     // SwiftUI overlay backgrounds can hit either the canvas or a shared graphics
@@ -381,9 +405,10 @@ struct PreviewCanvas: NSViewRepresentable {
     cursor(at: point).set()
   }
   override func cursorUpdate(with event: NSEvent) { refreshCursor() }
-  override func mouseEntered(with event: NSEvent) { refreshCursor() }
-  override func mouseMoved(with event: NSEvent) { refreshCursor() }
+  override func mouseEntered(with event: NSEvent) { refreshCursor(); refreshHistogramProbe() }
+  override func mouseMoved(with event: NSEvent) { refreshCursor(); refreshHistogramProbe() }
   override func mouseExited(with event: NSEvent) {
+    model?.clearHistogramProbe()
     NSCursor.arrow.set()
   }
 }

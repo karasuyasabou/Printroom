@@ -1,5 +1,9 @@
 # 阶段计划
 
+## 调色滑杆双击复位（2026-09-19，源码完成，未打包）
+
+全部调色滑杆配置双击复位，具体默认值见interaction.md。修复自定义双击路径及绑定回写后的原生滑块重绘。`scripts/test.sh --filter 'AdjustmentSliderTests|SimpleTimingEditingTests|EditorIntegrationTests.testSliderGestureIsSingleUndoAndMasterKeysHaveOppositeDirections'`在沙盒外5项通过，覆盖原生双击事件的参数/滑块值/重绘、禁用保护、简易整数格点/范围及既有撤销流程；日志`/tmp/printroom-slider-tests.log`。首轮测试缺少AppKit测试窗口/应用初始化且沙盒内Metal资源不可用，补齐测试窗口后在沙盒外通过。真实窗口人工双击观感尚未验收。按用户要求不打包。
+
 状态日期：2026-09-09。用户确认目前要求均已实现，后续等待新需求；历史未执行验证仍按原记录保留。当前统一交付 `output/Printroom.app`，每次覆盖，不再保留版本后缀包。历史临时测试产物已清理，下文路径仅记录当时证据。
 
 当前交付 0.3.11（直方图折叠，见文末）；0.3.9：矩阵应用自动联动片基，见文末。以下为历史 0.3.3 功能基础：Final 中性点后台求解，尽量保持最终亮度；包含既有统一快捷键、Option 反差、直方图同步发布、缓存渐进预览与界面精简。密度算法 printroom-density-v2，裁剪几何版本 2，项目 schema 3。历史交付证据保留在下文。
@@ -339,3 +343,63 @@ LUT选择和框选片基按钮移至各自标题右侧，小幅缩小分组及�
 ## 0.3.40 自动裁切设置与检查流程（2026-09-17）
 
 独立自动裁切入口、常驻进度对话框、保留全部已有裁切、每边0–5%内收、完成后自动进入待检查，以及裁切栏内检查控件已实现。首尾帧须四边均通过支持度阈值，其他算法契约保持。最终验证与固定应用包状态见acceptance-0.3.40.md。
+
+## 0.3.41 Neutral（2026-09-18）
+
+已原样加入用户提供的 Neutral LUT，支持现有逐帧选择、保存、同步与导出。针对性数值/模型/合成 TIFF 回读及 release 资源、Metal、签名验证通过，固定应用包已更新；真实照片观感待用户试用。范围和缺失历史 TIFF 的限制见 [acceptance-0.3.41.md](acceptance-0.3.41.md)。
+
+## 0.3.42 编辑器滚动条（2026-09-18）
+
+Filmstrip 与调色面板改为自动隐藏浮动滚动条，修正 Filmstrip 高度挤压。macOS 27上40张合成缩略图、最小和较大窗口验证、release资源/Metal/签名通过，固定应用已更新。旧系统与实际触控板手感待试用，见 [acceptance-0.3.42.md](acceptance-0.3.42.md)。
+
+## 0.3.43 相对尺寸中性点吸管（2026-09-18）
+
+已按用户确认将吸管方形范围改为原片长边0.8%，TIFF/RAW共用未调色预览网格。相关数值、坐标、撤销与异步保护测试通过；release资源、Metal和签名验证后更新固定应用。真实照片观感待试用，测试跳过与取整边界见[acceptance-0.3.43.md](acceptance-0.3.43.md)。
+
+## 0.3.44 移除 Neutral（2026-09-18）
+
+按用户要求移除 Neutral 选项与运行资源，保留原始资产。旧 Neutral 项目回退 Kodak 2383，并在首次保存前备份。针对性7项测试通过；固定应用包状态见 [acceptance-0.3.44.md](acceptance-0.3.44.md)。
+
+
+## 0.3.45 画布指针与直方图悬停（2026-09-18）
+
+已按用户确认实现箭头/拖动抓手，以及0.8%长边邻域的RGB中位数标记，跟随直方图阶段与已显示参数快照。相关测试、窗口验证及固定应用打包状态见[验收记录](acceptance-0.3.45.md)。算法v6、schema7保持。
+
+0.3.45 构建2：按反馈减弱直方图标记，样式及验证见本版验收补记；release窗口检查与资源/签名通过，固定应用已更新。
+
+0.3.45 构建3（2026-09-19）：在RGB标记线与对应曲线交点增加小圆点。Final/Density窗口截图及交互检查、release资源与签名验证通过，固定应用已更新；实际照片观感待用户确认。
+
+
+## 0.3.46 默认设置与关闭（2026-09-19）
+
+新卷矩阵、关闭退出与自动裁切默认值已实现并交付。针对性测试、release资源与签名验证通过；真实界面点击和用户观感待验收，见 [验收记录](acceptance-0.3.46.md)。
+
+
+## 裁切检查回车键（2026-09-19，源码完成，未打包）
+
+回车与裁切栏主按钮共用操作，检查流程按interaction.md执行。按用户要求本轮不打包，output/Printroom.app仍为0.3.46。
+
+`scripts/test.sh --filter 'EditorKeyboardRoutingTests|AutoCropEditingTests'`：15项通过，覆盖Return/数字键盘Enter、文本焦点、重复键抑制、下一张及最后一张结束检查。日志：/tmp/printroom-crop-return-tests.log。
+
+扩大至CropEditingTests、SelectionCropTests的31项回归中，SelectionCropTests通过；自动裁切的一项预览等待超时在上述单独复验通过，另有cropHistogramAndDetailRemainCroppedWhileBaseSamplingTemporarilyShowsFullSource的片基校准断言失败，本轮未修改该逻辑或断言。首轮沙盒内缺少Metal资源而失败，后续在沙盒外复验。扩大回归日志：/tmp/printroom-0347-tests.log。实际窗口按键尚未人工验收。
+
+
+## 0.3.47 自动裁切尺寸
+
+已加入多候选边界、片基支持及整卷尺寸共识。范围仅为尺寸检测，逐帧定位与检查保持。2026-05-15卷尺寸修正及仍存在的逐帧偏移、回归和打包证据见 [acceptance-0.3.47.md](acceptance-0.3.47.md)。
+
+
+## 中性点失败静默结束（2026-09-19，源码完成，未打包）
+
+按用户要求，吸管求解失败不再弹窗，直接结束并保留原参数、撤销与保存状态。算法与项目版本不变，交互以 interaction.md 为准。`scripts/test.sh --filter EditorRefinementTests` 在沙盒外12项全部通过，覆盖失败无弹窗/不改参数、成功撤销、取消及源变化保护；沙盒内因无法创建 Metal 上下文未通过。日志 `/tmp/printroom-neutral-no-alert-tests-unsandboxed.log`。`git diff --check` 通过。未执行真实窗口人工验收；按用户要求不打包，现有应用保持。
+
+
+## 0.3.48 自动裁切定位
+
+尺寸与定位已共用片基支持的边界评分，加入可信候选起点和定位范围约束。2026-05-15第8/9/11张、历史两卷及合成测试的证据、弱边缘验证边界与固定应用交付见[acceptance-0.3.48.md](acceptance-0.3.48.md)。
+
+## 0.3.49 五项输出色彩空间（2026-09-19）
+
+已按LRC截图对齐五个名称与顺序，新增Display P3和Rec. 2020固定ICC转换，旧P3/未知输出自动回退默认Display P3。首包27项针对性测试及release资源/Metal/签名验证通过，已覆盖固定Printroom.app。真实LRC外观对照、窗口截图及缺失参考TIFF验证边界见[验收记录](acceptance-0.3.49.md)。
+
+0.3.49构建2：按用户修正，彻底移除旧P3导出枚举；旧P3与未知输出读取时自动回退Display P3及对应SHA。28项针对性测试、release资源与签名通过，固定应用已更新；内部LUT源解释保持。

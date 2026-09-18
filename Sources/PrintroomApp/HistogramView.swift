@@ -65,6 +65,32 @@ struct HistogramView: View {
             context.fill(path, with: .color(colors[channel].opacity(0.27)))
             context.stroke(path, with: .color(colors[channel].opacity(0.85)), lineWidth: 0.7)
           }
+          if let probe = model.histogramProbe {
+            for channel in indices {
+              let position = CGFloat(min(1, max(0, probe[channel])))
+              let bins = stats.channels[channel].bins
+              let binPosition = position * CGFloat(bins.count - 1)
+              let left = Int(binPosition)
+              let right = min(left + 1, bins.count - 1)
+              let fraction = binPosition - CGFloat(left)
+              // Interpolate the displayed curve, including its vertical clipping,
+              // so each marker stops exactly at its own channel's outline.
+              let leftHeight = CGFloat(HistogramDisplayScale.heightFraction(
+                count: bins[left], upperBound: maximum))
+              let rightHeight = CGFloat(HistogramDisplayScale.heightFraction(
+                count: bins[right], upperBound: maximum))
+              let height = leftHeight + (rightHeight - leftHeight) * fraction
+              let x = position * size.width
+              var marker = Path()
+              marker.move(to: CGPoint(x: x, y: size.height))
+              marker.addLine(to: CGPoint(x: x, y: size.height * (1 - height)))
+              context.stroke(marker, with: .color(colors[channel].opacity(0.45)), lineWidth: 1)
+              let dot = Path(ellipseIn: CGRect(
+                x: x - 2.5, y: size.height * (1 - height) - 2.5, width: 5, height: 5))
+              context.fill(dot, with: .color(colors[channel]))
+              context.stroke(dot, with: .color(.white.opacity(0.65)), lineWidth: 0.75)
+            }
+          }
         }.frame(height: 78).clipped()
           .allowsHitTesting(false)
           .accessibilityLabel("整张预览直方图")
@@ -87,7 +113,7 @@ struct HistogramView: View {
     }
     .padding(10)
     .frame(width: isExpanded ? 248 : nil)
-    .background(HistogramPointerSurface())
+    .background(HistogramPointerSurface(model: model))
     .background(.black.opacity(0.58), in: RoundedRectangle(cornerRadius: 10))
     .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.12), lineWidth: 0.5))
     .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
@@ -97,11 +123,13 @@ struct HistogramView: View {
 /// Gives the entire floating panel an arrow cursor and absorbs canvas gestures
 /// in the chart's otherwise non-interactive areas. SwiftUI controls remain above it.
 struct HistogramPointerSurface: NSViewRepresentable {
+  let model: EditorModel
   func makeNSView(context: Context) -> HistogramPointerView { HistogramPointerView() }
-  func updateNSView(_ view: HistogramPointerView, context: Context) {}
+  func updateNSView(_ view: HistogramPointerView, context: Context) { view.model = model }
 }
 
 final class HistogramPointerView: NSView {
+  weak var model: EditorModel?
   private var pointerTrackingArea: NSTrackingArea?
   override func resetCursorRects() {
     addCursorRect(bounds, cursor: .arrow)
@@ -116,8 +144,8 @@ final class HistogramPointerView: NSView {
     pointerTrackingArea = area
   }
   override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
-  override func mouseEntered(with event: NSEvent) { NSCursor.arrow.set() }
-  override func mouseMoved(with event: NSEvent) { NSCursor.arrow.set() }
+  override func mouseEntered(with event: NSEvent) { model?.clearHistogramProbe(); NSCursor.arrow.set() }
+  override func mouseMoved(with event: NSEvent) { model?.clearHistogramProbe(); NSCursor.arrow.set() }
   override func mouseDown(with event: NSEvent) {}
   override func mouseDragged(with event: NSEvent) {}
   override func mouseUp(with event: NSEvent) {}

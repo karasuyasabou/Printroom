@@ -57,6 +57,24 @@ final class RollProjectTests: XCTestCase {
     return result
   }
 
+  func testNewRollMatrixDefaultsAndSavedIdentityPreserved() throws {
+    let root = try folder()
+    try source("frame.tiff", in: root)
+    var project = try ProjectStore.open(folder: root)
+    XCTAssertEqual(project.calibration.cmosMatrix, .sonyA7CII)
+    XCTAssertEqual(project.calibration.matrix, .ledLightSource)
+    XCTAssertFalse(project.calibration.isCalibrated)
+    try ProjectStore.save(project, folder: root, expectedModification: project.loadedModificationDate)
+    let reopened = try ProjectStore.open(folder: root)
+    XCTAssertEqual(reopened.calibration, project.calibration)
+    project = reopened
+    project.calibration = FilmCalibration()
+    try ProjectStore.save(project, folder: root, expectedModification: project.loadedModificationDate)
+    let identity = try ProjectStore.open(folder: root)
+    XCTAssertEqual(identity.calibration.cmosMatrix, .identity)
+    XCTAssertEqual(identity.calibration.matrix, .identity)
+  }
+
   func testDiscoveryNaturalOrderCaseInsensitiveExtensionsAndNoWrites() throws {
     let root = try folder()
     for name in ["Scan10.tiff", "scan2.TIF", "Scan1.TiFf", "notes.txt"] {

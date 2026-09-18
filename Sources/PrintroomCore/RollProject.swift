@@ -125,15 +125,15 @@ public struct ProjectInputInterpretation: Codable, Equatable, Sendable {
 
 /// Output colorspace/compression are frozen with each export request.
 public struct ProjectExportSettings: Codable, Equatable, Sendable {
-  public var profile: OutputColorProfile = .p3 {
+  public var profile: OutputColorProfile = .displayP3 {
     didSet { profileSHA256 = profile.profileSHA256 }
   }
   public var compression: TIFFCompression = .deflate
-  public var profileSHA256 = ProjectAssetIdentity.expectedICCSHA256
+  public var profileSHA256 = OutputColorProfile.displayP3.profileSHA256
   public var bitsPerSample = 16
   public var embedsICC = true
   public var dithering = false
-  public init(profile: OutputColorProfile = .p3, compression: TIFFCompression = .deflate) {
+  public init(profile: OutputColorProfile = .displayP3, compression: TIFFCompression = .deflate) {
     self.profile = profile
     self.compression = compression
     profileSHA256 = profile.profileSHA256
@@ -145,17 +145,21 @@ public struct ProjectExportSettings: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
+    let storedProfile: OutputColorProfile?
     if decoder.userInfo[migratingSchemaOne] as? Bool == true {
       guard !values.contains(.profile), !values.contains(.compression) else {
         throw ProjectStoreError.invalidProject("schema 1 含有未定义的输出设置")
       }
-      profile = .p3
+      storedProfile = nil
       compression = .none
     } else {
-      profile = try values.decode(OutputColorProfile.self, forKey: .profile)
+      let rawProfile = try values.decode(String.self, forKey: .profile)
+      storedProfile = OutputColorProfile(rawValue: rawProfile)
       compression = try values.decode(TIFFCompression.self, forKey: .compression)
     }
-    profileSHA256 = try values.decode(String.self, forKey: .profileSHA256)
+    profile = storedProfile ?? .displayP3
+    let storedHash = try values.decode(String.self, forKey: .profileSHA256)
+    profileSHA256 = storedProfile == nil ? profile.profileSHA256 : storedHash
     bitsPerSample = try values.decode(Int.self, forKey: .bitsPerSample)
     embedsICC = try values.decode(Bool.self, forKey: .embedsICC)
     dithering = try values.decode(Bool.self, forKey: .dithering)
@@ -191,7 +195,12 @@ public struct RollProject: Codable, Sendable {
     case frames, lastActiveFrameID
   }
 
-  public init() {}
+  public init() {
+    calibration.cmosMatrix = .sonyA7CII
+    calibration.matrix = .ledLightSource
+    calibration.sampledCMOSMatrix = .sonyA7CII
+    calibration.sampledDensityMatrix = .ledLightSource
+  }
 }
 
 public enum ProjectStoreError: LocalizedError, Equatable, Sendable {
@@ -333,6 +342,13 @@ public enum ProjectStore {
           let original = try Data(contentsOf: coordinated)
           let existing = try decode(original)
           guard existing.id == project.id else { throw ProjectStoreError.externalConflict }
+          let object = try JSONSerialization.jsonObject(with: original) as? [String: Any]
+          let frames = object?["frames"] as? [[String: Any]] ?? []
+          if frames.contains(where: { ($0["adjustments"] as? [String: Any])?["cineonLogLUT"] as? String == "neutral" }) {
+            let backup = coordinated.deletingLastPathComponent().appendingPathComponent(
+              ".printroom-neutral-\(UUID().uuidString).json")
+            try original.write(to: backup, options: .withoutOverwriting)
+          }
           let header = try JSONDecoder().decode(Header.self, from: original)
           if header.algorithmVersion == legacyAlgorithmVersion {
             // Preserve exact original settings before the first save under the new image behavior.

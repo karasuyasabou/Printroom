@@ -3,22 +3,27 @@ import Foundation
 import simd
 
 /// These profiles are fixed application resources, never a display profile or an
-/// OS-dependent substitute. P3 retains the user's original ICC byte for byte.
+/// OS-dependent substitute. The native LUT ICC is separate from export choices.
 public enum OutputColorProfile: String, Codable, CaseIterable, Sendable {
-  case p3, sRGB, adobeRGB, proPhoto
+  case sRGB, displayP3, adobeRGB, proPhoto, rec2020
+
+  /// User-facing order matching the export menu.
+  public static let selectable: [Self] = allCases
 
   public var label: String {
     switch self {
-    case .p3: "P3-D65 Gamma 2.6"
-    case .sRGB: "sRGB"
+    case .sRGB: "sRGB IEC61966-2.1"
+    case .displayP3: "Display P3"
+    case .rec2020: "Rec. 2020"
     case .adobeRGB: "Adobe RGB (1998)"
-    case .proPhoto: "ProPhoto RGB · D50"
+    case .proPhoto: "ProPhoto RGB"
     }
   }
 
   public var profileSHA256: String {
     switch self {
-    case .p3: "eafc15fd36e56bc496b084d3aaacbdca419e65e03fac9a1930d024b1e8d9b32b"
+    case .displayP3: "0ff6958f98684c61f6bbdce1368ddeaf3873baf84545baba482e920d92a914c0"
+    case .rec2020: "7a7306ed028c8bb967ddcaf9b609fe5ac794120fb24e3d9f6efec67d5ac9a2ab"
     case .sRGB: "2b3aa1645779a9e634744faf9b01e9102b0c9b88fd6deced7934df86b949af7e"
     case .adobeRGB: "304f569a83c1e5eddaddac54e99ed03339333db013738bb499ab64f049887e28"
     case .proPhoto: "182b9b32b503955f137f5a4a9d5dc0ce8d6cc514949a3d88dddb795ec5df08da"
@@ -27,15 +32,14 @@ public enum OutputColorProfile: String, Codable, CaseIterable, Sendable {
 
   public func profileData(p3: Data) throws -> Data {
     let data: Data
-    if self == .p3 {
-      data = p3
-    } else {
+    do {
       let name: String
       switch self {
       case .sRGB: name = "sRGB"
       case .adobeRGB: name = "AdobeRGB1998"
       case .proPhoto: name = "ProPhotoRGB"
-      case .p3: name = ""
+      case .displayP3: name = "DisplayP3"
+      case .rec2020: name = "Rec2020"
       }
       let packagedBundle = Bundle.main.resourceURL?
         .appendingPathComponent("Printroom_PrintroomCore.bundle")
@@ -65,7 +69,7 @@ public enum TIFFCompression: String, Codable, CaseIterable, Sendable {
   public var label: String { self == .none ? "无压缩" : "ZIP / Deflate（无损）" }
 }
 
-/// A matrix/TRC ICC CMM for the application's four SHA-pinned RGB profiles.
+/// A matrix/TRC ICC CMM for the application's SHA-pinned RGB profiles.
 /// It consumes the already encoded Final values, decodes the *source ICC* TRC,
 /// transforms through D50 PCS colorants, then applies the inverse destination TRC.
 /// Profile colorants already contain chromatic adaptation: never apply chad twice.
@@ -77,25 +81,19 @@ public enum TIFFCompression: String, Codable, CaseIterable, Sendable {
 public final class OutputColorConverter {
   public let outputProfile: Data
   public let profile: OutputColorProfile
-  private let source: MatrixICCProfile?
-  private let destination: MatrixICCProfile?
-  private let matrix: simd_double3x3?
+  private let source: MatrixICCProfile
+  private let destination: MatrixICCProfile
+  private let matrix: simd_double3x3
 
   public init(p3Profile: Data, output: OutputColorProfile) throws {
-    let sourceData = try OutputColorProfile.p3.profileData(p3: p3Profile)
+    let sourceData = try nativeLUTProfile(p3Profile)
     outputProfile = try output.profileData(p3: p3Profile)
     profile = output
-    if output == .p3 {
-      source = nil
-      destination = nil
-      matrix = nil
-    } else {
-      let from = try MatrixICCProfile(sourceData)
-      let to = try MatrixICCProfile(outputProfile)
-      source = from
-      destination = to
-      matrix = to.colorants.inverse * from.colorants
-    }
+    let from = try MatrixICCProfile(sourceData)
+    let to = try MatrixICCProfile(outputProfile)
+    source = from
+    destination = to
+    matrix = to.colorants.inverse * from.colorants
   }
 
   public func convert(_ final: PixelBuffer) throws -> PixelBuffer {
@@ -104,7 +102,6 @@ public final class OutputColorConverter {
       final.pixels.count == final.width * final.height,
       final.pixels.allSatisfy({ $0.x.isFinite && $0.y.isFinite && $0.z.isFinite })
     else { throw PrintroomError.invalid("输出转换输入尺寸或数值无效。") }
-    guard let source, let destination, let matrix else { return final }
     var pixels = [SIMD4<Float>]()
     pixels.reserveCapacity(final.pixels.count)
     for (index, pixel) in final.pixels.enumerated() {
@@ -146,7 +143,7 @@ struct FinalColorimetry {
   private let white: SIMD3<Double>
 
   init(p3Profile: Data) throws {
-    profile = try MatrixICCProfile(OutputColorProfile.p3.profileData(p3: p3Profile))
+    profile = try MatrixICCProfile(nativeLUTProfile(p3Profile))
     white = profile.colorants * SIMD3<Double>(repeating: 1)
   }
 
@@ -300,4 +297,13 @@ extension Data {
   fileprivate func fixed(_ offset: Int) -> Double {
     Double(Int32(bitPattern: big32(offset))) / 65536
   }
+}
+
+/// The LUT's immutable source interpretation is not an export option.
+private func nativeLUTProfile(_ data: Data) throws -> Data {
+  guard SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined()
+    == ProjectAssetIdentity.expectedICCSHA256 else {
+    throw PrintroomError.invalid("LUT 源 ICC 指纹不匹配。")
+  }
+  return data
 }

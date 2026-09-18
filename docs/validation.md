@@ -267,3 +267,22 @@ DiffuseWhiteTests覆盖两份表685 CV的ICC亮度及RGB中性、不同通道反
 ## 0.3.40 自动裁切设置与检查流程
 
 `AutoCropTests`新增首尾帧四边通过要求，并确认严格规则只改变检查标记、不改变检测框；`AutoCropEditingTests`覆盖保留旧版/手动/既有自动裁切、取消勾选后整卷覆盖、0–5%内收、整组撤销及检查队列。窗口验证检查独立入口、设置对话框运行中保持、进度与取消、完成自动进入仅看待检查，以及检查控件只在裁切栏出现且清零后隐藏。实际执行范围见acceptance-0.3.40.md。
+
+
+## 0.3.45 直方图悬停
+
+`scripts/test.sh --filter 'PreviewCanvasTests|EditorRefinementTests|ImageServiceTests'`检查默认箭头/拖动抓手/松开恢复、剪切点保留和偶数中位数、已发布参数快照/阶段/裁剪拒绝、既有0.8%预览邻域边缘取整与画布取样回归。`bash scripts/editor-window-qa.sh --release --histogram`用scratch合成TIFF检查Final/Density标记截图、面板排除和拖动隐藏/松开恢复。测试与窗口脚本使用不同SwiftPM构建系统，不并发运行以避免共享模块缓存被重建。实际证据见acceptance-0.3.45.md。
+
+
+## 0.3.47 自动裁切尺寸
+
+`AutoCropTests.testRollSizeRejectsStrongerFixtureStripes`使用已知画幅、强夹具条纹、弱照片边缘及逐帧曝光变化，检查整卷尺寸、顺序独立性与两遍seed携带。`PRINTROOM_AUTOCROP_SIZE_STUDY=<scratch目录> scripts/test.sh --build-system native -c release --filter AutoCropTests.testFilmBaseOuterEdgeRollSize`读取目录中15张已缓存代理的inputs.json，按独立画面边界测量检查宽高并输出native-v2.json；不得把用户卷作为报告输出目录。既有`PRINTROOM_AUTOCROP_STUDY`两卷76张对照继续检查尺寸、中心、角度和分流，用户项目不修改。本版执行结果和逐帧位置未解决范围见acceptance-0.3.47.md。
+
+
+## 0.3.48 自动裁切定位
+
+`AutoCropTests`增加强内部边缘不能锚定越界矩形的解析测试；原强夹具测试同时验证中心、角度、单侧弱边缘及逐帧曝光变化。15帧实际代理检查新增8/9/11位置范围与角度，输出native-v3.json。历史76帧仍检查尺寸、角度、普通帧位置与分流；DSC07099和DSC07115为已对照原图检查的弱边缘/漏光特殊样本，改用独立粗中心范围及必须待检查断言，不将历史自动结果当作真值。两遍seed复用须同时携带固定片基参考。实际结果、例外理由与未执行范围见acceptance-0.3.48.md。
+
+## 0.3.49 五项输出空间
+
+新增Display P3 / Rec. 2020必须通过独立原色/曲线、暗部灰阶、系统参考和TIFF回读验证。菜单精确名称/顺序、旧p3草稿、默认设置和项目保存重开一并验证；记录见[acceptance-0.3.49.md](acceptance-0.3.49.md)。

@@ -18,3 +18,17 @@ was modified. Tests verify D50 colorants and the transfer toe independently.
 Profile SHA-256 values are pinned in OutputColorProfile.profileSHA256. Original
 embedded copyright and profile descriptions are retained. These are additional
 local application resources, not replacements for the immutable ICC/ source.
+
+2026-09-19 additions, copied byte for byte:
+DisplayP3.icc <- /System/Library/ColorSync/Profiles/Display P3.icc
+Rec2020.icc <- /Library/Application Support/Adobe/Color/Profiles/UHD_Display.icc
+The latter is Adobe's installed "Rec.2020 Gamma 2.4" display-referred profile.
+Both are fixed, SHA-pinned ICC matrix/TRC profiles with D65 primaries adapted
+into D50 PCS. Display P3 uses the sRGB transfer curve; Rec. 2020 uses Gamma 2.4
+(SDR display-referred encoding, not PQ/HLG or camera OETF).
+Apple's ITU-2020.icc was rejected: its ICC parametric curve describes the camera
+OETF inverse, while CoreGraphics interprets it using a different display response
+(midrange reference differences up to 0.102). The Adobe Gamma 2.4 profile avoids
+this ambiguity; analytic and CoreGraphics references must both pass.
+Menu labels follow the user's Lightroom Classic screenshot. No LRC export
+round-trip has yet established byte-identical ICC or pixel output equivalence.

@@ -25,6 +25,10 @@ struct MatrixEditingTests {
     try TIFFCodec.write(url: root.appendingPathComponent("scan.tiff"), width: 16,height: 16,profile: assets.profile) {
       Array(repeating: [UInt16(12000),22000,32000],count: $0.count*16).flatMap { $0 }
     }
+    // Explicit Identity fixture exercises both matrix transitions with new-roll defaults changed.
+    var fixture = try ProjectStore.open(folder: root)
+    fixture.calibration = FilmCalibration()
+    try ProjectStore.save(fixture, folder: root, expectedModification: nil)
     model.open(root)
     try await wait { model.hasImage && !model.isRendering }
     model.sampleBase(.init(x: 0,y: 0,width: 4,height: 4))
@@ -72,6 +76,10 @@ struct MatrixEditingTests {
     try TIFFCodec.write(url: url, width: 16, height: 16, profile: assets.profile) {
       Array(repeating: [UInt16(12000),22000,32000], count: $0.count * 16).flatMap { $0 }
     }
+    // Explicit Identity fixture exercises both matrix transitions with new-roll defaults changed.
+    var fixture = try ProjectStore.open(folder: root)
+    fixture.calibration = FilmCalibration()
+    try ProjectStore.save(fixture, folder: root, expectedModification: nil)
     model.open(root)
     try await wait { model.hasImage && !model.isRendering }
     model.sampleBase(.init(x: 0, y: 0, width: 4, height: 4))

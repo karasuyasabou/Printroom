@@ -139,7 +139,7 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
     if model.isCropping {
       switch event.keyCode {
       case 36, 76:
-        if !event.isARepeat { model.commitCrop() }
+        if !event.isARepeat { model.performCropPrimaryAction() }
         return true
       case 53:
         model.cancelCrop()

@@ -75,6 +75,10 @@ final class NeutralTimingTests: XCTestCase, @unchecked Sendable {
     return result
   }
 
+  func testRelativeFootprintAccepts169Samples() throws {
+    try assertFinalNeutral(patch(Array(repeating: transmittance(SIMD3(repeating: 470)), count: 169)))
+  }
+
   func testReal2383NeutralizesItsTintAcrossTonalRange() throws {
     let lut = try actualLUT()
     for cv: Double in [256, 320, 384, 470, 512, 600, 685, 768] {
@@ -202,7 +206,7 @@ final class NeutralTimingTests: XCTestCase, @unchecked Sendable {
     for input in [PixelBuffer(width: 0, height: 1, pixels: []),
       PixelBuffer(width: 2, height: 1, pixels: [SIMD4(repeating: 0.5)]),
       PixelBuffer(width: Int.max, height: 2, pixels: []),
-      patch(Array(repeating: SIMD3(repeating: 0.5), count: 122)),
+      patch(Array(repeating: SIMD3(repeating: 0.5), count: 170)),
       patch([SIMD3(.nan, 0.3, 0.4)]), patch([SIMD3(0.2, .infinity, 0.4)]),
       patch([SIMD3(-0.1, 0.3, 0.4)]), patch([SIMD3(0.2, 0.3, 1.01)])] {
       XCTAssertThrowsError(try solve(input))

@@ -59,6 +59,54 @@ struct EditorRefinementTests {
     return SIMD3(116 * y - 16, 500 * (x - y), 200 * (y - z))
   }
 
+  @Test func hoverProbeTracksPublishedSnapshotAndHistogramStage() async throws {
+    let model = EditorModel()
+    let pixel = SIMD3<UInt16>(12000, 23000, 34000)
+    let folder = try fixture(model, count: 2, pixel: pixel)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    model.open(folder)
+    model.histogramStage = .d3
+    try await settled(model)
+    let calibration = try #require(model.project).calibration
+    let expected = try Pipeline.process(SIMD3<Float>(pixel) / 65535,
+      calibration: calibration, adjustments: model.adjustments, stage: .d3)
+    model.probeHistogram(displayX: 10, displayY: 10)
+    #expect(model.histogramProbe == expected)
+    model.edit { $0.timing.master = 100 }
+    model.clearHistogramProbe()
+    model.probeHistogram(displayX: 12, displayY: 12)
+    #expect(model.histogramProbe == expected) // old histogram is still visible
+    try await settled(model)
+    model.probeHistogram(displayX: 12, displayY: 12)
+    #expect(model.histogramProbe != expected)
+    let current = try #require(model.histogramProbe)
+    model.histogramStage = .final
+    #expect(model.histogramProbe == nil)
+    try await settled(model)
+    model.probeHistogram(displayX: 12, displayY: 12)
+    #expect(model.histogramProbe != nil)
+    #expect(model.histogramProbe != current)
+    model.probeHistogram(displayX: -1, displayY: 12)
+    #expect(model.histogramProbe == nil)
+    model.probeHistogram(displayX: 12, displayY: 12)
+    model.beginCrop()
+    model.probeHistogram(displayX: 12, displayY: 12)
+    #expect(model.histogramProbe == nil)
+    model.cancelCrop()
+    #expect(model.flushSave())
+  }
+
+  @Test func hoverMedianIncludesClippingAndAveragesEvenNeighbourhoods() throws {
+    let values: [SIMD4<Float>] = [SIMD4(0, 1, 0.2, 1), SIMD4(0, 1, 0.4, 1),
+      SIMD4(0.4, 0.2, 0.6, 1), SIMD4(1, 0, 0.8, 1)]
+    let lut = try #require(EditorModel().assets).lut
+    let result = try HistogramProbe.median(PixelBuffer(width: 2, height: 2, pixels: values),
+      calibration: FilmCalibration(), adjustments: FrameAdjustments(), lut: lut, stage: .l0)
+    #expect(abs(result.x - 0.2) < 0.000001)
+    #expect(abs(result.y - 0.6) < 0.000001)
+    #expect(abs(result.z - 0.5) < 0.000001)
+  }
+
   @Test func histogramRemainsVisibleUntilLatestAdjustmentFinishes() async throws {
     let model = EditorModel(), folder: URL
     folder = try fixture(model)
@@ -172,9 +220,9 @@ struct EditorRefinementTests {
     let frame = try #require(model.activeFrame)
     let assets = try #require(model.assets)
     // Source crop is x=16...48, y=8...40; clockwise output pixel (0,0)
-    // corresponds to source (16,39). Neighbourhood is x=11...21,y=34...44.
+    // corresponds to source (16,39). The 64-pixel long edge rounds the 0.8% footprint to one pixel.
     let samples = try await model.imageService.region(folder.appendingPathComponent(frame.filename),
-      rect: PixelRect(x: 11, y: 34, width: 11, height: 11))
+      rect: PixelRect(x: 16, y: 39, width: 1, height: 1))
     let expected = try NeutralTiming.solve(samples, calibration: before.calibration,
       adjustments: frame.adjustments, lut: assets.lut, p3Profile: assets.profile)
     let oldLab = representativeLab(try Pipeline.render(samples, calibration: before.calibration,
@@ -218,7 +266,7 @@ struct EditorRefinementTests {
     model.toggleNeutralPicker()
     model.pickNeutralDisplayed(x: 20, y: 20)
     try await until("unreachable Final neutral") { !model.isNeutralSampling }
-    #expect(model.errorMessage != nil)
+    #expect(model.errorMessage == nil)
     #expect(model.project?.frames == before.frames && model.project?.calibration == before.calibration)
     #expect(model.undoRevision == undoRevision && !model.canUndo)
     #expect(!model.dirty && !model.neutralPicking)

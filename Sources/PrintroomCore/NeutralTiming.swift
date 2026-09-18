@@ -19,9 +19,9 @@ public enum NeutralTiming {
     try Task.checkCancellation()
     try Pipeline.validate(adjustments)
     let (count, overflow) = samples.width.multipliedReportingOverflow(by: samples.height)
-    guard samples.width > 0, samples.height > 0, !overflow, count <= 121,
+    guard samples.width > 0, samples.height > 0, !overflow, count <= 169,
       count == samples.pixels.count
-    else { throw PrintroomError.invalid("中性点取样尺寸无效，最多支持 11×11 个原始像素。") }
+    else { throw PrintroomError.invalid("中性点取样尺寸无效，最多支持 13×13 个预览采样点。") }
 
     var usable: [SIMD4<Float>] = []
     for pixel in samples.pixels {

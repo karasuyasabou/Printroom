@@ -34,7 +34,7 @@ import PrintroomCore
     compressionPopUp.setAccessibilityIdentifier("export-compression")
     compressionPopUp.setAccessibilityLabel("压缩")
 
-    for profile in OutputColorProfile.allCases {
+    for profile in OutputColorProfile.selectable {
       profilePopUp.addItem(withTitle: profile.label)
       profilePopUp.lastItem?.representedObject = profile.rawValue
       if profile == settings.profile { profilePopUp.select(profilePopUp.lastItem) }

@@ -26,6 +26,7 @@ final class PivotMigrationTests: XCTestCase {
       for index in frames.indices { frames[index].removeValue(forKey: "orientation") }
       json["frames"] = frames
       var settings = json["exportSettings"] as! [String: Any]
+      settings["profileSHA256"] = ProjectAssetIdentity.expectedICCSHA256
       settings.removeValue(forKey: "profile")
       settings.removeValue(forKey: "compression")
       json["exportSettings"] = settings
@@ -42,7 +43,7 @@ final class PivotMigrationTests: XCTestCase {
     for schema in [1, 2] {
       let root = try folder()
       var project = RollProject()
-      project.exportSettings.compression = .none // Legacy schema 1 used uncompressed output.
+      project.exportSettings = .init(profile: .displayP3, compression: .none) // Legacy output.
       project.frames = [FrameRecord(filename: "missing.tif", adjustments: .init(
         timing: .init(master: 135, red: -32), contrast: .init(master: 1.6, blue: 0.7)), isMissing: true)]
       project.calibration.matrix = .ledLightSource

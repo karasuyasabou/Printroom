@@ -77,6 +77,29 @@ actor ImageService {
     return (entry.pixels, entry.width, entry.height, entry.profileName)
   }
 
+  /// neutral-relative-008-v1: sample 0.8% of the uncropped source long edge
+  /// on the shared, unadjusted nearest-sample preview grid (TIFF and RAW).
+  func neutralSample(_ url: URL, sourceX: Int, sourceY: Int) throws -> PixelBuffer {
+    let entry = try previewEntry(url, maxDimension: 1600)
+    return Self.neutralSample(entry.pixels, sourceWidth: entry.width,
+      sourceHeight: entry.height, sourceX: sourceX, sourceY: sourceY)
+  }
+
+  nonisolated static func neutralSample(_ preview: PixelBuffer, sourceWidth: Int,
+    sourceHeight: Int, sourceX: Int, sourceY: Int) -> PixelBuffer {
+    let side = max(1, Int((Double(max(preview.width, preview.height)) * 0.008).rounded()))
+    let x = max(0, min(preview.width - 1, Int(floor(Double(sourceX) * Double(preview.width) / Double(sourceWidth)))))
+    let y = max(0, min(preview.height - 1, Int(floor(Double(sourceY) * Double(preview.height) / Double(sourceHeight)))))
+    let left = max(0, x - side / 2), top = max(0, y - side / 2)
+    let right = min(preview.width, x - side / 2 + side)
+    let bottom = min(preview.height, y - side / 2 + side)
+    var pixels: [SIMD4<Float>] = []
+    for row in top..<bottom {
+      pixels.append(contentsOf: preview.pixels[(row * preview.width + left)..<(row * preview.width + right)])
+    }
+    return PixelBuffer(width: right - left, height: bottom - top, pixels: pixels)
+  }
+
   func thumbnail(_ url: URL, maxDimension: Int = 240) throws -> PixelBuffer {
     try previewEntry(url, maxDimension: maxDimension).pixels
   }

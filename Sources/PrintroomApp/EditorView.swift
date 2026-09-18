@@ -61,7 +61,7 @@ struct EditorView: View {
         inspector.frame(width: 306)
       }
       Divider()
-      filmstrip.frame(height: 153)
+      filmstrip
     }
     .frame(minWidth: 1060, minHeight: 720)
     .background(Color(nsColor: .windowBackgroundColor))
@@ -380,7 +380,7 @@ struct EditorView: View {
               ForEach(CineonLogLUT.allCases, id: \.self) { lut in Text(lut.label).tag(lut) }
             }.labelsHidden()
         }.disabled(model.activeFrame == nil)
-      }.padding(16)
+      }.padding(16).background(OverlayScrollbars())
     }.background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
   }
   private func simpleTimingRow(_ axis: SimpleTimingAxis, color: Color) -> some View {
@@ -404,7 +404,8 @@ struct EditorView: View {
         set: { v in model.edit { $0.timing[keyPath: path] = Int(v.rounded()) } }),
       range: Double(TimingParameters.range.lowerBound)...Double(TimingParameters.range.upperBound),
       step: 1, fractionDigits: 0, color: color,
-      onEditingChanged: { if $0 { model.beginAdjustment() } else { model.endAdjustment() } })
+      onEditingChanged: { if $0 { model.beginAdjustment() } else { model.endAdjustment() } },
+      resetValue: 0)
   }
   private func contrastRow(
     _ title: String, _ path: WritableKeyPath<ContrastParameters, Float>, color: Color
@@ -415,7 +416,8 @@ struct EditorView: View {
         get: { Double(model.adjustments.contrast[keyPath: path]) },
         set: { v in model.edit { $0.contrast[keyPath: path] = Float(v) } }),
       range: 0.25...2, step: 0.01, fractionDigits: 2, color: color,
-      onEditingChanged: { if $0 { model.beginAdjustment() } else { model.endAdjustment() } })
+      onEditingChanged: { if $0 { model.beginAdjustment() } else { model.endAdjustment() } },
+      resetValue: 1)
   }
   private var filmstrip: some View {
     VStack(alignment: .leading, spacing: 6) {
@@ -496,8 +498,9 @@ struct EditorView: View {
                   }
               }
             }
-          }.padding(.vertical, 2)
+          }.padding(.vertical, 2).background(OverlayScrollbars())
         }
+          .frame(height: 112)
           .onChange(of: model.selection.activeFrameID) { _, id in
             if let id { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id) } }
           }
@@ -550,8 +553,8 @@ struct EditorView: View {
 private struct AutoCropDialogView: View {
   @ObservedObject var model: EditorModel
   @Binding var isPresented: Bool
-  @State private var preserveExisting = true
-  @State private var inwardPercent = 0
+  @State private var preserveExisting = false
+  @State private var inwardPercent = 1
   @State private var started = false
 
   var body: some View {

@@ -31,6 +31,26 @@ final class DirectLUTTests: XCTestCase {
     }
   }
 
+  func testRemovedNeutralPreservesOriginalBeforeSave() throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    var project = RollProject()
+    project.frames = [FrameRecord(filename: "missing.tif", adjustments: .init(timing: .init(red: 27)), isMissing: true)]
+    let encoded = try JSONEncoder().encode(project)
+    let original = Data(String(decoding: encoded, as: UTF8.self).replacingOccurrences(of: "kodak2383", with: "neutral").utf8)
+    try original.write(to: folder.appendingPathComponent(".printroom.json"))
+    let loaded = try ProjectStore.open(folder: folder)
+    XCTAssertEqual(loaded.frames[0].adjustments.cineonLogLUT, .kodak2383)
+    XCTAssertEqual(loaded.frames[0].adjustments.timing.red, 27)
+    let date = try ProjectStore.save(loaded, folder: folder, expectedModification: loaded.loadedModificationDate)
+    try ProjectStore.save(loaded, folder: folder, expectedModification: date)
+    let backups = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+      .filter { $0.lastPathComponent.hasPrefix(".printroom-neutral-") }
+    XCTAssertEqual(backups.count, 1)
+    XCTAssertEqual(try Data(contentsOf: XCTUnwrap(backups.first)), original)
+  }
+
   func testV5MigrationPreservesControlsAndBacksUpExactOriginal() throws {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

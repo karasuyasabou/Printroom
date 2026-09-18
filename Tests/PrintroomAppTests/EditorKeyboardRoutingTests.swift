@@ -46,6 +46,43 @@ struct EditorKeyboardRoutingTests {
       isARepeat: repeatKey, keyCode: code))
   }
 
+  @Test func returnAndKeypadEnterConfirmPendingCropWithoutRepeating() throws {
+    for code: UInt16 in [36, 76] {
+      let (model, window, router, thumbnails) = fixture()
+      defer { router.stopMonitoring(); window.close() }
+      let folder = FileManager.default.temporaryDirectory.appendingPathComponent("PrintroomReturn-\(UUID())")
+      try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: folder) }
+      let profile = try #require(model.assets).profile
+      try TIFFCodec.write(url: folder.appendingPathComponent("one.tif"),
+                          width: 200, height: 200, profile: profile) { rows in
+        [UInt16](repeating: 32768, count: rows.count * 200 * 3)
+      }
+      model.folder = folder
+      model.sourceWidth = 200
+      model.sourceHeight = 200
+      model.project?.frames[0].cropNeedsReview = true
+      model.reviewOnlyPendingCrops = true
+      model.beginCrop()
+      let text = NSTextView(frame: .zero)
+      window.contentView?.addSubview(text)
+      window.makeFirstResponder(text)
+      #expect(!router.handle(try key(code, "\r", window: window), from: window))
+      #expect(model.activeFrame?.cropNeedsReview == true)
+      window.makeFirstResponder(thumbnails)
+      #expect(router.handle(try key(code, "\r", window: window, repeatKey: true), from: window))
+      #expect(model.activeFrame?.cropNeedsReview == true)
+      #expect(model.isCropping)
+      #expect(router.handle(try key(code, "\r", window: window), from: window))
+      #expect(model.pendingAutoCropFrameIDs.isEmpty)
+      #expect(!model.isCropping)
+      #expect(!model.reviewOnlyPendingCrops)
+      model.beginCrop()
+      #expect(router.handle(try key(code, "\r", window: window), from: window))
+      #expect(!model.isCropping)
+    }
+  }
+
   @Test func thumbnailResponderCanAdjustAndCommandASelectsPhotos() throws {
     let (model, window, router, thumbnails) = fixture()
     defer { router.stopMonitoring(); window.close() }

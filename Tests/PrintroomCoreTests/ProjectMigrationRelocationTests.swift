@@ -4,6 +4,32 @@ import XCTest
 @testable import PrintroomCore
 
 final class ProjectMigrationRelocationTests: XCTestCase {
+  func testRemovedAndUnknownProfilesFallBackToDefaultAndSave() throws {
+    for rawProfile in ["p3", "unknown-output-profile"] {
+      let root = try folder()
+      try source("frame.tif", in: root)
+      let original = try ProjectStore.open(folder: root)
+      var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
+      var settings = try XCTUnwrap(json["exportSettings"] as? [String: Any])
+      settings["profile"] = rawProfile
+      settings["profileSHA256"] = ProjectAssetIdentity.expectedICCSHA256
+      json["exportSettings"] = settings
+      let bytes = try JSONSerialization.data(withJSONObject: json)
+      let url = root.appendingPathComponent(ProjectStore.filename)
+      try bytes.write(to: url)
+      let loaded = try ProjectStore.open(folder: root)
+      XCTAssertEqual(loaded.exportSettings.profile, .displayP3)
+      XCTAssertEqual(loaded.exportSettings.profileSHA256, OutputColorProfile.displayP3.profileSHA256)
+      XCTAssertEqual(loaded.frames, original.frames)
+      XCTAssertEqual(loaded.calibration, original.calibration)
+      XCTAssertEqual(try Data(contentsOf: url), bytes)
+      try ProjectStore.save(loaded, folder: root, expectedModification: loaded.loadedModificationDate)
+      let reopened = try ProjectStore.open(folder: root)
+      XCTAssertEqual(reopened.exportSettings, loaded.exportSettings)
+      XCTAssertNil(OutputColorProfile(rawValue: rawProfile))
+    }
+  }
+
   private func folder() throws -> URL {
     let url = FileManager.default.temporaryDirectory.appendingPathComponent("printroom-schema2-\(UUID())")
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -36,6 +62,7 @@ final class ProjectMigrationRelocationTests: XCTestCase {
     }
     object["frames"] = frames
     var settings = object["exportSettings"] as! [String: Any]
+    settings["profileSHA256"] = ProjectAssetIdentity.expectedICCSHA256
     settings.removeValue(forKey: "profile")
     settings.removeValue(forKey: "compression")
     object["exportSettings"] = settings
@@ -62,9 +89,9 @@ final class ProjectMigrationRelocationTests: XCTestCase {
     expectedCalibration.cmosMatrix = project.calibration.matrix
     expectedCalibration.sampledCMOSMatrix = project.calibration.sampledDensityMatrix
     XCTAssertEqual(migrated.calibration, expectedCalibration)
-    XCTAssertEqual(migrated.exportSettings.profile, .p3)
+    XCTAssertEqual(migrated.exportSettings.profile, .displayP3)
     XCTAssertEqual(migrated.exportSettings.compression, .none)
-    XCTAssertEqual(migrated.exportSettings.profileSHA256, ProjectAssetIdentity.expectedICCSHA256)
+    XCTAssertEqual(migrated.exportSettings.profileSHA256, OutputColorProfile.displayP3.profileSHA256)
     XCTAssertEqual(try Data(contentsOf: url), original)
     try ProjectStore.save(migrated, folder: root, expectedModification: migrated.loadedModificationDate)
     let reopened = try ProjectStore.open(folder: root)

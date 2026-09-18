@@ -43,7 +43,43 @@ import UniformTypeIdentifiers
       geometry: cropDraftGeometry, detailImage: detailImage, detailRect: detailRect)
   }
   @Published private(set) var isPreviewPlaceholder = false
-  @Published var histogram: HistogramStatistics?
+  @Published var histogram: HistogramStatistics? {
+    didSet {
+      if histogram == nil { histogramProbeSnapshot = nil; clearHistogramProbe() }
+    }
+  }
+  @Published private(set) var histogramProbe: SIMD3<Float>?
+  private var histogramProbeSnapshot: PreviewRequest?
+  private var histogramProbePoint: CGPoint?
+
+  func clearHistogramProbe() {
+    histogramProbePoint = nil
+    if histogramProbe != nil { histogramProbe = nil }
+  }
+
+  func probeHistogram(displayX: Int, displayY: Int) {
+    guard !isCropping, !sampling, !isPreviewPlaceholder, cropPreviewTransition == nil,
+      previewImage != nil, histogram != nil, let request = histogramProbeSnapshot,
+      request.context == previewContext, request.context.frameID == activeFrame?.id,
+      let geometry = displayGeometry,
+      displayX >= 0, displayY >= 0,
+      displayX < geometry.outputWidth, displayY < geometry.outputHeight else {
+      clearHistogramProbe(); return
+    }
+    let point = geometry.sourcePoint(outputX: Double(displayX) + 0.5, outputY: Double(displayY) + 0.5)
+    let x = max(0, min(request.context.sourceWidth - 1, Int(floor(point.x))))
+    let y = max(0, min(request.context.sourceHeight - 1, Int(floor(point.y))))
+    let sourcePoint = CGPoint(x: x, y: y)
+    guard histogramProbePoint != sourcePoint else { return }
+    histogramProbePoint = sourcePoint
+    let samples = ImageService.neutralSample(request.input,
+      sourceWidth: request.context.sourceWidth, sourceHeight: request.context.sourceHeight,
+      sourceX: x, sourceY: y)
+    let value = try? HistogramProbe.median(samples, calibration: request.context.calibration,
+      adjustments: request.adjustments,
+      lut: request.assets.lut(for: request.adjustments.cineonLogLUT), stage: request.context.histogramStage)
+    if value != histogramProbe { histogramProbe = value }
+  }
   @Published var histogramStage: PipelineStage = .final {
     didSet {
       guard histogramStage != oldValue else { return }
@@ -559,6 +595,8 @@ import UniformTypeIdentifiers
           // Publish one matched snapshot in a single main-actor turn, without suspension.
           cropPreviewTransition = nil
           histogram = result.histogram
+          histogramProbeSnapshot = result.histogram == nil ? nil : request
+          clearHistogramProbe()
           previewImage = result.image
           isPreviewPlaceholder = false
           if let source = previewSourceStamp {
@@ -757,6 +795,14 @@ import UniformTypeIdentifiers
     scheduleSave()
     loadActive(preservingCropMode: true)
   }
+  func performCropPrimaryAction() {
+    if cropReviewAvailable && !pendingAutoCropFrameIDs.isEmpty {
+      confirmCropAndAdvance()
+    } else {
+      commitCrop()
+    }
+  }
+
   func confirmCropAndAdvance() {
     guard isCropping, !isLoading, let id = selection.activeFrameID,
       let frames = project?.frames.filter({ !$0.isMissing }),
@@ -1034,10 +1080,6 @@ import UniformTypeIdentifiers
     let point = geometry.sourcePoint(outputX: Double(x) + 0.5, outputY: Double(y) + 0.5)
     let sx = max(0, min(sourceWidth - 1, Int(floor(point.x))))
     let sy = max(0, min(sourceHeight - 1, Int(floor(point.y))))
-    // An 11×11 source-pixel neighbourhood, trimmed at the source edges.
-    let left = max(0, sx - 5), top = max(0, sy - 5)
-    let rect = PixelRect(x: left, y: top, width: min(sourceWidth, sx + 6) - left,
-      height: min(sourceHeight, sy + 6) - top)
     neutralPicking = false
     isNeutralSampling = true
     let token = neutralRevision, revision = renderRevision, loadID = loadRevision
@@ -1064,7 +1106,7 @@ import UniformTypeIdentifiers
         guard try PreviewSourceStamp(url: url) == stamp else {
           throw PrintroomError.invalid("源图像已改变，请重新打开照片后取样")
         }
-        let samples = try await imageService.region(url, rect: rect)
+        let samples = try await imageService.neutralSample(url, sourceX: sx, sourceY: sy)
         try Task.checkCancellation()
         guard try PreviewSourceStamp(url: url) == stamp else {
           throw PrintroomError.invalid("取样期间源图像已改变，请重新打开照片")
@@ -1074,9 +1116,15 @@ import UniformTypeIdentifiers
           try Task.checkCancellation()
           return try solve(samples, project.calibration, frame.adjustments, assets.lut(for: frame.adjustments.cineonLogLUT), assets.profile)
         }
-        let result = try await withTaskCancellationHandler {
-          try await worker.value
-        } onCancel: { worker.cancel() }
+        let result: FrameAdjustments
+        do {
+          result = try await withTaskCancellationHandler {
+            try await worker.value
+          } onCancel: { worker.cancel() }
+        } catch {
+          // An unsuccessful neutral fit is a no-op, not a reload-photo alert.
+          return
+        }
         try Task.checkCancellation()
         guard contextIsCurrent() else { return }
         guard try PreviewSourceStamp(url: url) == stamp else {

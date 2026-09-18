@@ -15,11 +15,12 @@ for argument in "$@"; do
     --timing) qa_arguments+=(--timing) ;;
     --appearance) qa_arguments+=(--appearance) ;;
     --histogram) qa_arguments+=(--histogram) ;;
+    --scrollbars) qa_arguments+=(--scrollbars -AppleShowScrollBars Always) ;;
     *) printf 'Unknown argument: %s\n' "$argument" >&2; exit 2 ;;
   esac
 done
 if [[ "$skip_build" == false ]]; then
-  swift build -c "$configuration" --disable-sandbox
+  swift build --build-system native -c "$configuration" --disable-sandbox
 fi
 mkdir -p scratch/editor-ui-qa
 app_sources=()

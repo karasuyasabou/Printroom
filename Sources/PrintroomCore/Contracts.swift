@@ -32,7 +32,8 @@ public enum CineonLogLUT: String, CaseIterable, Codable, Sendable {
   public init(from decoder: Decoder) throws {
     let container = try decoder.singleValueContainer()
     let raw = try container.decode(String.self)
-    if let selection = Self(rawValue: raw) { self = selection }
+    if raw == "neutral" { self = .kodak2383 }
+    else if let selection = Self(rawValue: raw) { self = selection }
     else { throw DecodingError.dataCorruptedError(in: container, debugDescription: "未知 LUT：\(raw)") }
   }
   public var label: String {

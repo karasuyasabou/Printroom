@@ -122,7 +122,7 @@ extension ImagePerformanceMeasurements {
   func measureBatchExport() async throws {
     let mode = try #require(ProcessInfo.processInfo.environment["PRINTROOM_EXPORT_PERFORMANCE"])
     #expect(mode == "p3" || mode == "proPhoto")
-    let profile: OutputColorProfile = mode == "p3" ? .p3 : .proPhoto
+    let profile: OutputColorProfile = mode == "p3" ? .displayP3 : .proPhoto
     let compression: TIFFCompression = mode == "p3" ? .none : .deflate
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
       .deletingLastPathComponent().deletingLastPathComponent()

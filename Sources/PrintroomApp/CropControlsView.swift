@@ -82,15 +82,11 @@ struct CropControlsView: View {
       Button("取消") { model.cancelCrop() }.fixedSize().help("取消本次裁剪 · Esc")
       Button(model.cropReviewAvailable && !model.pendingAutoCropFrameIDs.isEmpty ? "确认并下一张" : "完成") {
         if angleFocused { commitAngle() }
-        if model.cropReviewAvailable && !model.pendingAutoCropFrameIDs.isEmpty {
-          model.confirmCropAndAdvance()
-        } else {
-          model.commitCrop()
-        }
+        model.performCropPrimaryAction()
       }
       .fixedSize().buttonStyle(.borderedProminent)
       .help(model.cropReviewAvailable && !model.pendingAutoCropFrameIDs.isEmpty
-        ? "保存当前裁剪、清除待检查标记并前往下一张"
+        ? "保存当前裁剪、清除待检查标记并前往下一张 · Enter"
         : "保存当前照片裁剪 · Enter")
     }
     .disabled(model.isLoading || model.sourceWidth == 0 || model.sourceHeight == 0)

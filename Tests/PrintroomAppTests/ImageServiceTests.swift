@@ -21,6 +21,42 @@ struct ImageServiceTests {
     }
   }
 
+  @Test func neutralFootprintIsResolutionIndependentAndClipsAtEdges() {
+    let pixels = (0..<(1600 * 800)).map { SIMD4<Float>(Float($0 % 1600), Float($0 / 1600), 0.5, 1) }
+    let preview = PixelBuffer(width: 1600, height: 800, pixels: pixels)
+    for scale in [1, 2, 5] {
+      let sample = ImageService.neutralSample(preview, sourceWidth: 1600 * scale,
+        sourceHeight: 800 * scale, sourceX: 800 * scale, sourceY: 400 * scale)
+      #expect(sample.width == 13 && sample.height == 13)
+      #expect(sample.pixels.first == SIMD4<Float>(794, 394, 0.5, 1))
+      #expect(sample.pixels.last == SIMD4<Float>(806, 406, 0.5, 1))
+    }
+    let corner = ImageService.neutralSample(preview, sourceWidth: 7008,
+      sourceHeight: 3504, sourceX: 0, sourceY: 0)
+    #expect(corner.width == 7 && corner.height == 7)
+    #expect(corner.pixels.last == SIMD4<Float>(6, 6, 0.5, 1))
+    let portrait = PixelBuffer(width: 800, height: 1600, pixels: pixels)
+    let bottom = ImageService.neutralSample(portrait, sourceWidth: 3504,
+      sourceHeight: 7008, sourceX: 3503, sourceY: 7007)
+    #expect(bottom.width == 7 && bottom.height == 7)
+    #expect(bottom.pixels.last == pixels.last)
+  }
+
+  @Test func neutralTIFFUsesUnadjustedPreviewGrid() async throws {
+    let folder = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let url = folder.appendingPathComponent("neutral.tiff")
+    try fixture(url, width: 3200, height: 400)
+    let preview = try TIFFCodec.readPreview(url: url, maxDimension: 1600)
+    let sample = try await ImageService().neutralSample(url, sourceX: 1600, sourceY: 200)
+    #expect(sample.width == 13 && sample.height == 13)
+    for y in 0..<13 {
+      for x in 0..<13 {
+        #expect(sample.pixels[y * 13 + x] == SIMD4(preview.pixel(x: 794 + x, y: 94 + y), 1))
+      }
+    }
+  }
+
   @Test func previewRegionAndCalibrationUseExactOriginalSamples() async throws {
     let folder = try temporaryFolder()
     defer { try? FileManager.default.removeItem(at: folder) }

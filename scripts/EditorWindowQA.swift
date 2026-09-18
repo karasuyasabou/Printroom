@@ -36,7 +36,9 @@ import SwiftUI
     let history = RecentRolls(defaults: recentDefaults)
     let model = EditorModel(recentRolls: history, timingDefaults: recentDefaults)
     model.errorMessage = nil
-    let frames = (1...4).map { FrameRecord(filename: "frame-\($0).tiff") }
+    let frames = (1...(CommandLine.arguments.contains("--scrollbars") ? 40 : 4)).map {
+      FrameRecord(filename: "frame-\($0).tiff")
+    }
     var project = RollProject()
     project.frames = frames
     model.project = project
@@ -89,6 +91,42 @@ import SwiftUI
       guard process.terminationStatus == 0 else { throw PrintroomError.invalid("Screenshot failed") }
       print("Saved \(name): \(host.bounds.size)")
     }
+    if CommandLine.arguments.contains("--scrollbars") {
+      func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap { descendants($0) } }
+      model.selectAll()
+      for size in [NSSize(width: 1060, height: 720), NSSize(width: 1440, height: 900)] {
+        window.setContentSize(size)
+        try await capture("scrollbars-\(Int(size.width))")
+        let scrolls = descendants(host).compactMap { $0 as? NSScrollView }
+        guard let strip = scrolls.first(where: { $0.bounds.width > 800 && $0.bounds.height < 200 }),
+          let inspector = scrolls.first(where: { $0.bounds.width < 400 && $0.bounds.height > 250 }),
+          let document = strip.documentView else {
+          throw PrintroomError.invalid("Missing editor scroll views")
+        }
+        for scroll in [strip, inspector] {
+          guard scroll.scrollerStyle == .overlay, scroll.autohidesScrollers else {
+            throw PrintroomError.invalid("Editor scrollbar does not auto-hide as overlay")
+          }
+        }
+        guard document.bounds.height <= strip.contentView.bounds.height + 0.5 else {
+          throw PrintroomError.invalid("Filmstrip content clipped: \(document.bounds), viewport \(strip.contentView.bounds)")
+        }
+        document.scroll(NSPoint(x: 500, y: 0))
+        strip.reflectScrolledClipView(strip.contentView)
+        guard strip.contentView.bounds.minX > 0 else {
+          throw PrintroomError.invalid("Filmstrip cannot scroll horizontally")
+        }
+        if let panel = inspector.documentView {
+          let end = max(0, panel.bounds.height - inspector.contentView.bounds.height)
+          panel.scroll(NSPoint(x: 0, y: panel.isFlipped ? end : 0))
+          inspector.reflectScrolledClipView(inspector.contentView)
+        }
+        try await Task.sleep(for: .seconds(2))
+        try await capture("scrollbars-idle-\(Int(size.width))")
+        print("PASS: \(host.bounds.size), overlay auto-hide; filmstrip content \(document.bounds.height) <= viewport \(strip.contentView.bounds.height); horizontal scrolling")
+      }
+      return
+    }
     if CommandLine.arguments.contains("--histogram") {
       let portrait = try FrameOrientation.identity.applying(.rotateClockwise).transform(buffer)
       model.thumbnails[frames[1].id] = try DisplayImage.make(portrait, profile: nil, diagnostic: true)
@@ -120,11 +158,61 @@ import SwiftUI
         }
       }
       let center = CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY)
-      try await move(canvas, center, expected: .openHand)
+      try await move(canvas, center, expected: .arrow)
       try await move(panel, CGPoint(x: panel.bounds.midX, y: panel.bounds.midY), expected: .arrow)
       try await move(panel, CGPoint(x: panel.bounds.maxX - 14, y: panel.bounds.maxY - 18), expected: .arrow)
-      try await move(canvas, center, expected: .openHand)
-      print("PASS: actual pointer enters chart/header as arrow and exits as hand")
+      try await move(canvas, center, expected: .arrow)
+      print("PASS: actual pointer enters chart/header as arrow and exits as arrow")
+      let hoverFolder = URL(fileURLWithPath: "scratch/editor-ui-qa/hover-roll-\(UUID())", isDirectory: true)
+      try FileManager.default.createDirectory(at: hoverFolder, withIntermediateDirectories: true)
+      try TIFFCodec.write(url: hoverFolder.appendingPathComponent("hover.tiff"),
+        width: 600, height: 400, profile: model.assets!.profile) { rows in
+        var samples: [UInt16] = []
+        for y in rows {
+          for x in 0..<600 {
+            samples.append(UInt16(8000 + x * 45))
+            samples.append(UInt16(12000 + y * 70))
+            samples.append(UInt16(22000 + x * 25))
+          }
+        }
+        return samples
+      }
+      model.open(hoverFolder)
+      func settleHover() async throws {
+        let limit = ContinuousClock.now.advanced(by: .seconds(15))
+        while (model.isLoading || model.isRendering || model.histogram == nil), ContinuousClock.now < limit {
+          try await Task.sleep(for: .milliseconds(30))
+        }
+        guard model.histogram != nil else { throw PrintroomError.invalid("Hover preview unavailable") }
+      }
+      try await settleHover()
+      try await move(canvas, center, expected: .arrow)
+      canvas.refreshHistogramProbe()
+      guard model.histogramProbe != nil else { throw PrintroomError.invalid("Missing Final hover marker") }
+      try await capture("27-histogram-hover-final")
+      model.histogramStage = .d3
+      try await settleHover()
+      canvas.refreshHistogramProbe()
+      guard model.histogramProbe != nil else { throw PrintroomError.invalid("Missing Density hover marker") }
+      try await capture("28-histogram-hover-density")
+      try await move(panel, CGPoint(x: panel.bounds.midX, y: panel.bounds.midY), expected: .arrow)
+      guard model.histogramProbe == nil else { throw PrintroomError.invalid("Hover marker leaked into panel") }
+      try await move(canvas, center, expected: .arrow)
+      func panEvent(_ type: NSEvent.EventType, _ point: CGPoint) -> NSEvent {
+        NSEvent.mouseEvent(with: type, location: canvas.convert(point, to: nil), modifierFlags: [],
+          timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+          context: nil, eventNumber: 2, clickCount: 1, pressure: 1)!
+      }
+      canvas.mouseDown(with: panEvent(.leftMouseDown, center))
+      canvas.mouseDragged(with: panEvent(.leftMouseDragged, CGPoint(x: center.x + 20, y: center.y + 20)))
+      guard canvas.isPanning, NSCursor.current === NSCursor.closedHand, model.histogramProbe == nil else {
+        throw PrintroomError.invalid("Pan must show closed hand and hide markers")
+      }
+      canvas.mouseUp(with: panEvent(.leftMouseUp, center))
+      guard NSCursor.current === NSCursor.arrow, model.histogramProbe != nil else {
+        throw PrintroomError.invalid("Release must restore arrow and markers")
+      }
+      print("PASS: Final/Density hover markers, panel exclusion, closed hand during pan and arrow on release")
       // 90% dark background, 10% subject spread over midtones. In-memory only.
       var nightPixels = [SIMD4<Float>](repeating: SIMD4<Float>(0, 0, 0, 1), count: 90_000)
       for i in 0..<10_000 {
@@ -412,7 +500,7 @@ import SwiftUI
     }
     let canvasCenter = canvas.convert(CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY), to: nil)
     try await movePointer(to: canvasCenter)
-    try require(NSCursor.current === NSCursor.openHand, "Idle preview must show the hand cursor")
+    try require(NSCursor.current === NSCursor.arrow, "Idle preview must show the arrow cursor")
     try await press("i", code: 34)
     try require(model.neutralPicking && NSCursor.current === CanvasView.neutralCursor,
       "I must enter the eyedropper and update a stationary pointer")
@@ -423,15 +511,15 @@ import SwiftUI
       try png.write(to: output.appendingPathComponent("05-neutral-cursor.png"))
     }
     try await press("i", code: 34)
-    try require(!model.neutralPicking && NSCursor.current === NSCursor.openHand,
-      "I must cancel the eyedropper and restore the hand cursor")
+    try require(!model.neutralPicking && NSCursor.current === NSCursor.arrow,
+      "I must cancel the eyedropper and restore the arrow cursor")
     try await press("i", code: 34)
     try await movePointer(to: CGPoint(x: host.bounds.width - 28, y: masterFrame.midY + 32))
     try require(NSCursor.current !== CanvasView.neutralCursor, "Eyedropper cursor leaked into the inspector")
     try await movePointer(to: canvasCenter)
     try require(NSCursor.current === CanvasView.neutralCursor, "Re-entering the canvas must restore the eyedropper")
     try await press("\u{1b}", code: 53)
-    try require(NSCursor.current === NSCursor.openHand, "Escape must restore the stationary cursor")
+    try require(NSCursor.current === NSCursor.arrow, "Escape must restore the stationary cursor")
     print("PASS: I toggles eyedropper; cursor updates without movement, restores on Escape and stays inside canvas")
     // Bring the synthetic patch into Final midtones so this tests a real fit.
     model.edit { $0.timing.master = 200 }
@@ -440,8 +528,8 @@ import SwiftUI
     try await press("i", code: 34)
     try await click(windowPoint: canvasCenter)
     try await ready()
-    try require(!model.neutralPicking && !model.isNeutralSampling && NSCursor.current === NSCursor.openHand,
-      "Completed neutral sampling must restore the hand cursor without movement")
+    try require(!model.neutralPicking && !model.isNeutralSampling && NSCursor.current === NSCursor.arrow,
+      "Completed neutral sampling must restore the arrow cursor without movement")
     try require(model.adjustments != beforeNeutralPick && model.adjustments.timing.master == 200,
       "Final neutral picking must fit RGB Timing and preserve Master")
     print("PASS: Final neutral picking fits RGB Timing, preserves Master and restores the stationary cursor")
@@ -455,9 +543,9 @@ import SwiftUI
     try await press("i", code: 34)
     try require(model.sampling && !model.neutralPicking, "I must preserve Film Base mode exclusivity")
     try await click(windowPoint: baseButton)
-    try require(!model.sampling && NSCursor.current === NSCursor.openHand,
+    try require(!model.sampling && NSCursor.current === NSCursor.arrow,
       "Canceling Film Base selection must restore the stationary cursor")
-    print("PASS: Film Base button shows crosshair; I respects exclusivity; cancel restores hand")
+    print("PASS: Film Base button shows crosshair; I respects exclusivity; cancel restores arrow")
     try require(model.project?.frames[0].adjustments == FrameAdjustments(),
       "Keyboard edits leaked into the previous frame")
     try require(model.errorMessage == nil, "Keyboard QA ended with an application error")

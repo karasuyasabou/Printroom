@@ -65,6 +65,7 @@ struct AdjustmentSlider: NSViewRepresentable {
     slider.minValue = range.lowerBound
     slider.maxValue = range.upperBound
     slider.doubleValue = value
+    slider.needsDisplay = true
     slider.increment = step
     slider.resetValue = resetValue
     slider.trackFillColor = NSColor(color)
@@ -83,6 +84,7 @@ struct AdjustmentSlider: NSViewRepresentable {
       parent.value = sender.doubleValue
       // The model may stop an entire simple axis before the displayed range ends.
       sender.doubleValue = parent.value
+      sender.needsDisplay = true
     }
   }
 }
@@ -98,6 +100,8 @@ struct AdjustmentSlider: NSViewRepresentable {
     if event.clickCount == 2, let resetValue {
       doubleValue = resetValue
       sendAction(action, to: target)
+      // This path bypasses NSSlider's native tracking loop, which normally redraws the knob.
+      needsDisplay = true
     } else {
       super.mouseDown(with: event)
     }
