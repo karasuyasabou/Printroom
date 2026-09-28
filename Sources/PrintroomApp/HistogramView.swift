@@ -43,7 +43,7 @@ struct HistogramView: View {
               var reference = Path()
               reference.move(to: CGPoint(x: x, y: 0))
               reference.addLine(to: CGPoint(x: x, y: size.height))
-              context.stroke(reference, with: .color(.white.opacity(0.15)), lineWidth: 0.5)
+              context.stroke(reference, with: .color(InterfaceColors.primaryText.opacity(0.15)), lineWidth: 0.5)
             }
           }
           guard let stats = model.histogram else { return }
@@ -88,16 +88,17 @@ struct HistogramView: View {
               let dot = Path(ellipseIn: CGRect(
                 x: x - 2.5, y: size.height * (1 - height) - 2.5, width: 5, height: 5))
               context.fill(dot, with: .color(colors[channel]))
-              context.stroke(dot, with: .color(.white.opacity(0.65)), lineWidth: 0.75)
+              context.stroke(dot, with: .color(InterfaceColors.primaryText.opacity(0.65)), lineWidth: 0.75)
             }
           }
         }.frame(height: 78).clipped()
+          .overlay(Rectangle().strokeBorder(InterfaceColors.primaryText.opacity(0.3), lineWidth: 0.5))
           .allowsHitTesting(false)
           .accessibilityLabel("整张预览直方图")
         Canvas { context, size in
           func label(_ value: String, x: CGFloat, anchor: UnitPoint, opacity: Double = 0.55) {
             context.draw(Text(value).font(.system(size: 9, design: .monospaced))
-              .foregroundStyle(.white.opacity(opacity)),
+              .foregroundStyle(InterfaceColors.primaryText.opacity(opacity)),
               at: CGPoint(x: x, y: size.height / 2), anchor: anchor)
           }
           label("0", x: 0, anchor: .leading)
@@ -114,8 +115,8 @@ struct HistogramView: View {
     .padding(10)
     .frame(width: isExpanded ? 248 : nil)
     .background(HistogramPointerSurface(model: model))
-    .background(.black.opacity(0.58), in: RoundedRectangle(cornerRadius: 10))
-    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.12), lineWidth: 0.5))
+    .background(InterfaceColors.histogram.opacity(0.72), in: RoundedRectangle(cornerRadius: 10))
+    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(InterfaceColors.subtleSeparator, lineWidth: 0.5))
     .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
   }
 }

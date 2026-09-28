@@ -61,12 +61,32 @@ struct AutoCropEditingTests {
   }
 
   private func installRunner(_ model: EditorModel, gate: AutoCropTestGate? = nil) {
-    model.autoCropRunner = { inputs, targets, progress in
+    model.autoCropRunner = { inputs, targets, _, progress in
       let result = try Self.outputs(inputs, targets)
       await progress("fixture ready")
       if let gate { await gate.wait() }
       return result
     }
+  }
+
+  @Test func specifiedRatioIsValidatedAndForwarded() async throws {
+    let model = EditorModel()
+    let folder = try fixture(model)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    model.open(folder)
+    try await loaded(model)
+    model.autoCropRunner = { inputs, targets, ratio, _ in
+      #expect(ratio == 2.39)
+      return try Self.outputs(inputs, targets)
+    }
+    model.startAutoCrop(aspectRatio: .nan)
+    #expect(!model.isAutoCropping)
+    #expect(model.errorMessage != nil)
+    model.errorMessage = nil
+    model.startAutoCrop(aspectRatio: 2.39)
+    try await until("ratio batch finished", { !model.isAutoCropping })
+    #expect(model.autoCropCompletedRun == 1)
+    #expect(model.errorMessage == nil)
   }
 
   @Test func batchIsOneUndoAndPersistsReviewAndOrigins() async throws {
@@ -265,7 +285,7 @@ struct AutoCropEditingTests {
     model.open(folder)
     try await loaded(model)
     let before = try #require(model.project)
-    model.autoCropRunner = { inputs, targets, _ in
+    model.autoCropRunner = { inputs, targets, _, _ in
       Array(try Self.outputs(inputs, targets).dropLast())
     }
     model.startAutoCrop()

@@ -201,7 +201,8 @@ struct EditingV2Tests {
     #expect(calibration.selection == original)
     #expect(calibration.sourceWidth == width && calibration.sourceHeight == height)
     let expected = try Pipeline.calibrate(image: TIFFCodec.read(url: url), rect: original,
-      matrix: .identity, sourceFrameID: model.activeFrame?.id)
+      matrix: model.matrix, sourceFrameID: model.activeFrame?.id,
+      cmosMatrix: try #require(model.project).calibration.cmosMatrix)
     #expect(calibration == expected)
     model.undo()
     #expect(model.project?.calibration.isCalibrated == false)
@@ -351,6 +352,7 @@ struct EditingV2Tests {
     try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
     model.open(folder)
     let firstID = try #require(model.activeFrame?.id)
+    model.setOutputProfile(.displayP3)
     let captured = try #require(model.project)
     model.startExport(targetIDs: [firstID], directory: destination)
     #expect(model.isExporting)
@@ -367,9 +369,12 @@ struct EditingV2Tests {
     let outputURL = try #require(summary.results[0].destination)
     let output = try TIFFCodec.read(url: outputURL)
     #expect(output.width == 12 && output.height == 8)
-    #expect(output.embeddedProfileName == "P3 D65 Gamma 2.6")
-    let expected = try Pipeline.process(SIMD3<Float>(repeating: Float(32768) / 65535),
+    #expect(output.embeddedProfileName == "Display P3")
+    let final = try Pipeline.process(SIMD3<Float>(repeating: Float(32768) / 65535),
       calibration: captured.calibration, adjustments: captured.frames[0].adjustments, lut: assets.lut)
+    let converter = try OutputColorConverter(p3Profile: assets.profile, output: .displayP3)
+    let expected = try converter.convert(PixelBuffer(width: 1, height: 1,
+      pixels: [SIMD4(final.x, final.y, final.z, 1)])).pixels[0]
     for channel in 0..<3 {
       let actual: Float = Float(output.samples[channel]) / Float(65535)
       let difference: Float = abs(actual - expected[channel])

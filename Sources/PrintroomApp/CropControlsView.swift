@@ -63,7 +63,7 @@ struct CropControlsView: View {
         .font(.system(size: 11, design: .monospaced)).frame(width: 57)
         .focused($angleFocused).onSubmit { commitAngle(); angleFocused = false }
         .accessibilityLabel("裁剪角度数值，精确到 0.01 度")
-      Text("°").font(.caption).foregroundStyle(.secondary)
+      Text("°").font(.caption).foregroundStyle(InterfaceColors.secondaryText)
       Button {
         angleFocused = false
         model.resetCropDraft()
@@ -74,7 +74,7 @@ struct CropControlsView: View {
       Spacer(minLength: 4)
       if model.cropReviewAvailable && !model.pendingAutoCropFrameIDs.isEmpty {
         Text("待检查 \(model.pendingAutoCropFrameIDs.count) 张")
-          .font(.caption).foregroundStyle(.secondary).fixedSize()
+          .font(.caption).foregroundStyle(InterfaceColors.secondaryText).fixedSize()
         Toggle("仅看待检查", isOn: $model.reviewOnlyPendingCrops)
           .toggleStyle(.checkbox).fixedSize()
           .help("缩略图和左右方向键只显示待检查照片")
@@ -92,7 +92,7 @@ struct CropControlsView: View {
     .disabled(model.isLoading || model.sourceWidth == 0 || model.sourceHeight == 0)
     .controlSize(.small)
     .padding(.horizontal, 12).frame(height: 38)
-    .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+    .background(InterfaceColors.panel)
     .onAppear { refreshAngleText() }
     .onChange(of: angle) { _, _ in if !angleFocused { refreshAngleText() } }
     .onChange(of: angleFocused) { old, new in if old && !new { commitAngle() } }

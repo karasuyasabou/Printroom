@@ -3,6 +3,7 @@ import PrintroomCore
 import SwiftUI
 
 @main struct PrintroomApp: App {
+  @AppStorage(AppAppearance.defaultsKey) private var appearance: AppAppearance = .dark
   @StateObject private var history: RecentRolls
   @StateObject private var model: EditorModel
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
@@ -40,18 +41,20 @@ import SwiftUI
     Window("Printroom", id: "editor") {
       EditorView(model: model)
         .background(EditorWindowCloseHandler())
-        .onAppear { delegate.model = model }
+        .onAppear { delegate.model = model; appearance.apply() }
+        .onChange(of: appearance) { _, value in value.apply() }
     }.defaultSize(width: 1360, height: 900)
+      .windowStyle(.hiddenTitleBar)
+      .windowToolbarStyle(.unified)
       .commands {
+        AppearanceCommands()
         ShortcutHelpCommands()
         CacheManagerCommands()
         CommandGroup(replacing: .newItem) {
-          Button("打开 TIFF、ARW 或胶卷…") { model.openPanel() }.keyboardShortcut("o").disabled(
-            model.isExporting)
           Menu("最近打开的胶卷") {
             if history.entries.isEmpty { Text("暂无最近胶卷") }
             ForEach(history.entries) { entry in
-              Button("\(entry.url.lastPathComponent) — \(entry.path)") { model.openRecent(entry) }
+              Button("\(entry.displayName) — \(entry.path)") { model.openRecent(entry) }
             }
           }.disabled(model.isExporting || history.entries.isEmpty)
         }
@@ -76,13 +79,7 @@ import SwiftUI
           Button("重做") { model.redo() }.keyboardShortcut("z", modifiers: [.command, .shift])
             .disabled(!model.canRedo)
         }
-        CommandMenu("方向") {
-          Button("顺时针 90°") { model.changeOrientation(.rotateClockwise) }.disabled(!model.hasImage || model.isCropping)
-          Button("逆时针 90°") { model.changeOrientation(.rotateCounterclockwise) }.disabled(!model.hasImage || model.isCropping)
-          Button("水平翻转") { model.changeOrientation(.flipHorizontal) }.disabled(!model.hasImage || model.isCropping)
-          Button("垂直翻转") { model.changeOrientation(.flipVertical) }.disabled(!model.hasImage || model.isCropping)
-          Button("重置方向") { model.changeOrientation(.reset) }.disabled(!model.hasImage || model.isCropping)
-          Divider()
+        CommandGroup(after: .toolbar) {
           Button("原始分辨率 1:1") { model.inspectNativeResolution() }.keyboardShortcut("1").disabled(!model.hasImage || model.isCropping)
         }
         CommandMenu("调色") {
@@ -109,6 +106,7 @@ import SwiftUI
     cacheMaintenanceTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in
       RAWSourceService.shared.scheduleMaintenance()
     }
+    (AppAppearance(rawValue: UserDefaults.standard.string(forKey: AppAppearance.defaultsKey) ?? "") ?? .dark).apply()
     NSApp.setActivationPolicy(.regular)
     NSApp.activate(ignoringOtherApps: true)
   }

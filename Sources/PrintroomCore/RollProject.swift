@@ -124,15 +124,30 @@ public struct ProjectInputInterpretation: Codable, Equatable, Sendable {
 }
 
 /// Output colorspace/compression are frozen with each export request.
+public enum ExportFormat: String, CaseIterable, Sendable {
+  case tiff, jpeg
+  public var label: String { self == .tiff ? "16-bit TIFF" : "8-bit JPG" }
+  public var fileExtension: String { self == .tiff ? "tiff" : "jpg" }
+  public var bitsPerSample: Int { self == .tiff ? 16 : 8 }
+}
+
 public struct ProjectExportSettings: Codable, Equatable, Sendable {
   public var profile: OutputColorProfile = .displayP3 {
     didSet { profileSHA256 = profile.profileSHA256 }
   }
+  public var applyCrop = true
   public var compression: TIFFCompression = .deflate
   public var profileSHA256 = OutputColorProfile.displayP3.profileSHA256
   public var bitsPerSample = 16
+  public var format: ExportFormat {
+    get { bitsPerSample == 8 ? .jpeg : .tiff }
+    set { bitsPerSample = newValue.bitsPerSample }
+  }
   public var embedsICC = true
   public var dithering = false
+  public var destinationPath: String?
+  /// nil follows the current roll name.
+  public var filenamePrefix: String?
   public init(profile: OutputColorProfile = .displayP3, compression: TIFFCompression = .deflate) {
     self.profile = profile
     self.compression = compression
@@ -140,7 +155,7 @@ public struct ProjectExportSettings: Codable, Equatable, Sendable {
   }
 
   private enum CodingKeys: String, CodingKey {
-    case profile, compression, profileSHA256, bitsPerSample, embedsICC, dithering
+    case applyCrop, profile, compression, profileSHA256, bitsPerSample, embedsICC, dithering, destinationPath, filenamePrefix
   }
 
   public init(from decoder: Decoder) throws {
@@ -163,15 +178,19 @@ public struct ProjectExportSettings: Codable, Equatable, Sendable {
     bitsPerSample = try values.decode(Int.self, forKey: .bitsPerSample)
     embedsICC = try values.decode(Bool.self, forKey: .embedsICC)
     dithering = try values.decode(Bool.self, forKey: .dithering)
+    applyCrop = try values.decodeIfPresent(Bool.self, forKey: .applyCrop) ?? true
+    destinationPath = try values.decodeIfPresent(String.self, forKey: .destinationPath)
+    filenamePrefix = try values.decodeIfPresent(String.self, forKey: .filenamePrefix)
   }
 }
 
 public struct RollProject: Codable, Sendable {
-  public static let currentSchemaVersion = 7
+  public static let currentSchemaVersion = 8
 
   public var schemaVersion = currentSchemaVersion
   public var algorithmVersion = projectAlgorithmVersion
   public var id = UUID()
+  public var name: String?
   public var createdAt = Date()
   public var updatedAt = Date()
   public var assets = ProjectAssetIdentity()
@@ -183,8 +202,8 @@ public struct RollProject: Codable, Sendable {
   public var frames: [FrameRecord] = []
   public var lastActiveFrameID: UUID?
 
-  // Session-only location permits a final target availability check immediately before applying.
-  // Never encode an absolute path: moving an entire roll must preserve its identity and settings.
+  // Session-only source location permits a final target availability check immediately before applying.
+  // The optional export destination is a user-selected preference and may need reselection after a move.
   var sourceFolderURL: URL?
   /// Captured in the same coordinated read as the decoded project; never persisted.
   public var loadedModificationDate: Date?
@@ -192,7 +211,7 @@ public struct RollProject: Codable, Sendable {
   private enum CodingKeys: String, CodingKey {
     case schemaVersion, algorithmVersion, id, createdAt, updatedAt, assets
     case inputInterpretation, exportSettings, calibration, calibrationNeedsReview
-    case frames, lastActiveFrameID
+    case frames, lastActiveFrameID, name
   }
 
   public init() {
@@ -465,7 +484,7 @@ public enum ProjectStore {
     do {
       let decoder = JSONDecoder()
       let header = try decoder.decode(Header.self, from: data)
-      guard [1, 2, 3, 4, 5, 6, RollProject.currentSchemaVersion].contains(header.schemaVersion) else {
+      guard [1, 2, 3, 4, 5, 6, 7, RollProject.currentSchemaVersion].contains(header.schemaVersion) else {
         throw ProjectStoreError.unsupportedSchema(header.schemaVersion)
       }
       guard [legacyAlgorithmVersion, "printroom-density-v2", "printroom-density-v3", "printroom-density-v4", "printroom-density-v5", projectAlgorithmVersion].contains(header.algorithmVersion) else {
@@ -498,7 +517,7 @@ public enum ProjectStore {
     }
     guard project.inputInterpretation == ProjectInputInterpretation(),
       project.exportSettings.profileSHA256 == project.exportSettings.profile.profileSHA256,
-      project.exportSettings.bitsPerSample == 16, project.exportSettings.embedsICC,
+      [8, 16].contains(project.exportSettings.bitsPerSample), project.exportSettings.embedsICC,
       !project.exportSettings.dithering
     else {
       throw ProjectStoreError.invalidProject("不兼容的输入解释或导出设置")

@@ -468,7 +468,8 @@ struct CropEditingTests {
     model.sampleDisplayedBase(baseRect)
     try await until("full-source base calibration", { model.project?.calibration.isCalibrated == true })
     let expected = try Pipeline.calibrate(image: TIFFCodec.read(url: url), rect: baseRect,
-      matrix: .identity, sourceFrameID: model.activeFrame?.id)
+      matrix: model.matrix, sourceFrameID: model.activeFrame?.id,
+      cmosMatrix: try #require(model.project).calibration.cmosMatrix)
     #expect(model.project?.calibration == expected)
     #expect(!model.sampling)
     #expect(model.activeFrame?.crop == savedCrop)

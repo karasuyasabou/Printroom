@@ -122,6 +122,13 @@ public final class OutputColorConverter {
     return PixelBuffer(width: final.width, height: final.height, pixels: pixels)
   }
 
+  public func quantized8(_ final: PixelBuffer) throws -> [UInt8] {
+    let converted = try convert(final)
+    return converted.pixels.flatMap { pixel in
+      (0..<3).map { UInt8(floor(min(1, max(0, pixel[$0])) * 255 + 0.5)) }
+    }
+  }
+
   /// The only output clamp/quantization. No dithering or transfer function here.
   public func quantized(_ final: PixelBuffer) throws -> [UInt16] {
     let converted = try convert(final)
@@ -147,20 +154,24 @@ struct FinalColorimetry {
     white = profile.colorants * SIMD3<Double>(repeating: 1)
   }
 
-  private func xyz(_ encoded: SIMD3<Double>) -> SIMD3<Double> {
-    profile.colorants * SIMD3(
+  func linearRGB(_ encoded: SIMD3<Double>) -> SIMD3<Double> {
+    SIMD3(
       profile.curves[0].decode(encoded.x), profile.curves[1].decode(encoded.y),
       profile.curves[2].decode(encoded.z))
   }
 
   func neutralMatchingLuminance(_ encoded: SIMD3<Double>) -> SIMD3<Double> {
-    let y = xyz(encoded).y / white.y
+    let y = (profile.colorants * linearRGB(encoded)).y / white.y
     // The SHA-pinned working profile has identical pure-gamma RGB curves.
     return SIMD3(repeating: profile.curves[0].encode(y))
   }
 
   func lab(_ encoded: SIMD3<Double>) -> SIMD3<Double> {
-    let relative = xyz(encoded) / white
+    labFromLinear(linearRGB(encoded))
+  }
+
+  func labFromLinear(_ linear: SIMD3<Double>) -> SIMD3<Double> {
+    let relative = (profile.colorants * linear) / white
     func f(_ t: Double) -> Double {
       t > pow(6.0 / 29, 3) ? cbrt(t) : t / (3 * pow(6.0 / 29, 2)) + 4.0 / 29
     }

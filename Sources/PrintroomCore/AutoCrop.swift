@@ -16,6 +16,7 @@ public struct AutoCropSeed: Sendable {
   public let angle: Double
   public let edges: [Double], evidence: [Double]
   var candidates: [[AutoCropEdgeCandidate]] = []
+  var sourceAspect: Double? = nil
   var baseDensity: Double = 0
   fileprivate var score: Double { let e = evidence.sorted(); return e[1] + e[2] + e[3] + 0.4 * e[0] }
 }
@@ -27,9 +28,10 @@ public struct AutoCropAnalysis: Sendable {
   public let seedEdges: [Double]
   public let seedEvidence: [Double]
   var candidates: [[AutoCropEdgeCandidate]] = []
+  var sourceAspect: Double? = nil
   var baseDensity: Double = 0
   public var seed: AutoCropSeed { AutoCropSeed(width: width, height: height, angle: seedAngle, edges: seedEdges,
-                                             evidence: seedEvidence, candidates: candidates, baseDensity: baseDensity) }
+                                             evidence: seedEvidence, candidates: candidates, sourceAspect: sourceAspect, baseDensity: baseDensity) }
   fileprivate var seedScore: Double { let e = seedEvidence.sorted(); return e[1] + e[2] + e[3] + 0.4 * e[0] }
 }
 
@@ -37,6 +39,7 @@ public struct AutoCropTemplate: Sendable {
   public let width: Double, height: Double
   public let analysisWidth: Int, analysisHeight: Int
   public let seedCount: Int
+  public var requestedRatio: Double? = nil
 }
 
 public struct AutoCropResult: Sendable {
@@ -48,15 +51,15 @@ public struct AutoCropResult: Sendable {
 /// All frames share one size, selected from film-base-supported edge candidates.
 /// Size and position share film-base evidence; review retains the original contract.
 public enum AutoCropAnalyzer {
-  public static let version = "roll-edge-v3"
+  public static let version = "roll-edge-v4"
   public static func prepare(_ image: LinearImage, seed: AutoCropSeed? = nil) throws -> AutoCropAnalysis {
     guard image.width > 0, image.height > 0,
       image.width <= Int.max / image.height / 3,
       image.samples.count == image.width * image.height * 3 else {
-      throw PrintroomError.invalid("自动裁切输入尺寸无效。")
+      throw PrintroomError.invalid("自动裁剪输入尺寸无效。")
     }
     let w = 800, h = max(1, Int((800 * Double(image.height) / Double(image.width)).rounded()))
-    guard h <= 6400 else { throw PrintroomError.invalid("自动裁切不支持此图像尺寸。") }
+    guard h <= 6400 else { throw PrintroomError.invalid("自动裁剪不支持此图像尺寸。") }
     // Area averaging happens in linear samples, before logarithmic density.
     let xs = areaWeights(source: image.width, target: w)
     let ys = areaWeights(source: image.height, target: h)
@@ -74,9 +77,9 @@ public enum AutoCropAnalyzer {
     }
     d = blur(d, width: w, height: h)
     if let seed {
-      guard seed.width == w, seed.height == h else { throw PrintroomError.invalid("自动裁切分析尺寸已变化。") }
+      guard seed.width == w, seed.height == h else { throw PrintroomError.invalid("自动裁剪分析尺寸已变化。") }
       return AutoCropAnalysis(width: w, height: h, density: d, seedAngle: seed.angle,
-                             seedEdges: seed.edges, seedEvidence: seed.evidence, candidates: seed.candidates, baseDensity: seed.baseDensity)
+                             seedEdges: seed.edges, seedEvidence: seed.evidence, candidates: seed.candidates, sourceAspect: seed.sourceAspect, baseDensity: seed.baseDensity)
     }
     let ranges = [(Double(w) * 0.025, Double(w) * 0.18), (Double(w) * 0.82, Double(w) * 0.99),
                   (Double(h) * 0.015, Double(h) * 0.14), (Double(h) * 0.86, Double(h) * 0.995)]
@@ -98,6 +101,7 @@ public enum AutoCropAnalyzer {
       if candidate.seedScore > bestScore { best = candidate; bestScore = candidate.seedScore }
     }
     let detected = try edgeCandidates(d, width: w, height: h, angle: best.seedAngle, ranges: ranges)
+    best.sourceAspect = Double(image.width) / Double(image.height)
     best.candidates = detected.candidates
     best.baseDensity = detected.base
     return best
@@ -107,10 +111,16 @@ public enum AutoCropAnalyzer {
     try template(fromSeeds: analyses.map(\.seed))
   }
 
-  public static func template(fromSeeds seeds: [AutoCropSeed]) throws -> AutoCropTemplate {
+  public static func template(fromSeeds seeds: [AutoCropSeed], aspectRatio: Double? = nil) throws -> AutoCropTemplate {
     guard let first = seeds.first,
       seeds.allSatisfy({ $0.width == first.width && $0.height == first.height }) else {
-      throw PrintroomError.invalid("自动裁切需要一卷尺寸一致的照片。")
+      throw PrintroomError.invalid("自动裁剪需要一卷尺寸一致的照片。")
+    }
+    if let aspectRatio {
+      guard aspectRatio.isFinite, (0.1...10).contains(aspectRatio) else {
+        throw PrintroomError.invalid("画幅比例必须在 1:10 到 10:1 之间。")
+      }
+      return try constrainedTemplate(seeds, ratio: aspectRatio)
     }
     var reliable = seeds.filter { $0.evidence.min()! > 0.3 }
     if reliable.count < 5 { reliable = Array(seeds.sorted { $0.score > $1.score }.prefix(18)) }
@@ -122,6 +132,49 @@ public enum AutoCropAnalyzer {
       height: vertical?.size ?? median(reliable.map { $0.edges[3] - $0.edges[2] }),
       analysisWidth: first.width, analysisHeight: first.height,
       seedCount: min(horizontal?.count ?? reliable.count, vertical?.count ?? reliable.count))
+  }
+
+  /// Joint scale selection: a strong width cannot independently override a
+  /// height supported by the requested aperture ratio. Each frame/axis votes once.
+  private static func constrainedTemplate(_ seeds: [AutoCropSeed], ratio requestedRatio: Double) throws -> AutoCropTemplate {
+    typealias Pair = (size: Double, weight: Double)
+    let first = seeds[0]
+    let ratio = requestedRatio * (Double(first.width) / Double(first.height))
+      / (first.sourceAspect ?? (Double(first.width) / Double(first.height)))
+    let pairs: [[[Pair]]] = seeds.map { seed in
+      (0..<2).map { axis in
+        guard seed.candidates.count == 4 else { return [] }
+        return seed.candidates[axis * 2].flatMap { a in
+          seed.candidates[axis * 2 + 1].compactMap { b -> Pair? in
+            guard min(a.weight, b.weight) > 0.03, b.position > a.position else { return nil }
+            return (b.position - a.position, sqrt(a.weight * b.weight))
+          }
+        }
+      }
+    }
+    let maxHeight = min(Double(first.height), Double(first.width) / ratio)
+    let proposals = Set(pairs.flatMap { axes in
+      axes[0].map { $0.size / ratio } + axes[1].map { $0.size }
+    }).filter { $0 > 0 && $0 <= maxHeight }.sorted()
+    var winner: Double?, best = -Double.infinity, count = 0
+    for height in proposals {
+      try Task.checkCancellation()
+      var score = 0.0, contributors = 0
+      for axes in pairs {
+        let x = axes[0].map { $0.weight * max(0, 1 - abs($0.size - height * ratio) / 3) }.max() ?? 0
+        let y = axes[1].map { $0.weight * max(0, 1 - abs($0.size - height) / 3) }.max() ?? 0
+        score += x + y + min(x, y)
+        if x > 0 || y > 0 { contributors += 1 }
+      }
+      if score > best { best = score; winner = height; count = contributors }
+    }
+    if winner == nil {
+      let unconstrained = try template(fromSeeds: seeds)
+      winner = min(maxHeight, min(unconstrained.height, unconstrained.width / ratio))
+    }
+    return AutoCropTemplate(width: winner! * ratio, height: winner!,
+      analysisWidth: first.width, analysisHeight: first.height, seedCount: count,
+      requestedRatio: requestedRatio)
   }
 
   private static func edgeCandidates(_ d: [Float], width: Int, height: Int, angle: Double,
@@ -234,7 +287,7 @@ public enum AutoCropAnalyzer {
                          requiresAllEdges: Bool = false) throws -> AutoCropResult {
     guard sourceWidth > 0, sourceHeight > 0,
       analysis.width == template.analysisWidth, analysis.height == template.analysisHeight else {
-      throw PrintroomError.invalid("自动裁切模板尺寸不匹配。")
+      throw PrintroomError.invalid("自动裁剪模板尺寸不匹配。")
     }
     let e = analysis.seedEdges, w = template.width, h = template.height
     func centers(axis: Int, size: Double) -> [Double] {
@@ -302,7 +355,7 @@ public enum AutoCropAnalyzer {
     let pixelHeight = h / Double(analysis.height) * Double(sourceHeight)
     let crop = FrameCrop(aspect: .free, centerX: winner[0] / Double(analysis.width),
       centerY: winner[1] / Double(analysis.height), width: w / Double(analysis.width),
-      angleDegrees: max(-10, min(10, -winner[2])), freeRatio: pixelWidth / pixelHeight)
+      angleDegrees: max(-10, min(10, -winner[2])), freeRatio: template.requestedRatio ?? (pixelWidth / pixelHeight))
     return AutoCropResult(crop: try crop.constrained(sourceWidth: sourceWidth, sourceHeight: sourceHeight),
                           needsReview: !pass, evidence: scores)
   }

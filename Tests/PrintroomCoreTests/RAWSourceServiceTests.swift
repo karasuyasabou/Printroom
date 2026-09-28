@@ -251,6 +251,13 @@ final class RAWSourceServiceTests: XCTestCase, @unchecked Sendable {
     bounded.scheduleMaintenance() // A changed capacity policy explicitly requests maintenance.
     bounded.waitForMaintenance()
     XCTAssertFalse(try FileManager.default.subpathsOfDirectory(atPath: directory.path).contains { $0.hasSuffix("manifest.json") })
+    // Reopening an old roll uses metadata preparation, which must rebuild both
+    // proxy sizes after automatic eviction, before any editor read starts.
+    _ = try service.metadata(url: source)
+    XCTAssertEqual(backend.count(), 3)
+    _ = try service.preview(url: source, maxDimension: 1600)
+    _ = try service.preview(url: source, maxDimension: 240)
+    XCTAssertEqual(backend.count(), 3, "Editor reads must reuse the proxies restored by loading")
   }
   func testOneCancelledConsumerKeepsSharedPreparation() async throws {
     let (_, source, backend, service) = try fixture()

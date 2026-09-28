@@ -2,9 +2,9 @@ import AppKit
 import SwiftUI
 
 enum ChannelColors {
-  static let red = Color(red: 0.92, green: 0.49, blue: 0.43)
-  static let green = Color(red: 0.48, green: 0.75, blue: 0.55)
-  static let blue = Color(red: 0.47, green: 0.65, blue: 0.88)
+  static let red = InterfaceColors.red
+  static let green = InterfaceColors.green
+  static let blue = InterfaceColors.blue
 }
 
 struct AdjustmentRow: View {
@@ -17,10 +17,14 @@ struct AdjustmentRow: View {
   let onEditingChanged: (Bool) -> Void
   var resetValue: Double? = nil
   var quantizesValue = true
-  var valueWidth: CGFloat = 56
+  var label: String = ""
 
   var body: some View {
     HStack(spacing: 10) {
+      Text(label)
+        .font(.system(size: 11))
+        .foregroundStyle(InterfaceColors.secondaryText)
+        .frame(width: 42, alignment: .leading)
       AdjustmentSlider(value: $value, range: range, step: step, color: color,
         title: title, onEditingChanged: onEditingChanged, resetValue: resetValue, quantizesValue: quantizesValue)
         .frame(height: 24)
@@ -33,7 +37,7 @@ struct AdjustmentRow: View {
         .textFieldStyle(.roundedBorder)
         .multilineTextAlignment(.trailing)
         .font(.system(size: 11, design: .monospaced))
-        .frame(width: valueWidth)
+        .frame(width: 56)
         .accessibilityLabel("\(title) 数值")
     }.help(title)
   }

@@ -27,15 +27,16 @@ struct RAWPrewarmerTests {
     let state = State(), gate = DispatchSemaphore(value: 0)
     let urls = (0..<12).map { URL(fileURLWithPath: "/test/\($0).ARW") }
     let task = Task {
-      await RAWPrewarmer.prepare(urls) { url in
+      await RAWPrewarmer.prepare(urls, load: { url in
         state.enter(); defer { state.leave() }
         gate.wait()
         if url.lastPathComponent == "0.ARW" { throw CocoaError(.fileReadCorruptFile) }
-      }
+      })
     }
     try await waitForFour(state)
     for _ in urls { gate.signal() }
-    await task.value
+    let failures = await task.value
+    #expect(failures.map { $0.url.lastPathComponent } == ["0.ARW"])
     #expect(state.counts.0 == 12)
     #expect(state.counts.1 == 0)
     #expect(state.counts.2 == 4)
@@ -44,16 +45,16 @@ struct RAWPrewarmerTests {
     let state = State()
     let urls = (0..<12).map { URL(fileURLWithPath: "/test/\($0).ARW") }
     let task = Task {
-      await RAWPrewarmer.prepare(urls) { _ in
+      await RAWPrewarmer.prepare(urls, load: { _ in
         state.enter()
         while !Task.isCancelled { Thread.sleep(forTimeInterval: 0.005) }
         state.leave(cancelled: true)
         throw CancellationError()
-      }
+      })
     }
     try await waitForFour(state)
     task.cancel()
-    await task.value
+    _ = await task.value
     #expect(state.counts.0 == 4)
     #expect(state.counts.1 == 0)
     #expect(state.counts.3 == 4)

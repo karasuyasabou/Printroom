@@ -113,9 +113,110 @@ import UniformTypeIdentifiers
       render()
     }
   }
+  @Published var cropPreviewEnabled = true {
+    willSet { if newValue != cropPreviewEnabled { retainCropPreview() } }
+    didSet {
+      guard cropPreviewEnabled != oldValue else { return }
+      cropViewportToken += 1
+      render(preservingHistogram: true)
+    }
+  }
   @Published private(set) var isCropping = false
   @Published var cropDraft: FrameCrop?
   @Published var cropViewportToken = 0
+  @Published private(set) var showRollTimingDialog = false
+  @Published private(set) var isAnalyzingRollTiming = false
+  @Published private(set) var rollTimingProgress = ""
+  @Published private(set) var rollTimingError: String?
+  private var rollTimingTask: Task<Void, Never>?
+  private var rollTimingGeneration = UUID()
+  private var rollTimingSnapshot: RollProject?
+  private var rollTimingResult: RollTimingResult?
+  var rollTimingValues: TimingParameters? { rollTimingResult?.timing }
+  typealias RollTimingRunner = @Sendable (RollProject, URL, AppAssets, @escaping @Sendable (String) async -> Void) async throws -> RollTimingResult
+  var rollTimingRunner: RollTimingRunner = { project, folder, assets, progress in
+    try await RollTimingService.run(project: project, folder: folder, assets: assets, progress: progress)
+  }
+  var canStartRollTiming: Bool {
+    guard let p = project else { return false }
+    return p.calibration.isCalibrated && !p.calibrationNeedsReview
+      && p.calibration.cmosMatrix == p.calibration.sampledCMOSMatrix
+      && p.calibration.matrix == p.calibration.sampledDensityMatrix
+      && p.frames.contains { !$0.isMissing }
+      && !isCropping && !isLoading && !isAutoCropping && !isExporting
+      && !showRollTimingDialog && !isNeutralSampling && !sampling && pendingMatrixCalibration == nil
+      && p.frames.contains { $0.id == p.calibration.sourceFrameID && !$0.isMissing }
+  }
+  func cancelRollTiming() {
+    rollTimingTask?.cancel(); rollTimingTask = nil
+    rollTimingGeneration = UUID()
+    showRollTimingDialog = false; isAnalyzingRollTiming = false
+    rollTimingSnapshot = nil; rollTimingResult = nil; rollTimingError = nil
+  }
+  func startRollTiming() {
+    guard canStartRollTiming, let folder, let assets else { return }
+    stopTimingKey(); endAdjustment()
+    guard let old = project else { return }
+    do { _ = try calibrationSource(old) }
+    catch { errorMessage = error.localizedDescription; return }
+    cancelSampling()
+    neutralPicking = false
+    rollTimingSnapshot = old; rollTimingResult = nil; rollTimingError = nil
+    let generation = UUID()
+    rollTimingGeneration = generation
+    showRollTimingDialog = true; isAnalyzingRollTiming = true
+    rollTimingProgress = "正在分析…"
+    let runner = rollTimingRunner
+    rollTimingTask = Task {
+      do {
+        let result = try await runner(old, folder, assets) { [weak model = self] text in
+          await model?.updateRollTimingProgress(text, generation: generation)
+        }
+        guard !Task.isCancelled, rollTimingGeneration == generation else { return }
+        rollTimingResult = result
+      } catch {
+        guard !Task.isCancelled, rollTimingGeneration == generation else { return }
+        rollTimingError = error.localizedDescription
+      }
+      isAnalyzingRollTiming = false; rollTimingTask = nil
+    }
+  }
+  private func updateRollTimingProgress(_ text: String, generation: UUID) {
+    if rollTimingGeneration == generation { rollTimingProgress = text }
+  }
+  func applyRollTiming(preserveEdited: Bool) {
+    guard !isAnalyzingRollTiming, let result = rollTimingResult,
+      let old = rollTimingSnapshot, let current = project,
+      let lut = old.frames.first?.adjustments.cineonLogLUT else { return }
+    do {
+      guard current.id == old.id, current.calibration == old.calibration,
+        current.calibrationNeedsReview == old.calibrationNeedsReview,
+        current.frames == old.frames else {
+        throw PrintroomError.invalid("照片或参数已改变，请重新分析。")
+      }
+      for stamp in result.sources where try AutoCropSourceStamp(stamp.url) != stamp {
+        throw PrintroomError.invalid("源照片已改变，请重新分析。")
+      }
+      var next = current
+      var targets = Set<UUID>()
+      for index in next.frames.indices where !next.frames[index].isMissing {
+        let a = next.frames[index].adjustments
+        if preserveEdited && (a.timing != TimingParameters() || a.contrast != ContrastParameters()) { continue }
+        next.frames[index].adjustments.cineonLogLUT = lut
+        next.frames[index].adjustments.timing = result.timing
+        next.frames[index].adjustments.contrast = ContrastParameters()
+        targets.insert(next.frames[index].id)
+      }
+      if next.frames != current.frames {
+        registerUndo(old: current, name: "整卷自动调色")
+        project = next; dirty = true
+        render(); refreshThumbnails(affectedIDs: targets); scheduleSave(immediate: true)
+      }
+      let missing = next.frames.filter(\.isMissing).count
+      status = missing == 0 ? "已应用整卷自动调色" : "已应用整卷自动调色，跳过 \(missing) 张缺失照片"
+      cancelRollTiming()
+    } catch { rollTimingError = error.localizedDescription; rollTimingResult = nil }
+  }
   @Published private(set) var isAutoCropping = false
   @Published private(set) var autoCropProgressText = ""
   @Published private(set) var autoCropCompletedRun = 0
@@ -123,9 +224,9 @@ import UniformTypeIdentifiers
   @Published private var cropReviewSession = false
   private var autoCropTask: Task<Void, Never>?
   private var autoCropGeneration = UUID()
-  typealias AutoCropRunner = @Sendable ([AutoCropInput], Set<UUID>, @escaping @Sendable (String) async -> Void) async throws -> [AutoCropOutput]
-  var autoCropRunner: AutoCropRunner = { inputs, targets, progress in
-    try await AutoCropService.run(inputs: inputs, targets: targets, progress: progress)
+  typealias AutoCropRunner = @Sendable ([AutoCropInput], Set<UUID>, Double, @escaping @Sendable (String) async -> Void) async throws -> [AutoCropOutput]
+  var autoCropRunner: AutoCropRunner = { inputs, targets, ratio, progress in
+    try await AutoCropService.run(inputs: inputs, targets: targets, aspectRatio: ratio, progress: progress)
   }
   var pendingAutoCropFrameIDs: Set<UUID> {
     Set(project?.frames.filter { !$0.isMissing && $0.cropNeedsReview }.map(\.id) ?? [])
@@ -172,6 +273,7 @@ import UniformTypeIdentifiers
     let histogramStage: PipelineStage
     let orientation: FrameOrientation
     let crop: FrameCrop?
+    let histogramCrop: FrameCrop?
     let sourceWidth: Int
     let sourceHeight: Int
   }
@@ -218,7 +320,7 @@ import UniformTypeIdentifiers
   var hasImage: Bool { previewImage != nil && activeFrame != nil && !isPreviewPlaceholder && !isLoading && cropPreviewTransition == nil }
   var canPickNeutral: Bool { hasImage && !isCropping && !sampling && !isNeutralSampling && !isRendering }
   var orientation: FrameOrientation { activeFrame?.orientation ?? .identity }
-  var displayedCrop: FrameCrop? { isCropping || sampling ? nil : activeFrame?.crop }
+  var displayedCrop: FrameCrop? { isCropping || sampling || !cropPreviewEnabled ? nil : activeFrame?.crop }
   var displayGeometry: CropGeometry? {
     try? CropGeometry(crop: displayedCrop, sourceWidth: sourceWidth,
       sourceHeight: sourceHeight, orientation: orientation)
@@ -256,11 +358,10 @@ import UniformTypeIdentifiers
   func openPanel() {
     guard !isExporting else { return }
     let panel = NSOpenPanel()
-    panel.title = "打开 TIFF、ARW 或整卷文件夹"
-    panel.canChooseFiles = true
+    panel.title = "打开底片文件夹"
+    panel.canChooseFiles = false
     panel.canChooseDirectories = true
     panel.allowsMultipleSelection = false
-    panel.allowedContentTypes = [.tiff, UTType(filenameExtension: "arw") ?? .rawImage]
     if panel.runModal() == .OK, let url = panel.url { open(url) }
   }
   func openRecent(_ entry: RecentRoll) {
@@ -292,12 +393,13 @@ import UniformTypeIdentifiers
       errorMessage = "请先完成或取消当前导出"
       return
     }
-    guard discardUnsaved || flushSave() else { return }
+    guard discardUnsaved || (saveCropBeforeSwitching() && flushSave()) else { return }
     var isDirectory: ObjCBool = false
     guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
       errorMessage = "文件不存在：\(url.lastPathComponent)"
       return
     }
+    cancelRollTiming()
     cancelAutoCrop()
     resetAutoCropReview()
     cancelGeometryPreparation()
@@ -310,45 +412,54 @@ import UniformTypeIdentifiers
         previous != (try? SourceImageIO.processingIdentity(url: targetFolder.appendingPathComponent(source.filename))) {
         roll.calibrationNeedsReview = true
       }
-      if folder != targetFolder { snapshot = nil }
-      thumbnails = [:]
-      thumbnailPresentationKeys = [:]
-      presentationCache.clear()
-      pendingThumbnailIDs = []
-      baseStatistics = ""
-      loadTask?.cancel()
-      renderTask?.cancel()
-      thumbnailTask?.cancel()
-      saveTask?.cancel()
-      folder = targetFolder
-      project = roll
-      recentRolls?.record(folder: targetFolder, projectID: roll.id, replacing: replacingRecent)
-      expectedModification = roll.loadedModificationDate
-      saveFailure = false
-      selection = SelectionState()
-      let available = roll.frames.filter { !$0.isMissing }
-      let chosen =
-        available.first { $0.filename == preferred?.lastPathComponent } ?? available.first {
-          $0.id == roll.lastActiveFrameID
-        } ?? available.first
-      if let chosen {
-        selection.click(chosen.id, ordered: available.map(\.id), command: false, shift: false)
-      }
-      undoManager.removeAllActions()
-      undoRevision += 1
-      dirty = true
-      sampling = false
-      status = "\(targetFolder.lastPathComponent) · \(available.count) 张照片"
-      _ = flushSave()
-      loadActive()
-      refreshThumbnails()
+      beginImport(roll, folder: targetFolder, preferred: preferred, replacingRecent: replacingRecent)
     } catch { errorMessage = error.localizedDescription }
   }
+  private func activateRoll(_ roll: RollProject, folder targetFolder: URL,
+    preferred: URL?, replacingRecent: String?) {
+    if folder != targetFolder { snapshot = nil }
+    thumbnails = [:]
+    thumbnailPresentationKeys = [:]
+    presentationCache.clear()
+    pendingThumbnailIDs = []
+    baseStatistics = ""
+    loadTask?.cancel()
+    renderTask?.cancel()
+    thumbnailTask?.cancel()
+    saveTask?.cancel()
+    folder = targetFolder
+    project = roll
+    recentRolls?.record(folder: targetFolder, projectID: roll.id, replacing: replacingRecent, name: roll.name)
+    expectedModification = roll.loadedModificationDate
+    saveFailure = false
+    selection = SelectionState()
+    let available = roll.frames.filter { !$0.isMissing }
+    let chosen =
+      available.first { $0.filename == preferred?.lastPathComponent } ?? available.first {
+        $0.id == roll.lastActiveFrameID
+      } ?? available.first
+    if let chosen {
+      selection.click(chosen.id, ordered: available.map(\.id), command: false, shift: false)
+    }
+    undoManager.removeAllActions()
+    undoRevision += 1
+    dirty = true
+    sampling = false
+    status = "\(targetFolder.lastPathComponent) · \(available.count) 张照片"
+    _ = flushSave()
+    loadActive()
+    refreshThumbnails()
+  }
   func returnHome() {
+    if isImporting { cancelImport(); return }
     guard project != nil, !isExporting else { return }
     stopTimingKey()
     endAdjustment()
     guard saveCropBeforeSwitching(), flushSave() else { return }
+    resetEditor()
+  }
+  private func resetEditor() {
+    cancelRollTiming()
     cancelAutoCrop()
     resetAutoCropReview()
     project = nil
@@ -387,7 +498,9 @@ import UniformTypeIdentifiers
     )
     if old != nextSelection.activeFrameID, !saveCropBeforeSwitching() { return }
     selection = nextSelection
-    if old != selection.activeFrameID { loadActive(preservingCropMode: isCropping) }
+    if old != selection.activeFrameID {
+      loadActive(preservingCropMode: isCropping, preservingSamplingMode: sampling)
+    }
     self.project?.lastActiveFrameID = selection.activeFrameID
     dirty = true
     scheduleSave()
@@ -438,22 +551,70 @@ import UniformTypeIdentifiers
     if before != selection.activeFrameID { loadActive() }
   }
   private var rawPreparationTask: Task<Void, Never>?
-  private func prepareRAWProxies() {
+  private var importGeneration = UUID()
+  private var importURL: URL?
+  private var importReplacingRecent: String?
+  @Published private(set) var isImporting = false
+  @Published private(set) var importCompleted = 0
+  @Published private(set) var importTotal = 0
+  @Published private(set) var importFailure: String?
+  var rawProxyLoader: @Sendable (URL) throws -> Void = { _ = try SourceImageIO.metadata(url: $0) }
+
+  func cancelImport() {
+    importGeneration = UUID()
     rawPreparationTask?.cancel()
-    guard let project, let folder else { return }
-    let active = selection.activeFrameID
-    let urls = project.frames.filter { !$0.isMissing && SourceImageIO.isRAW(folder.appendingPathComponent($0.filename)) }
-      .sorted { $0.id == active && $1.id != active }
-      .map { folder.appendingPathComponent($0.filename) }
-    guard !urls.isEmpty else { return }
-    rawPreparationTask = Task { await RAWPrewarmer.prepare(urls) }
+    rawPreparationTask = nil
+    isImporting = false
+    importFailure = nil
+    importURL = nil
   }
-  func loadActive(preservingCropMode: Bool = false) {
-    rawPreparationTask?.cancel()
+  func retryImport() {
+    guard let importURL else { return }
+    open(importURL, replacingRecent: importReplacingRecent)
+  }
+  private func beginImport(_ roll: RollProject, folder targetFolder: URL,
+    preferred: URL?, replacingRecent: String?) {
+    // Keep the project unpublished: all editor/menu commands remain unavailable.
+    resetEditor()
+    cancelImport()
+    let urls = roll.frames.filter { !$0.isMissing }
+      .map { targetFolder.appendingPathComponent($0.filename) }.filter { SourceImageIO.isRAW($0) }
+    guard !urls.isEmpty else {
+      activateRoll(roll, folder: targetFolder, preferred: preferred, replacingRecent: replacingRecent)
+      return
+    }
+    isImporting = true
+    importCompleted = 0
+    importTotal = urls.count
+    importURL = preferred ?? targetFolder
+    importReplacingRecent = replacingRecent
+    let generation = importGeneration
+    let loader = rawProxyLoader
+    rawPreparationTask = Task {
+      let failures = await RAWPrewarmer.prepare(urls, progress: { [weak self] completed in
+        await self?.updateImportProgress(completed, generation: generation)
+      }, load: loader)
+      guard !Task.isCancelled, generation == importGeneration else { return }
+      rawPreparationTask = nil
+      guard failures.isEmpty else {
+        importFailure = failures.map { "\($0.url.lastPathComponent)：\($0.message)" }.joined(separator: "\n")
+        return
+      }
+      isImporting = false
+      importURL = nil
+      activateRoll(roll, folder: targetFolder, preferred: preferred, replacingRecent: replacingRecent)
+    }
+  }
+  private func updateImportProgress(_ completed: Int, generation: UUID) {
+    guard generation == importGeneration, isImporting else { return }
+    importCompleted = completed
+  }
+  func loadActive(preservingCropMode: Bool = false, preservingSamplingMode: Bool = false) {
+    guard !isImporting else { return }
     cancelGeometryPreparation()
     isCropping = preservingCropMode
     cropDraft = nil
-    sampling = false
+    sampling = preservingSamplingMode
     cancelSampling()
     cancelNeutralPicker()
     isRendering = false
@@ -521,7 +682,6 @@ import UniformTypeIdentifiers
         }
       }
     }
-    prepareRAWProxies()
   }
   private func cancelPreviewWorker() {
     renderTask?.cancel()
@@ -555,7 +715,7 @@ import UniformTypeIdentifiers
     thumbnailPresentationKeys[key.frameID] = key
     if activeFrame?.id == key.frameID { showCachedPreview() }
   }
-  func render() {
+  func render(preservingHistogram: Bool = false) {
     cancelNeutralPicker()
     if histogram?.stage != histogramStage { histogram = nil }
     invalidateDetail()
@@ -563,11 +723,13 @@ import UniformTypeIdentifiers
     guard let input = previewInput, let project, let frame = activeFrame, let assets else { return }
     let context = PreviewContext(source: previewInputIdentity, frameID: frame.id,
       calibration: project.calibration, stage: stage, histogramStage: histogramStage, orientation: frame.orientation,
-      crop: displayedCrop, sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+      crop: displayedCrop, histogramCrop: sampling ? nil : frame.crop,
+      sourceWidth: sourceWidth, sourceHeight: sourceHeight)
     // Geometry/source/stage changes invalidate in-flight work. Ordinary edits keep
     // the current job alive and replace the single pending snapshot instead.
     if context != previewContext {
-      histogram = nil
+      if !preservingHistogram { histogram = nil }
+      clearHistogramProbe()
       cancelPreviewWorker()
       previewContext = context
     }
@@ -586,7 +748,7 @@ import UniformTypeIdentifiers
             orientation: request.context.orientation, inputIdentity: request.context.source,
             crop: request.context.crop, sourceWidth: request.context.sourceWidth,
             sourceHeight: request.context.sourceHeight, includeHistogram: !isCropping,
-            histogramStage: request.context.histogramStage)
+            histogramStage: request.context.histogramStage, histogramCrop: request.context.histogramCrop)
           guard !Task.isCancelled, generation == renderGeneration,
             previewContext == request.context, activeFrame?.id == request.context.frameID else { return }
           // One serial worker publishes snapshots in increasing order, including
@@ -700,10 +862,14 @@ import UniformTypeIdentifiers
       !$0.isMissing && (!preserveExisting || ($0.crop == nil && $0.cropOrigin == nil))
     }.count ?? 0
   }
-  func startAutoCrop(preserveExisting: Bool = true, inwardPercent: Double = 0) {
+  func startAutoCrop(preserveExisting: Bool = true, inwardPercent: Double = 0, aspectRatio: Double = 1.5) {
     guard canStartAutoCrop, let old = project, let folder else { return }
     guard inwardPercent.isFinite, (0...5).contains(inwardPercent) else {
-      errorMessage = "向内裁切百分比必须在 0% 到 5% 之间。"
+      errorMessage = "向内裁剪百分比必须在 0% 到 5% 之间。"
+      return
+    }
+    if !aspectRatio.isFinite || !(0.1...10).contains(aspectRatio) {
+      errorMessage = "画幅比例必须在 1:10 到 10:1 之间。"
       return
     }
     stopTimingKey()
@@ -720,17 +886,17 @@ import UniformTypeIdentifiers
     let generation = UUID()
     autoCropGeneration = generation
     isAutoCropping = true
-    autoCropProgressText = "准备自动裁切…"
+    autoCropProgressText = "准备自动裁剪…"
     let runner = autoCropRunner
     autoCropTask = Task {
       do {
-        let results = try await runner(inputs, targets) { [weak model = self] text in
+        let results = try await runner(inputs, targets, aspectRatio) { [weak model = self] text in
           await model?.updateAutoCropProgress(text, generation: generation)
         }
         guard !Task.isCancelled, autoCropGeneration == generation,
           var next = project, next.id == old.id, self.folder == folder else { return }
         guard Set(results.map(\.id)) == targets, results.count == targets.count else {
-          throw PrintroomError.invalid("自动裁切未得到完整结果，原裁剪已保留。")
+          throw PrintroomError.invalid("自动裁剪未得到完整结果，原裁剪已保留。")
         }
         // Do not overwrite crop edits made while analysis was running. Unrelated
         // timing, orientation and calibration edits are retained from current state.
@@ -743,7 +909,7 @@ import UniformTypeIdentifiers
             next.frames[index].cropNeedsReview == before.cropNeedsReview,
             !next.frames[index].isMissing,
             try AutoCropSourceStamp(result.source.url) == result.source else {
-            throw PrintroomError.invalid("照片或裁剪已改变，请重新运行自动裁切。")
+            throw PrintroomError.invalid("照片或裁剪已改变，请重新运行自动裁剪。")
           }
           var crop = result.crop
           crop.width *= 1 - inwardPercent * 0.02
@@ -754,7 +920,7 @@ import UniformTypeIdentifiers
         }
         guard let current = project else { return }
         if current.frames != next.frames {
-          registerUndo(old: current, name: "自动裁切 \(results.count) 张")
+          registerUndo(old: current, name: "自动裁剪 \(results.count) 张")
           retainCropPreview()
           project = next
           dirty = true
@@ -1174,6 +1340,7 @@ import UniformTypeIdentifiers
   }
   private func restore(_ value: RollProject, name: String) {
     guard let old = project else { return }
+    cancelRollTiming()
     cancelAutoCrop()
     resetAutoCropReview()
     registerUndo(old: old, name: name)
@@ -1187,7 +1354,10 @@ import UniformTypeIdentifiers
       previewImage = nil
       cropViewportToken += 1
     }
-    project = value
+    var restored = value
+    restored.name = old.name
+    restored.exportSettings = old.exportSettings
+    project = restored
     let available = value.frames.filter { !$0.isMissing }.map(\.id)
     if let id = selection.activeFrameID, !available.contains(id) {
       selection = SelectionState()
@@ -1578,6 +1748,7 @@ import UniformTypeIdentifiers
       }
     }
     next.exportSettings = backup.exportSettings
+    next.name = backup.name
     next.calibration = backup.calibration
     if let source = backup.frames.first(where: { $0.id == backup.calibration.sourceFrameID }),
       let current = next.frames.first(where: { $0.id == source.id })
@@ -1605,34 +1776,77 @@ import UniformTypeIdentifiers
     refreshThumbnails(changedFrom: previous, to: next)
     status = "已恢复本卷设置副本"
   }
+  var rollName: String { project?.name ?? folder?.lastPathComponent ?? "Printroom" }
+
+  func renameRollPanel(recent: RecentRoll? = nil) {
+    guard let target = recent?.url ?? folder else { return }
+    let isCurrent = folder?.standardizedFileURL.resolvingSymlinksInPath() == target.standardizedFileURL.resolvingSymlinksInPath()
+    do {
+      let original = try isCurrent ? project : ProjectStore.open(folder: target)
+      guard let original else { return }
+      let dialog = NSAlert()
+      dialog.messageText = "命名胶卷"
+      let field = NSTextField(string: original.name ?? "")
+      field.placeholderString = target.lastPathComponent
+      field.frame = NSRect(x: 0, y: 0, width: 360, height: 24)
+      dialog.accessoryView = field
+      dialog.addButton(withTitle: "保存")
+      dialog.addButton(withTitle: "取消")
+      dialog.window.initialFirstResponder = field
+      let complete: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+        guard response == .alertFirstButtonReturn, let self else { return }
+        let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name: String? = text.isEmpty ? nil : text
+        if isCurrent {
+          guard self.project?.id == original.id else { return }
+          self.project?.name = name
+          self.dirty = true
+          if self.flushSave() { self.recentRolls?.updateName(folder: target, name: name) }
+        } else {
+          do {
+            var updated = original
+            updated.name = name
+            _ = try ProjectStore.save(updated, folder: target, expectedModification: original.loadedModificationDate)
+            self.recentRolls?.updateName(folder: target, name: name)
+          } catch { self.errorMessage = error.localizedDescription }
+        }
+      }
+      if let window = NSApp.keyWindow { dialog.beginSheetModal(for: window, completionHandler: complete) }
+      else { complete(dialog.runModal()) }
+    } catch { errorMessage = error.localizedDescription }
+  }
+
   func exportPanel() {
-    guard let project, let frame = activeFrame, let folder, !isExporting, !isCropping else { return }
-    showExportPanel(project: project, targets: [frame.id], title: "导出当前照片", folder: folder)
+    guard let project, let frame = activeFrame, folder != nil, !isExporting, !isCropping else { return }
+    showExportPanel(project: project, targets: [frame.id])
   }
   func batchExportPanel(allFrames: Bool) {
     guard let project, !isExporting, !isCropping else { return }
     let targets = allFrames ? Set(project.frames.map(\.id)) : selection.selectedFrameIDs
     guard !targets.isEmpty else { return }
-    showExportPanel(project: project, targets: targets,
-      title: "导出\(allFrames ? "整卷" : "选中照片") · \(targets.count) 张", folder: folder)
+    showExportPanel(project: project, targets: targets)
   }
-  private func showExportPanel(project: RollProject, targets: Set<UUID>, title: String, folder: URL?) {
-    let panel = NSOpenPanel()
-    panel.title = title + " · 选择输出文件夹"
-    panel.canChooseFiles = false
-    panel.canChooseDirectories = true
-    panel.canCreateDirectories = true
-    panel.allowsMultipleSelection = false
-    panel.directoryURL = folder?.appendingPathComponent("Printroom Exports", isDirectory: true)
-    panel.prompt = "导出"
-    let options = ExportOptionsView(settings: project.exportSettings,
-      filenamePrefix: folder?.lastPathComponent ?? "Printroom")
-    options.attach(to: panel)
-    guard panel.runModal() == .OK, let directory = panel.url,
-      self.project?.id == project.id, !isExporting else { return }
-    setExportSettings(options.settings)
-    startExport(targetIDs: targets, directory: directory, filenamePrefix: options.filenamePrefix)
+  private func showExportPanel(project: RollProject, targets: Set<UUID>) {
+    let options = ExportOptionsView(settings: project.exportSettings, filenamePrefix: rollName)
+    let dialog = NSAlert()
+    dialog.messageText = "导出设置"
+    dialog.accessoryView = options
+    dialog.addButton(withTitle: "导出")
+    dialog.addButton(withTitle: "取消")
+    options.validityChanged = { [weak dialog] valid in dialog?.buttons[0].isEnabled = valid }
+    options.refreshValidity()
+    let complete: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+      guard response == .alertFirstButtonReturn, let self,
+        self.project?.id == project.id, !self.isExporting,
+        options.isValid, let directory = options.destinationURL else { return }
+      self.setExportSettings(options.settings)
+      guard self.flushSave() else { return }
+      self.startExport(targetIDs: targets, directory: directory, filenamePrefix: options.filenamePrefix)
+    }
+    if let window = NSApp.keyWindow { dialog.beginSheetModal(for: window, completionHandler: complete) }
+    else { complete(dialog.runModal()) }
   }
+
   func startExport(targetIDs: Set<UUID>, directory: URL, explicitDestination: URL? = nil, filenamePrefix: String? = nil) {
     guard let project, let assets, !isExporting else { return }
     do {
@@ -1649,9 +1863,27 @@ import UniformTypeIdentifiers
       status = "导出已开始；可以继续调色与切图"
       exportTask = Task {
         do {
-          let summary = try await exportEngine.run(request, lut: assets.lut, p3Profile: assets.profile, fujifilmLUT: assets.fujifilmLUT) { progress in
+          let summary = try await exportEngine.run(request, lut: assets.lut, p3Profile: assets.profile, fujifilmLUT: assets.fujifilmLUT,
+            resolveConflict: { destination in
+              try Task.checkCancellation()
+              return await MainActor.run {
+                guard !Task.isCancelled else { return .cancel }
+                let alert = NSAlert()
+                alert.messageText = "文件已存在，是否覆盖？"
+                alert.informativeText = destination.lastPathComponent
+                alert.addButton(withTitle: "是，覆盖")
+                alert.addButton(withTitle: "否，自动重命名")
+                alert.addButton(withTitle: "取消导出")
+                switch alert.runModal() {
+                case .alertFirstButtonReturn: return .overwrite
+                case .alertSecondButtonReturn: return .rename
+                default: return .cancel
+                }
+              }
+            }) { progress in
             Task { @MainActor [weak self] in
-              guard let self, self.exportGeneration == generation, self.isExporting else { return }
+              guard let self, self.exportGeneration == generation, self.isExporting,
+                progress.fraction >= self.exportProgress else { return }
               self.exportProgress = progress.fraction
               self.exportDetail = "\(progress.processedCount)/\(progress.totalCount) · \(progress.currentName ?? "")"
             }
@@ -1670,7 +1902,7 @@ import UniformTypeIdentifiers
   func cancelExport() { exportTask?.cancel(); exportDetail = "正在取消；保留已完成文件…" }
   func clearRAWCache() {
     guard !isExporting else { return }
-    rawPreparationTask?.cancel()
+    cancelImport()
     status = "正在清理 RAW 中间文件…"
     Task {
       do {

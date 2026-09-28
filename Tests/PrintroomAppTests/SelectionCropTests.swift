@@ -39,6 +39,137 @@ struct SelectionCropTests {
     guard ready() else { throw PrintroomError.invalid(message) }
   }
 
+  @Test func cropPreviewOnlyChangesDisplayAndSurvivesNavigation() async throws {
+    let model = EditorModel()
+    #expect(model.cropPreviewEnabled)
+    let assets = try #require(model.assets)
+    let folder = try fixture(count: 2, profile: assets.profile)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    var roll = try ProjectStore.open(folder: folder)
+    for index in roll.frames.indices {
+      roll.frames[index].crop = FrameCrop(aspect: .square, centerX: 0.42,
+        width: 0.5, angleDegrees: 4)
+      roll.frames[index].orientation = .rotate90CW
+      roll.frames[index].adjustments.timing.red = 24
+    }
+    try ProjectStore.save(roll, folder: folder, expectedModification: roll.loadedModificationDate)
+    model.open(folder.appendingPathComponent(roll.frames[0].filename))
+    try await until("cropped preview ready", { !model.isLoading && !model.isRendering && model.histogram != nil })
+    let frames = model.project?.frames
+    let calibration = model.project?.calibration
+    let exportSettings = model.exportSettings
+    let canUndo = model.canUndo
+    for stage in [PipelineStage.final, .d3] {
+      model.histogramStage = stage
+      try await until("statistics ready", { !model.isRendering })
+      let histogram = try #require(model.histogram)
+      let croppedWidth = model.previewImage?.width
+      model.cropPreviewEnabled = false
+      #expect(model.histogram == histogram)
+      try await until("full preview ready", { !model.isRendering })
+      #expect(model.previewImage?.width == 60 && model.previewImage?.height == 84)
+      #expect(model.previewImage?.width != croppedWidth)
+      #expect(model.histogram == histogram)
+      #expect(model.displayedCrop == nil)
+      model.requestDetail(PixelRect(x: 2, y: 3, width: 12, height: 10))
+      try await until("uncropped detail ready", { !model.isDetailLoading })
+      #expect(model.detailImage?.width == 12 && model.detailImage?.height == 10)
+      model.cropPreviewEnabled = true
+      try await until("crop restored", { !model.isRendering })
+      #expect(model.previewImage?.width == croppedWidth && model.histogram == histogram)
+    }
+    #expect(model.project?.frames == frames)
+    #expect(model.project?.calibration == calibration)
+    #expect(model.exportSettings == exportSettings && model.canUndo == canUndo)
+    model.cropPreviewEnabled = false
+    model.selectAdjacentFrame(1)
+    try await until("next full frame ready", { !model.isLoading && !model.isRendering })
+    #expect(!model.cropPreviewEnabled && model.previewImage?.width == 60)
+    model.beginCrop()
+    try await until("crop editor ready", { !model.isRendering })
+    #expect(model.isCropping && model.cropDraft != nil)
+    model.cancelCrop()
+    try await until("full frame restored after cancel", { !model.isRendering })
+    #expect(!model.cropPreviewEnabled && model.previewImage?.height == 84)
+    model.beginCrop()
+    try await until("crop editor ready again", { !model.isRendering })
+    model.commitCrop()
+    try await until("full frame restored after commit", { !model.isRendering })
+    #expect(!model.cropPreviewEnabled && model.displayedCrop == nil)
+    model.edit { $0.timing.master = 60 }
+    model.cropPreviewEnabled = true
+    model.cropPreviewEnabled = false
+    try await until("latest edit and toggle ready", { !model.isRendering })
+    let fullHistogram = model.histogram
+    model.cropPreviewEnabled = true
+    try await until("latest cropped statistics ready", { !model.isRendering })
+    #expect(model.histogram == fullHistogram)
+    #expect(model.adjustments.timing.master == 60)
+    #expect(model.errorMessage == nil)
+    #expect(EditorModel().cropPreviewEnabled)
+    #expect(model.flushSave())
+  }
+
+  @Test(arguments: FrameOrientation.allCases)
+  func hiddenCropKeepsHistogramPixels(orientation: FrameOrientation) async throws {
+    let assets = try #require(EditorModel().assets)
+    let folder = try fixture(count: 1, profile: assets.profile)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let input = try TIFFCodec.read(url: folder.appendingPathComponent("0.tif")).preview()
+    let renderer = PreviewRenderService()
+    let crop = FrameCrop(aspect: .square, centerX: 0.4, width: 0.5, angleDegrees: 4)
+    for stage in [PipelineStage.l2, .d3, .final] {
+      let reference = try await renderer.render(input, calibration: .init(), adjustments: .init(),
+        assets: assets, stage: stage, orientation: orientation, crop: crop,
+        includeHistogram: true, histogramStage: .d3)
+      let full = try await renderer.render(input, calibration: .init(), adjustments: .init(),
+        assets: assets, stage: stage, orientation: orientation)
+      let hidden = try await renderer.render(input, calibration: .init(), adjustments: .init(),
+        assets: assets, stage: stage, orientation: orientation,
+        includeHistogram: true, histogramStage: .d3, histogramCrop: crop)
+      #expect(hidden.histogram == reference.histogram)
+      #expect(hidden.pixels.pixels == full.pixels.pixels)
+      #expect(hidden.pixels.width == full.pixels.width && hidden.pixels.height == full.pixels.height)
+    }
+  }
+
+  @Test func filmBaseModeSurvivesNavigationAndKeepsFullFrame() async throws {
+    let model = EditorModel()
+    let assets = try #require(model.assets)
+    let folder = try fixture(count: 3, profile: assets.profile)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    var roll = try ProjectStore.open(folder: folder)
+    let crop = FrameCrop(aspect: .square, width: 0.5)
+    for index in roll.frames.indices { roll.frames[index].crop = crop }
+    try ProjectStore.save(roll, folder: folder, expectedModification: roll.loadedModificationDate)
+    model.open(folder.appendingPathComponent(roll.frames[0].filename))
+    model.stage = .l0
+    try await until("initial frame ready", { model.histogram != nil })
+    let calibration = model.project?.calibration
+    model.sampling = true
+    for delta in [1, 1, 1, -1, -1, -1] {
+      model.selectAdjacentFrame(delta)
+      #expect(model.sampling && model.displayedCrop == nil)
+      try await until("full frame ready", { !model.isLoading && !model.isRendering })
+      #expect(model.sampling && !model.isCropping)
+      #expect(model.previewImage?.width == 84 && model.previewImage?.height == 60)
+    }
+    model.selectAdjacentFrame(1)
+    model.selectAdjacentFrame(1)
+    model.selectAdjacentFrame(-1)
+    try await until("rapid switch ready", { !model.isLoading && !model.isRendering })
+    #expect(model.activeFrame?.id == roll.frames[1].id && model.sampling)
+    model.select(roll.frames[2].id)
+    try await until("clicked frame ready", { !model.isLoading && !model.isRendering })
+    #expect(model.sampling && model.displayedCrop == nil)
+    #expect(model.project?.calibration == calibration)
+    #expect(model.project?.frames.map(\.crop) == roll.frames.map(\.crop))
+    model.sampling = false
+    try await until("cropped frame restored", { !model.isRendering })
+    #expect(model.displayedCrop == crop)
+    #expect(model.errorMessage == nil)
+  }
+
   @Test(arguments: [FrameOrientation.rotate90CW, .transverse])
   func syncUsesOneOriginalCropAcrossAllDirections(activeOrientation: FrameOrientation) async throws {
     let model = EditorModel()

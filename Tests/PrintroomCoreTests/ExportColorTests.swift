@@ -48,6 +48,115 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
     }
   }
 
+  func testJPEGExportProfilesNumberingAndNoOverwrite() async throws {
+    let folder = try temporary()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let source = folder.appendingPathComponent("source.tiff")
+    try TIFFCodec.write(url: source, width: 32, height: 48, profile: p3()) { rows in
+      Array(repeating: [UInt16(20000), 24000, 28000], count: rows.count * 32).flatMap { $0 }
+    }
+    let original = try Data(contentsOf: source)
+    var project = try ProjectStore.open(folder: folder)
+    project.frames[0].orientation = FrameOrientation.allCases.first { $0.outputSize(sourceWidth: 32, sourceHeight: 48).width == 48 }!
+    project.exportSettings.format = .jpeg
+    try ProjectStore.save(project, folder: folder, expectedModification: nil)
+    XCTAssertEqual(try ProjectStore.open(folder: folder).exportSettings.format, .jpeg)
+    let engine = ExportEngine(useCPUReference: true)
+    for profile in OutputColorProfile.allCases {
+      project.exportSettings.profile = profile
+      let request = try ExportRequest(project: project, targetIDs: [project.frames[0].id],
+        destinationDirectory: folder, filenamePrefix: profile.rawValue)
+      let summary = try await engine.run(request, lut: identityLUT(), p3Profile: p3())
+      XCTAssertEqual(summary.completedCount, 1, "\(summary.results)")
+      let url = try XCTUnwrap(summary.results[0].destination)
+      XCTAssertEqual(url.lastPathComponent, profile.rawValue + "-01.jpg")
+      let reader = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
+      XCTAssertEqual(CGImageSourceGetType(reader) as String?, "public.jpeg")
+      let decoded = try XCTUnwrap(CGImageSourceCreateImageAtIndex(reader, 0, nil))
+      XCTAssertEqual(decoded.bitsPerComponent, 8)
+      XCTAssertEqual(decoded.width, 48)
+      XCTAssertEqual(decoded.height, 32)
+      let embedded = try XCTUnwrap(decoded.colorSpace?.copyICCData()) as Data
+      XCTAssertEqual(embedded, try profile.profileData(p3: p3()))
+      let converter = try OutputColorConverter(p3Profile: p3(), output: profile)
+      let input = try TIFFCodec.read(url: source).preview(maxDimension: 48)
+      let final = try Pipeline.render(input, calibration: project.calibration,
+        adjustments: project.frames[0].adjustments, lut: identityLUT())
+      let expected = try converter.quantized8(final)
+      let pixelData = try XCTUnwrap(decoded.dataProvider?.data) as Data
+      let stride = decoded.bitsPerPixel / 8
+      XCTAssertGreaterThanOrEqual(stride, 3)
+      for channel in 0..<3 {
+        XCTAssertLessThanOrEqual(abs(Int(pixelData[channel]) - Int(expected[channel])), 3)
+      }
+      let before = try Data(contentsOf: url)
+      let repeated = try await engine.run(request, lut: identityLUT(), p3Profile: p3())
+      XCTAssertEqual(repeated.results[0].destination?.lastPathComponent, profile.rawValue + "-01-1.jpg")
+      XCTAssertEqual(try Data(contentsOf: url), before)
+    }
+    XCTAssertEqual(try Data(contentsOf: source), original)
+    XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: folder.path).contains { $0.hasPrefix(".printroom-") })
+  }
+
+  func testCropBypassPreservesDirectionAndFrozenSettingsForBothFormats() async throws {
+    let folder = try temporary()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let source = folder.appendingPathComponent("source.tiff")
+    try fixture(source, width: 32, height: 48)
+    let original = try Data(contentsOf: source)
+    var project = try ProjectStore.open(folder: folder)
+    let crop = FrameCrop(width: 0.5, angleDegrees: 4)
+    let engine = ExportEngine(useCPUReference: true)
+    for format in ExportFormat.allCases {
+      for (index, orientation) in FrameOrientation.allCases.enumerated() {
+        project.frames[0].orientation = orientation
+        project.frames[0].crop = crop
+        project.exportSettings.format = format
+        project.exportSettings.applyCrop = false
+        let request = try ExportRequest(project: project, targetIDs: [project.frames[0].id],
+          destinationDirectory: folder, filenamePrefix: "bypass-\(format)-\(index)")
+        // Changing the project after capture must not change the queued export.
+        project.exportSettings.applyCrop = true
+        let bypass = try await engine.run(request, lut: identityLUT(), p3Profile: p3())
+        XCTAssertEqual(bypass.completedCount, 1, "\(bypass.results)")
+        let bypassURL = try XCTUnwrap(bypass.results[0].destination)
+        let reader = try XCTUnwrap(CGImageSourceCreateWithURL(bypassURL as CFURL, nil))
+        let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(reader, 0, nil))
+        let size = orientation.outputSize(sourceWidth: 32, sourceHeight: 48)
+        XCTAssertEqual(image.width, size.width)
+        XCTAssertEqual(image.height, size.height)
+        XCTAssertEqual(project.frames[0].crop, crop)
+        let croppedRequest = try ExportRequest(project: project, targetIDs: [project.frames[0].id],
+          destinationDirectory: folder, filenamePrefix: "cropped-\(format)-\(index)")
+        let cropped = try await engine.run(croppedRequest, lut: identityLUT(), p3Profile: p3())
+        let croppedURL = try XCTUnwrap(cropped.results[0].destination)
+        let croppedReader = try XCTUnwrap(CGImageSourceCreateWithURL(croppedURL as CFURL, nil))
+        let croppedImage = try XCTUnwrap(CGImageSourceCreateImageAtIndex(croppedReader, 0, nil))
+        XCTAssertLessThan(croppedImage.width, image.width)
+        XCTAssertLessThan(croppedImage.height, image.height)
+        project.frames[0].crop = nil
+        let reference = try ExportRequest(project: project, targetIDs: [project.frames[0].id],
+          destinationDirectory: folder, filenamePrefix: "reference-\(format)-\(index)")
+        let full = try await engine.run(reference, lut: identityLUT(), p3Profile: p3())
+        let fullURL = try XCTUnwrap(full.results[0].destination)
+        XCTAssertEqual(try Data(contentsOf: bypassURL), try Data(contentsOf: fullURL))
+      }
+    }
+    XCTAssertEqual(try Data(contentsOf: source), original)
+  }
+
+  func testJPEGWriterFailureRemovesTemporaryFiles() throws {
+    let folder = try temporary()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let url = folder.appendingPathComponent("cancelled.jpg")
+    XCTAssertThrowsError(try JPEGCodec.write(url: url, width: 32, height: 64,
+      profile: OutputColorProfile.sRGB.profileData(p3: p3())) { rows in
+        if rows.lowerBound > 0 { throw CancellationError() }
+        return Array(repeating: UInt8(127), count: rows.count * 32 * 3)
+      })
+    XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), [])
+  }
+
   func testProfilesTransformNumbersAndMatchIndependentCoreGraphics() throws {
     let sourceData = try p3()
     let sourceSpace = try XCTUnwrap(CGColorSpace(iccData: sourceData as CFData))
@@ -411,7 +520,7 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
     let lut = try identityLUT()
     let profile = try p3()
     let task = Task.detached {
-      try await ExportEngine(useCPUReference: true).run(request, lut: lut, p3Profile: profile) {
+      try await ExportEngine(useCPUReference: true, maximumConcurrentExports: 1).run(request, lut: lut, p3Profile: profile) {
         update in
         if update.processedCount == 1, update.frameProgress > 0.2 {
           withUnsafeCurrentTask { $0?.cancel() }
@@ -427,6 +536,178 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
     XCTAssertTrue(names.contains("a-Printroom.tiff"))
     XCTAssertFalse(names.contains("b-Printroom.tiff"))
     XCTAssertFalse(names.contains { $0.hasSuffix(".tmp") })
+  }
+
+  func testFourLaneBatchMatchesSerialAndReportsMonotonicProgress() async throws {
+    let folder = try temporary()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    for index in 0..<9 {
+      try fixture(folder.appendingPathComponent("frame-\(index).tiff"), width: 257, height: 513)
+    }
+    var project = try ProjectStore.open(folder: folder)
+    project.exportSettings = .init(profile: .proPhoto, compression: .deflate)
+    for index in project.frames.indices {
+      project.frames[index].adjustments.timing.red = index * 7
+      project.frames[index].orientation = FrameOrientation.allCases[index % 8]
+    }
+    let serialFolder = folder.appendingPathComponent("serial")
+    let parallelFolder = folder.appendingPathComponent("parallel")
+    for url in [serialFolder, parallelFolder] {
+      try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    }
+    let targets = Set(project.frames.map(\.id))
+    let serial = try await ExportEngine(useCPUReference: true, maximumConcurrentExports: 1).run(
+      ExportRequest(project: project, targetIDs: targets, destinationDirectory: serialFolder),
+      lut: identityLUT(), p3Profile: p3())
+    let capture = ExportProgressCapture()
+    let parallel = try await ExportEngine(useCPUReference: true).run(
+      ExportRequest(project: project, targetIDs: targets, destinationDirectory: parallelFolder),
+      lut: identityLUT(), p3Profile: p3()) { capture.record($0, folder: parallelFolder) }
+    XCTAssertEqual(serial.completedCount, 9)
+    XCTAssertEqual(parallel.completedCount, 9)
+    XCTAssertEqual(parallel.results.map(\.id), project.frames.map(\.id))
+    for (a, b) in zip(serial.results, parallel.results) {
+      XCTAssertEqual(try Data(contentsOf: XCTUnwrap(a.destination)),
+                     try Data(contentsOf: XCTUnwrap(b.destination)))
+    }
+    let updates = capture.updates
+    XCTAssertEqual(updates.last?.fraction, 1)
+    XCTAssertEqual(updates.last?.completedCount, 9)
+    for (a, b) in zip(updates, updates.dropFirst()) {
+      XCTAssertLessThanOrEqual(a.fraction, b.fraction + 1e-12)
+      XCTAssertLessThanOrEqual(a.processedCount, b.processedCount)
+    }
+    XCTAssertGreaterThan(capture.peakUnpublished, 1)
+    XCTAssertLessThanOrEqual(capture.peakUnpublished, 4)
+  }
+
+  func testParallelCancellationKeepsPublishedFilesAndStopsQueuedFrames() async throws {
+    let folder = try temporary()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    for index in 0..<9 {
+      try fixture(folder.appendingPathComponent("frame-\(index).tiff"), width: 257, height: 513)
+    }
+    let project = try ProjectStore.open(folder: folder)
+    let request = try ExportRequest(project: project, targetIDs: Set(project.frames.map(\.id)),
+      destinationDirectory: folder)
+    let lut = try identityLUT(), profile = try p3()
+    let task = Task.detached {
+      try await ExportEngine(useCPUReference: true).run(request, lut: lut, p3Profile: profile) {
+        if $0.completedCount == 1 { withUnsafeCurrentTask { $0?.cancel() } }
+      }
+    }
+    let result = try await task.value
+    XCTAssertTrue(result.wasCancelled)
+    XCTAssertGreaterThanOrEqual(result.completedCount, 1)
+    XCTAssertLessThanOrEqual(result.completedCount, 4)
+    XCTAssertGreaterThanOrEqual(result.results.filter { $0.status == .notStarted }.count, 5)
+    XCTAssertEqual(result.results.map(\.id), project.frames.map(\.id))
+    for frame in result.results where frame.status == .completed {
+      XCTAssertNoThrow(try TIFFCodec.read(url: XCTUnwrap(frame.destination)))
+    }
+    let files = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+    XCTAssertEqual(files.filter { $0.contains("-Printroom") }.count, result.completedCount)
+    XCTAssertFalse(files.contains { $0.hasSuffix(".tmp") })
+  }
+
+  func testParallelSameBasenameCannotOverwriteAndFailureDoesNotStopQueue() async throws {
+    let folder = try temporary()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    try fixture(folder.appendingPathComponent("same.tif"), width: 7, height: 97)
+    try fixture(folder.appendingPathComponent("same.tiff"), width: 11, height: 65)
+    try fixture(folder.appendingPathComponent("missing.tiff"))
+    for index in 0..<5 { try fixture(folder.appendingPathComponent("extra-\(index).tiff")) }
+    let project = try ProjectStore.open(folder: folder)
+    let request = try ExportRequest(project: project, targetIDs: Set(project.frames.map(\.id)),
+      destinationDirectory: folder)
+    try FileManager.default.removeItem(at: folder.appendingPathComponent("missing.tiff"))
+    let result = try await ExportEngine(useCPUReference: true).run(request, lut: identityLUT(), p3Profile: p3())
+    XCTAssertEqual(result.failedCount, 1)
+    XCTAssertEqual(result.completedCount, 7)
+    XCTAssertEqual(Set(result.results.compactMap(\.destination)).count, 7)
+    for frame in result.results where frame.sourceName.hasPrefix("same.") {
+      let image = try TIFFCodec.read(url: XCTUnwrap(frame.destination))
+      XCTAssertEqual(image.width, frame.sourceName == "same.tif" ? 7 : 11)
+    }
+  }
+
+  func testCancelledBeforeStartDoesNotCreateAnyFiles() async throws {
+    let folder = try temporary()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    try fixture(folder.appendingPathComponent("a.tiff"))
+    let project = try ProjectStore.open(folder: folder)
+    let request = try ExportRequest(project: project, targetIDs: Set(project.frames.map(\.id)),
+      destinationDirectory: folder)
+    let lut = try identityLUT(), profile = try p3()
+    let task = Task.detached {
+      withUnsafeCurrentTask { $0?.cancel() }
+      return try await ExportEngine(useCPUReference: true).run(request, lut: lut, p3Profile: profile)
+    }
+    let result = try await task.value
+    XCTAssertTrue(result.wasCancelled)
+    XCTAssertEqual(result.results.map(\.status), [.notStarted])
+    XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), ["a.tiff"])
+  }
+
+  func testConflictDecisionsPreserveOrReplaceTIFFAndJPEG() async throws {
+    for format in ExportFormat.allCases {
+      let folder = try temporary()
+      defer { try? FileManager.default.removeItem(at: folder) }
+      let source = folder.appendingPathComponent("a.tiff")
+      try fixture(source)
+      var project = try ProjectStore.open(folder: folder)
+      project.exportSettings.format = format
+      let target = folder.appendingPathComponent("chosen." + format.fileExtension)
+      let original = Data("existing export".utf8)
+      try original.write(to: target)
+      let request = try ExportRequest(project: project, targetIDs: [project.frames[0].id],
+        destinationDirectory: folder, explicitDestination: target)
+      let engine = ExportEngine(useCPUReference: true)
+      let cancelled = try await engine.run(request, lut: identityLUT(), p3Profile: p3(),
+        resolveConflict: { url in XCTAssertEqual(url, target); return .cancel })
+      XCTAssertTrue(cancelled.wasCancelled)
+      XCTAssertEqual(try Data(contentsOf: target), original)
+      let renamed = try await engine.run(request, lut: identityLUT(), p3Profile: p3(),
+        resolveConflict: { _ in .rename })
+      XCTAssertEqual(renamed.results.first?.destination?.lastPathComponent, "chosen-1." + format.fileExtension)
+      XCTAssertEqual(try Data(contentsOf: target), original)
+      let replaced = try await engine.run(request, lut: identityLUT(), p3Profile: p3(),
+        resolveConflict: { _ in .overwrite })
+      XCTAssertEqual(replaced.completedCount, 1)
+      XCTAssertEqual(replaced.results.first?.destination, target)
+      XCTAssertEqual(try Data(contentsOf: target), try Data(contentsOf: XCTUnwrap(renamed.results.first?.destination)))
+      let protected = try ExportRequest(project: project, targetIDs: [project.frames[0].id],
+        destinationDirectory: folder, explicitDestination: source)
+      let before = try Data(contentsOf: source)
+      let rejected = try await engine.run(protected, lut: identityLUT(), p3Profile: p3(),
+        resolveConflict: { _ in XCTFail("Must not offer replacement of originals"); return .overwrite })
+      XCTAssertEqual(rejected.failedCount, 1)
+      XCTAssertEqual(try Data(contentsOf: source), before)
+      XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: folder.path).contains { $0.hasSuffix(".tmp") })
+    }
+  }
+
+  func testCancellationDuringOverwriteKeepsOldFile() async throws {
+    let folder = try temporary()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let source = folder.appendingPathComponent("a.tiff")
+    try fixture(source, width: 65, height: 129)
+    let target = folder.appendingPathComponent("old.tiff")
+    let original = Data("old completed export".utf8)
+    try original.write(to: target)
+    let request = try ExportRequest(source: source, destination: target,
+      calibration: .init(), adjustments: .init())
+    let lut = try identityLUT(), profile = try p3()
+    let task = Task.detached {
+      try await ExportEngine(useCPUReference: true).run(request, lut: lut, p3Profile: profile,
+        resolveConflict: { _ in .overwrite }) {
+          if $0.frameProgress > 0.2 { withUnsafeCurrentTask { $0?.cancel() } }
+        }
+    }
+    let summary = try await task.value
+    XCTAssertTrue(summary.wasCancelled)
+    XCTAssertEqual(try Data(contentsOf: target), original)
+    XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: folder.path)), ["a.tiff", "old.tiff"])
   }
 
   func testTIFFPublicationRaceDoesNotReplaceOtherWriter() throws {
@@ -617,5 +898,25 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
       return data.subdata(in: position..<(position + bytes))
     }
     return nil
+  }
+}
+
+private final class ExportProgressCapture: @unchecked Sendable {
+  private let lock = NSLock()
+  private var stored: [ExportProgress] = []
+  private var started: Set<String> = []
+  private var peak = 0
+  var updates: [ExportProgress] { lock.lock(); defer { lock.unlock() }; return stored }
+  var peakUnpublished: Int { lock.lock(); defer { lock.unlock() }; return peak }
+  func record(_ update: ExportProgress, folder: URL) {
+    lock.lock()
+    defer { lock.unlock() }
+    stored.append(update)
+    if let name = update.currentName { started.insert(name) }
+    let outstanding = started.filter { name in
+      let output = (name as NSString).deletingPathExtension + "-Printroom.tiff"
+      return !FileManager.default.fileExists(atPath: folder.appendingPathComponent(output).path)
+    }.count
+    peak = max(peak, outstanding)
   }
 }

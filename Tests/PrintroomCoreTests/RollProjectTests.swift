@@ -4,6 +4,48 @@ import XCTest
 @testable import PrintroomCore
 
 final class RollProjectTests: XCTestCase {
+  func testRollNameAndExportPreferencesSurviveSchemaSevenMigration() throws {
+    var project = RollProject()
+    project.name = "京都 · 250D"
+    project.exportSettings.destinationPath = "/tmp/exports"
+    project.exportSettings.filenamePrefix = "自定"
+    let current = try ProjectStore.decodeSnapshot(JSONEncoder().encode(project))
+    XCTAssertEqual(current.name, "京都 · 250D")
+    XCTAssertEqual(current.exportSettings.destinationPath, "/tmp/exports")
+    XCTAssertEqual(current.exportSettings.filenamePrefix, "自定")
+
+    var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(project)) as? [String: Any])
+    legacy["schemaVersion"] = 7
+    legacy.removeValue(forKey: "name")
+    var options = try XCTUnwrap(legacy["exportSettings"] as? [String: Any])
+    options.removeValue(forKey: "destinationPath")
+    options.removeValue(forKey: "filenamePrefix")
+    legacy["exportSettings"] = options
+    let migrated = try ProjectStore.decodeSnapshot(JSONSerialization.data(withJSONObject: legacy))
+    XCTAssertEqual(migrated.schemaVersion, RollProject.currentSchemaVersion)
+    XCTAssertNil(migrated.name)
+    XCTAssertNil(migrated.exportSettings.destinationPath)
+    XCTAssertNil(migrated.exportSettings.filenamePrefix)
+  }
+
+  func testSchemaSevenNameMigrationKeepsOriginalBackup() throws {
+    let directory = try folder()
+    var project = RollProject()
+    project.frames = [FrameRecord(filename: "A.tiff", isMissing: true)]
+    var old = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(project)) as? [String: Any])
+    old["schemaVersion"] = 7
+    old.removeValue(forKey: "name")
+    let original = try JSONSerialization.data(withJSONObject: old)
+    try original.write(to: jsonURL(directory))
+    var migrated = try ProjectStore.open(folder: directory)
+    migrated.name = "京都"
+    _ = try ProjectStore.save(migrated, folder: directory, expectedModification: migrated.loadedModificationDate)
+    XCTAssertEqual(try ProjectStore.open(folder: directory).name, "京都")
+    let backups = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+      .filter { $0.lastPathComponent.hasPrefix(".printroom-schema7-") }
+    XCTAssertEqual(backups.count, 1)
+    XCTAssertEqual(try Data(contentsOf: XCTUnwrap(backups.first)), original)
+  }
   private func folder() throws -> URL {
     let url = URL(fileURLWithPath: "/tmp", isDirectory: true)
       .appendingPathComponent("printroom-store-tests-\(UUID().uuidString)", isDirectory: true)

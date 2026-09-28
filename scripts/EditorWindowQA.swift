@@ -30,6 +30,7 @@ import SwiftUI
       try await keyboard()
       return
     }
+    AppAppearance.dark.apply()
     let recentSuite = "Printroom.RecentWindowQA.\(UUID())"
     let recentDefaults = UserDefaults(suiteName: recentSuite)!
     defer { recentDefaults.removePersistentDomain(forName: recentSuite) }
@@ -41,6 +42,7 @@ import SwiftUI
     }
     var project = RollProject()
     project.frames = frames
+    if CommandLine.arguments.contains("--roll-name") { project.name = "京都 · Kodak 250D · 第 12 卷" }
     model.project = project
     model.selection.click(frames[0].id, ordered: frames.map(\.id))
     model.sourceWidth = 1200
@@ -58,19 +60,25 @@ import SwiftUI
     model.histogram = try HistogramStatistics.compute(buffer, stage: .final)
     for frame in frames { model.thumbnails[frame.id] = preview }
     let window = NSWindow(contentRect: CGRect(x: 80, y: 70, width: 1060, height: 720),
-      styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+      styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.title = "Printroom · UI QA"
+    window.titleVisibility = .hidden
+    window.titlebarAppearsTransparent = true
+    window.toolbarStyle = .unified
     let histogramDefaults = UserDefaults(suiteName: "Printroom.EditorWindowQA.\(UUID())")!
     histogramDefaults.set(true, forKey: "histogramExpanded")
-    let host = NSHostingView(rootView: EditorView(model: model).defaultAppStorage(histogramDefaults))
-    window.contentView = host
+    let controller = NSHostingController(rootView: EditorView(model: model).defaultAppStorage(histogramDefaults))
+    window.contentViewController = controller
+    let host = controller.view
     window.orderFront(nil)
     defer { window.orderOut(nil) }
     func capture(_ name: String) async throws {
       host.layoutSubtreeIfNeeded()
       try await Task.sleep(for: .milliseconds(350))
       if CommandLine.arguments.contains("--appearance") {
+        // Include the real AppKit titlebar and traffic lights, not just SwiftUI content.
+        let host = window.contentView?.superview ?? host
         guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
           throw PrintroomError.invalid("Offscreen bitmap unavailable")
         }
@@ -90,6 +98,196 @@ import SwiftUI
       process.waitUntilExit()
       guard process.terminationStatus == 0 else { throw PrintroomError.invalid("Screenshot failed") }
       print("Saved \(name): \(host.bounds.size)")
+    }
+    if CommandLine.arguments.contains("--crop-preview") {
+      for appearance in [AppAppearance.dark, .light] {
+        appearance.apply()
+        for enabled in [true, false] {
+          model.cropPreviewEnabled = enabled
+          try await capture("crop-preview-\(appearance.rawValue)-\(enabled)")
+        }
+      }
+      return
+    }
+    if CommandLine.arguments.contains("--roll-name") {
+      for appearance in [AppAppearance.dark, .light] {
+        appearance.apply()
+        for width in [1060, 1360] {
+          window.setContentSize(NSSize(width: width, height: 720))
+          try await capture("roll-name-\(appearance.rawValue)-\(width)")
+        }
+      }
+      return
+    }
+    if CommandLine.arguments.contains("--themes") {
+      NSApp.activate(ignoringOtherApps: true)
+      window.makeKeyAndOrderFront(nil)
+      for theme in [AppAppearance.light, .dark, .light] {
+        theme.apply()
+        try await capture("theme-\(theme.rawValue)-editor")
+        model.timingMode = .rgb
+        try await capture("theme-\(theme.rawValue)-rgb")
+        model.timingMode = .simple
+        model.beginCrop()
+        try await capture("theme-\(theme.rawValue)-crop")
+        model.cancelCrop()
+        let savedProject = model.project
+        model.project = nil
+        model.previewImage = nil
+        try await capture("theme-\(theme.rawValue)-home")
+        model.project = savedProject
+        model.previewImage = preview
+      }
+      print("THEME QA PASSED: live light/dark/light in the same window")
+      if CommandLine.arguments.contains("--window-chrome") {
+        guard window.toolbar != nil, window.titleVisibility == .hidden,
+          window.styleMask.contains([.titled, .closable, .miniaturizable, .resizable]), window.isMovable,
+          let close = window.standardWindowButton(.closeButton),
+          let mini = window.standardWindowButton(.miniaturizeButton),
+          let zoom = window.standardWindowButton(.zoomButton),
+          !close.isHidden, !mini.isHidden, !zoom.isHidden else {
+          throw PrintroomError.invalid("Native window chrome missing")
+        }
+        print("CHROME: native buttons present; title hidden; movable/resizable; toolbar style \(window.toolbarStyle.rawValue)")
+        let original = window.frame
+        window.setContentSize(NSSize(width: 1360, height: 900))
+        try await capture("unified-large")
+        window.setFrame(original, display: true)
+        window.performMiniaturize(nil)
+        try await Task.sleep(for: .milliseconds(900))
+        guard window.isMiniaturized else { throw PrintroomError.invalid("Miniaturize failed") }
+        window.deminiaturize(nil)
+        window.makeKeyAndOrderFront(nil)
+        try await Task.sleep(for: .milliseconds(900))
+        guard !window.isMiniaturized else { throw PrintroomError.invalid("Restore failed") }
+        window.collectionBehavior.insert(.fullScreenPrimary)
+        window.toggleFullScreen(nil)
+        try await Task.sleep(for: .seconds(3))
+        guard window.styleMask.contains(.fullScreen) else { throw PrintroomError.invalid("Fullscreen entry failed") }
+        try await capture("unified-fullscreen")
+        // AppKit reparents fullscreen toolbar items into a separate titlebar window.
+        // Inspect/capture that owned window as well; the main bitmap omits its controls.
+        let itemWindows = window.toolbar?.items.compactMap { $0.view?.window } ?? []
+        var captured = Set<Int>()
+        for itemWindow in itemWindows where itemWindow !== window && captured.insert(itemWindow.windowNumber).inserted {
+          print("FULLSCREEN TOOLBAR: visible=\(itemWindow.isVisible), frame=\(itemWindow.frame)")
+          if let view = itemWindow.contentView?.superview,
+            let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            try bitmap.representation(using: .png, properties: [:])?.write(to:
+              URL(fileURLWithPath: "scratch/editor-ui-qa/unified-fullscreen-toolbar.png"))
+          }
+        }
+        window.toggleFullScreen(nil)
+        try await Task.sleep(for: .seconds(3))
+        guard !window.styleMask.contains(.fullScreen) else { throw PrintroomError.invalid("Fullscreen exit failed") }
+        try await capture("unified-restored")
+        print("WINDOW CHROME QA PASSED: resize, native minimize/restore, fullscreen/restore")
+      }
+      return
+    }
+    if CommandLine.arguments.contains("--loading") {
+      model.project = nil
+      let folder = URL(fileURLWithPath: "scratch/editor-ui-qa/loading-\(UUID())")
+      try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+      defer { model.cancelImport(); try? FileManager.default.removeItem(at: folder) }
+      for index in 0..<8 { try Data([1]).write(to: folder.appendingPathComponent("\(index).ARW")) }
+      model.rawProxyLoader = { url in
+        if url.lastPathComponent == "0.ARW" { return }
+        while !Task.isCancelled { Thread.sleep(forTimeInterval: 0.01) }
+        throw CancellationError()
+      }
+      model.open(folder)
+      try await Task.sleep(for: .milliseconds(200))
+      try await capture("0353-loading")
+      model.cancelImport()
+      model.rawProxyLoader = { _ in throw PrintroomError.invalid("代理读取失败，请重试") }
+      model.open(folder)
+      try await Task.sleep(for: .milliseconds(200))
+      try await capture("0353-loading-failed")
+      print("Loading page QA complete")
+      return
+    }
+    if CommandLine.arguments.contains("--export-layout") {
+      try await capture("0352-toolbar")
+      for format in ExportFormat.allCases {
+        var settings = ProjectExportSettings()
+        settings.format = format
+        let options = ExportOptionsView(settings: settings)
+        let optionsWindow = NSWindow(contentRect: options.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        optionsWindow.appearance = NSAppearance(named: .aqua)
+        options.wantsLayer = true
+        options.layer?.backgroundColor = NSColor.white.cgColor
+        optionsWindow.contentView = options
+        optionsWindow.orderFront(nil)
+        options.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(200))
+        guard let bitmap = options.bitmapImageRepForCachingDisplay(in: options.bounds) else {
+          throw PrintroomError.invalid("Export options bitmap unavailable")
+        }
+        options.cacheDisplay(in: options.bounds, to: bitmap)
+        try bitmap.representation(using: .png, properties: [:])!.write(to:
+          URL(fileURLWithPath: "scratch/editor-ui-qa/0352-export-\(format.rawValue).png"))
+        optionsWindow.orderOut(nil)
+      }
+      model.project = nil
+      try await capture("0352-home")
+      return
+    }
+    if CommandLine.arguments.contains("--roll-timing") {
+      try await capture("roll-timing-entry")
+      let directory = URL(fileURLWithPath: "scratch/editor-ui-qa/roll-timing-\(UUID())", isDirectory: true)
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      let assets = model.assets!
+      let url = directory.appendingPathComponent("sample.tif")
+      try TIFFCodec.write(url: url, width: 16, height: 16, profile: assets.profile) {
+        [UInt16](repeating: 32000, count: $0.count * 16 * 3)
+      }
+      var roll = try ProjectStore.open(folder: directory)
+      roll.calibration = try Pipeline.calibrate(image: LinearImage(width: 16, height: 16,
+        samples: [UInt16](repeating: 32000, count: 16 * 16 * 3)),
+        rect: .init(x: 0, y: 0, width: 4, height: 4), matrix: .identity,
+        sourceFrameID: roll.frames[0].id)
+      model.project = roll; model.folder = directory
+      model.rollTimingRunner = { _, _, _, progress in
+        await progress("分析 1/1")
+        try await Task.sleep(for: .seconds(2))
+        return RollTimingResult(timing: .init(red: 30, green: 20, blue: 10), sources: [])
+      }
+      model.startRollTiming()
+      func sheetCapture(_ name: String) async throws {
+        try await Task.sleep(for: .milliseconds(500))
+        guard window.attachedSheet != nil else {
+          throw PrintroomError.invalid("Missing automatic timing sheet")
+        }
+        // Sheets use separately composited native surfaces; render the same view
+        // against an opaque background for an inspectable, permission-free artifact.
+        let content = NSHostingView(rootView: RollTimingDialogView(model: model)
+          .preferredColorScheme(.dark).background(Color(nsColor: .windowBackgroundColor)))
+        let fixture = NSWindow(contentRect: CGRect(origin: .zero, size: content.fittingSize),
+          styleMask: [.borderless], backing: .buffered, defer: false)
+        fixture.isReleasedWhenClosed = false
+        fixture.appearance = NSAppearance(named: .darkAqua)
+        fixture.contentView = content
+        fixture.orderFront(nil)
+        defer { fixture.orderOut(nil) }
+        try await Task.sleep(for: .milliseconds(200))
+        content.layoutSubtreeIfNeeded()
+        guard let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) else {
+          throw PrintroomError.invalid("Cannot render timing sheet")
+        }
+        content.cacheDisplay(in: content.bounds, to: bitmap)
+        guard let data = bitmap.representation(using: .png, properties: [:]) else {
+          throw PrintroomError.invalid("Cannot capture timing sheet")
+        }
+        try data.write(to: URL(fileURLWithPath: "scratch/editor-ui-qa/\(name).png"))
+        print("Saved \(name)")
+      }
+      try await sheetCapture("roll-timing-progress")
+      while model.isAnalyzingRollTiming { try await Task.sleep(for: .milliseconds(100)) }
+      try await sheetCapture("roll-timing-result")
+      model.cancelRollTiming()
+      return
     }
     if CommandLine.arguments.contains("--scrollbars") {
       func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap { descendants($0) } }
@@ -242,6 +440,20 @@ import SwiftUI
       let before = model.project!.frames
       model.timingMode = .simple
       try await capture("20-timing-simple")
+      func matrixMenus(_ view: NSView) -> [NSPopUpButton] {
+        (view as? NSPopUpButton).map { [$0] } ?? view.subviews.flatMap { matrixMenus($0) }
+      }
+      let menus = matrixMenus(host).filter {
+        ["CMOS 矩阵", "密度矩阵"].contains($0.accessibilityLabel() ?? "")
+      }
+      guard menus.count == 2,
+        abs(menus[0].frame.width - menus[1].frame.width) < 1,
+        abs(menus[0].convert(menus[0].bounds, to: host).minX
+          - menus[1].convert(menus[1].bounds, to: host).minX) < 1,
+        menus.allSatisfy({ $0.numberOfItems > 0 && $0.indexOfSelectedItem >= 0 }) else {
+        throw PrintroomError.invalid("Matrix menus must align with equal widths and valid selections")
+      }
+      print("MATRIX LAYOUT PASSED: equal widths \(menus[0].frame.width), aligned, valid selections")
       let simple = sliders(host)
       guard simple.count == 7,
         let contrast = simple.first(where: { $0.accessibilityLabel() == "Contrast Master" }) else {

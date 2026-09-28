@@ -12,11 +12,11 @@
 | MetalPipeline | 与 CPU 相同阶段和 LUT 插值，纹理/缓冲区管理、取消和最新预览提交 |
 | TIFFCodec 原始读取 | 解码原始 UInt16 RGB、metadata/orientation；禁止隐式 ICC 转换 |
 | OutputColorConverter / DisplayImage | 原始 profile 记录、最终输出与显示器转换、导出 profile 解析 |
-| ExportEngine / TIFFCodec 输出 | 输出 profile 转换后的样本量化、16-bit 写入、ICC 嵌入、无覆盖发布 |
+| ExportEngine / TIFFCodec / JPEGCodec 输出 | 输出 profile 转换后的样本量化、TIFF/JPG 写入、ICC 嵌入、冲突决策与原子发布 |
 | ImageService / DiskThumbnailCache | 可再生的最终外观缩略图、缓存身份、过期与清理 |
 | Diagnostics | 阶段值/域外计数/计时/错误，不能将原图上传或记录整幅像素日志 |
 
-UI 只通过模型命令修改参数；渲染接收捕获后的不可变参数值，导出使用 `ExportRequest` 快照。CPU 参考独立于 Metal，作为算法对照，不能为通过测试而直接调用 GPU 代码。输入采用可控的 TIFF 条带解码以保持样本值；ImageIO仅用于可再生PNG缓存与独立输出回读，显示器适配由系统完成，四输出ICC由已验证matrix/TRC转换器处理。
+UI 只通过模型命令修改参数；渲染接收捕获后的不可变参数值，导出使用 `ExportRequest` 快照。CPU 参考独立于 Metal，作为算法对照，不能为通过测试而直接调用 GPU 代码。输入采用可控的 TIFF 条带解码以保持样本值；ImageIO用于可再生PNG缓存、JPG编码与独立输出回读，显示器适配由系统完成，四输出ICC由已验证matrix/TRC转换器处理。
 
 ## 卷项目结构
 
@@ -112,7 +112,7 @@ JSON 数值必须有限；整数 Timing 不接受小数。记录 `schemaVersion`
 
 磁盘 `DiskThumbnailCache` 存储嵌入工作 ICC 的 PNG，键包含源指纹、方向、调色、校准、阶段策略、LUT/ICC、算法与展示版本。默认 512 MiB / 30 天未访问；刷新/写入时清理（不运行周期定时器），仅删除本缓存目录的已知哈希 PNG 与超过一天的已知临时文件，不跟随 symlink，不删除陌生文件。UI 可手动清理，后续重建。
 
-`ExportRequest` 为不可变值：固定 ordered 帧、源路径/大小/mtime、校准、Timing/Contrast、方向、profile/compression，以及全卷受保护原路径。独立 `ExportEngine` actor 逐帧串行导出，当前帧原始 UInt16 全图 + 有界 Float32 行块；图像和文件输出与主预览 lane 分离。所有出口共享真实 ICC 转换与量化，取消在读条带、处理块和发布前检查。写入同目录临时文件，再原子 `RENAME_EXCL` 发布；同名或发布竞争不得覆盖已存在文件。
+`ExportRequest` 为不可变值：固定 ordered 帧、源路径/大小/mtime、校准、Timing/Contrast、方向、profile/compression，以及全卷受保护原路径。独立 `ExportEngine` actor 调度最多4个逐帧工作器，每路原始 UInt16 全图 + 有界 Float32 行块；图像和文件输出与主预览 lane 分离。所有出口共享真实 ICC 转换与量化，取消在读条带、处理块和发布前检查。默认写入同目录临时文件，以 `RENAME_EXCL` 原子发布。应用通过异步冲突回调逐个取得用户选择；拒绝覆盖后才寻找递增后缀。确认覆盖时写入同目录私有临时目录，编码完成、取消与原片保护检查通过后原子 rename 替换；失败或取消保留旧文件并清理临时目录。无覆盖发布遇到竞争时重新调用冲突决策。非交互调用沿用无覆盖重命名接口。
 
 
 ## 0.2.0 调参性能优化
@@ -198,7 +198,7 @@ CPU Prepared、Metal 参数、D1 缓存键与全部预览/缩略图/1:1/导出�
 
 通过临时LSUIElement应用外壳启动已安装的Adobe，外壳只复制Info.plist并链接原二进制/Resources/Frameworks，不改Adobe安装内容，不引入新的去马赛克后端。外壳失败明确报错，不退回可见Adobe启动。原始Adobe版本仍参与处理身份，像素策略/schema不变。
 
-RAWPrewarmer向服务保持最多4个未调色代理准备请求，当前帧排在前面，Filmstrip显示生成独立。切帧/换卷取消旧预备任务并按新当前帧重排；取消传入detached工作任务，不继续排入下一张。不在预备层持有全尺寸RGB，也不为预备写full.tiff。Final导出仍逐张渲染，准备层的4路上限不增加导出图像驻留。
+RAWPrewarmer向服务保持最多4个未调色代理准备请求，当前帧排在前面，Filmstrip显示生成独立。切帧/换卷取消旧预备任务并按新当前帧重排；取消传入detached工作任务，不继续排入下一张。不在预备层持有全尺寸RGB，也不为预备写full.tiff。Final导出由独立导出池限制最多4张同时处理；准备层仍限制最多4路Adobe/LibRaw，同源请求继续互斥。
 
 ## Sony CMOS 预设兼容
 
@@ -334,3 +334,47 @@ RollProject新建时选择交互规范的双矩阵默认值，并同步未校准
 ## 0.3.49 输出配置扩展
 
 OutputColorProfile 仅保留交互规范中的五项，稳定值为 sRGB / displayP3 / adobeRGB / proPhoto / rec2020。旧 p3 和未知字符串在 ProjectExportSettings 解码时回退 displayP3，并同时替换 SHA；schema1 的旧固定输出同样回退。读取本身不直接写盘，沿常规保存写回。有效 profile 的错误 SHA 仍拒绝，缺失字段及非字符串等损坏数据不伪装成不兼容选项。新建 ProjectExportSettings 默认 displayP3。schema7、密度算法v6保持；老版本读取新增枚举会明确拒绝，不能交替编辑保存了新选项的项目。新增 ICC 固定打包并核验 SHA，输出转换策略见 pipeline.md §11。
+
+## 0.3.50 整卷自动调色事务
+
+RollTiming是纯CPU分析模块，只输出既有TimingParameters；RollTimingService在可取消的后台任务逐帧读取代理、按既有几何裁切并收集有限密度样本。每个源在读取前后、计算完成后及应用前核对文件/RAW处理身份。入口验证片基来源仍有效；模型固定卷校准和全部帧快照，分析及应用LUT均取该快照第一帧的选择；LUT与Timing/Contrast同一事务覆盖、保存及撤销。应用时拒绝任何帧或校准变化，不覆盖分析期间的新编辑。切卷/回主页/关闭项目取消任务，用generation拒绝迟到结果。
+
+结果暂存在内存，用户点击应用后才以一次撤销事务写入；取消或失败不部分写入。保留已调色只影响事务目标，不影响求解。schema7、density-v6保持，旧项目无需迁移；已存结果作为普通Timing/Contrast保存、重开和手调。
+
+
+## 0.3.51 四路完整导出
+
+ExportEngine每次任务最多4个在途帧，空闲一路立即补下一帧；不一次创建全卷处理任务。各ExportWorker actor拥有独立MetalPipeline及其缓冲，CPU色彩转换、ZIP压缩与写盘也随帧并行。每路仅保留一份全尺寸UInt16输入和有界行块，不缓存全卷原图；峰值内存随并发增加。公开初始化参数允许测试/测量选择1–4路，正式应用默认4路，不增加界面设置。同一engine不接受重叠任务。
+
+全部工作器引用同一不可变ExportRequest；结果按原请求顺序归位，不按完成先后重排。聚合进度为已处理帧数加各在途帧进度之和，回调串行交付，主线程丢弃迟到的较小进度；失败、取消和未开始项仍逐帧记录。取消传播至所有在途任务，停止补充队列并等待临时文件清理；已经原子发布的文件保留。TIFF无覆盖发布与同名重试、源身份验证、RAW四槽及像素处理契约保持。
+
+
+## 0.3.52 JPG 存储与导出
+
+ProjectExportSettings沿用bitsPerSample字段表达格式：16为TIFF，8为JPG，其他值拒绝；旧项目16保持原行为，不新增字段或schema迁移。旧应用会拒绝8-bit导出设置，不能用旧版本重开已保存JPG偏好的卷；照片调色不变。格式、ICC和TIFF压缩随ExportRequest固定。
+
+JPEGCodec逐32行接收已转换的8-bit RGB并累积一份完整输出缓冲，交给ImageIO编码；最多四路，每路额外约3×输出像素数的缓冲及系统编码内存，不宣称与TIFF具有相同峰值。临时文件放在目标目录内独立UUID目录，取消/失败清理；RENAME_EXCL原子发布，冲突继续递增文件名，沿用原片保护。JPEG编码本身同步，取消在编码前后检查。
+
+
+## 0.3.53 打开胶卷的代理准备屏障
+
+每次打开包含RAW的卷（含最近胶卷、已存项目和缓存已自动淘汰的旧卷），先发现项目但不向编辑器发布project/selection；RAWPrewarmer固定4路通过metadata验证或重建全部可用RAW的1600/240代理。已有有效缓存直接复用，缺失、损坏和身份失效沿RAWSourceService既有路径重建。逐张完成回调串行更新计数；收集失败，不把失败当作可进入编辑状态。全部成功后一次发布项目，再启动主预览和Final缩略图；切帧不再启动整卷预备任务。纯TIFF无此代理阶段，保持原读取路径。
+
+加载取消、重试或切卷递增generation并传播取消；旧进度与完成不能发布。加载失败保留来源和错误用于重试，未激活项目不写旁存设置；重试复用已经完成的有效代理。图像算法、代理版本、缓存容量与TTL规则、项目schema均保持。
+
+
+0.3.61：自动裁切比例作为本次任务不可变参数从设置面板传到模型、后台服务和模板估计，不新增项目字段；最终仍以自由裁框持久化，存储与撤销沿用既有事务。
+
+## 0.3.64 卷名与每卷导出偏好
+
+项目 schema8 在 RollProject 增加可选 name，在 ProjectExportSettings 增加可选 destinationPath 和 filenamePrefix。缺省名称取当前目录名；缺省前缀跟随名称，手动前缀才持久化。目的地是用户选择的绝对路径，卷移动后若目标路径失效需重选；它不参与源卷身份。读取 schema1–7 兼容缺失字段，首次覆盖旧 schema 前保留原字节备份。最近卷缓存名称仅用于主页展示，项目旁存为准。图像算法与帧顺序不变。
+
+
+## 0.3.66 导出裁剪偏好
+
+ProjectExportSettings 增加 applyCrop: Bool，缺省 true；按卷保存并随 ExportRequest 冻结，取消面板不提交。schema8 保持，缺失字段兼容读取；旧版忽略该字段，仍始终应用裁剪，因此需使用0.3.66及之后版本导出才能遵循关闭选择。压缩仍存既有 compression 枚举，仅界面改复选框。
+
+
+## 0.3.68 显示裁剪与统计裁剪
+
+EditorModel.cropPreviewEnabled 为默认 true 的内存状态，不持久化。PreviewContext 分离显示 crop 与 histogramCrop：后者沿用已保存的帧裁剪（片基框选期间沿用原有全图统计）。PreviewRenderService 在两者不同时独立生成裁后统计像素；直方图阶段与显示阶段继续独立。显示缓存、细节查看与坐标映射使用 displayedCrop，缩略图/导出/分析仍使用项目裁剪。切换复用临时展示几何和异步请求校验，保留当前直方图至匹配新结果发布，不增加 schema 或算法版本。

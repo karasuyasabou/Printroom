@@ -29,7 +29,8 @@ actor PreviewRenderService {
     assets: AppAssets, stage: PipelineStage = .final,
     orientation: FrameOrientation = .identity, inputIdentity: UUID? = nil,
     crop: FrameCrop? = nil, sourceWidth: Int? = nil, sourceHeight: Int? = nil,
-    includeHistogram: Bool = false, histogramStage: PipelineStage? = nil
+    includeHistogram: Bool = false, histogramStage: PipelineStage? = nil,
+    histogramCrop: FrameCrop? = nil
   ) throws -> RenderedPreview {
     try autoreleasepool {
       try Task.checkCancellation()
@@ -73,7 +74,17 @@ actor PreviewRenderService {
       if includeHistogram {
         let statisticsStage = histogramStage ?? stage
         let statisticsPixels: PixelBuffer
-        if statisticsStage == stage {
+        // A hidden display crop must not expand the histogram's saved region.
+        if let histogramCrop, histogramCrop != crop {
+          let geometry = try CropGeometry(crop: histogramCrop,
+            sourceWidth: sourceWidth ?? input.width, sourceHeight: sourceHeight ?? input.height,
+            orientation: orientation)
+          let statisticsInput = try geometry.render(input,
+            maxDimension: max(input.width, input.height), cancelled: { Task.isCancelled })
+          statisticsPixels = try session!.render(statisticsInput,
+            calibration: calibration, adjustments: adjustments,
+            lut: assets.lut(for: adjustments.cineonLogLUT), stage: statisticsStage)
+        } else if statisticsStage == stage {
           statisticsPixels = oriented
         } else {
           let statisticsOutput = try session!.render(

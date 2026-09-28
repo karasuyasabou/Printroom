@@ -20,7 +20,7 @@ final class AutoCropProjectTests: XCTestCase {
     let url = folder.appendingPathComponent(".printroom.json")
     try bytes.write(to: url)
     var loaded = try ProjectStore.open(folder: folder)
-    XCTAssertEqual(loaded.schemaVersion, 7)
+    XCTAssertEqual(loaded.schemaVersion, RollProject.currentSchemaVersion)
     XCTAssertEqual(loaded.frames[0].crop, oldCrop)
     XCTAssertNil(loaded.frames[0].cropOrigin)
     XCTAssertFalse(loaded.frames[0].cropNeedsReview)

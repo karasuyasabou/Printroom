@@ -13,6 +13,13 @@ for argument in "$@"; do
     --skip-build) skip_build=true ;;
     --keyboard) qa_arguments+=(--keyboard) ;;
     --timing) qa_arguments+=(--timing) ;;
+    --themes) qa_arguments+=(--themes --appearance) ;;
+    --window-chrome) qa_arguments+=(--themes --appearance --window-chrome) ;;
+    --loading) qa_arguments+=(--loading --appearance) ;;
+    --export-layout) qa_arguments+=(--export-layout) ;;
+    --crop-preview) qa_arguments+=(--crop-preview --appearance) ;;
+    --roll-name) qa_arguments+=(--roll-name --appearance) ;;
+    --roll-timing) qa_arguments+=(--roll-timing) ;;
     --appearance) qa_arguments+=(--appearance) ;;
     --histogram) qa_arguments+=(--histogram) ;;
     --scrollbars) qa_arguments+=(--scrollbars -AppleShowScrollBars Always) ;;

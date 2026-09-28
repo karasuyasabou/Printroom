@@ -9,10 +9,44 @@ struct EditorView: View {
   @State private var viewportMode: PreviewViewportMode? = .fit
   @State private var showPreviewLoadingHint = false
   @State private var showAutoCropDialog = false
-  private let accent = Color(red: 0.84, green: 0.71, blue: 0.44)
+  @State private var showRollTimingConfirmation = false
+  private let accent = InterfaceColors.accent
   var body: some View {
+    Group {
+      if model.isImporting { importPage } else { editorContent }
+    }
+    .frame(minWidth: 1060, minHeight: 720)
+    .tint(accent)
+    .foregroundStyle(InterfaceColors.primaryText)
+    .toolbar { mainToolbar }
+    .modifier(MainToolbarVisibility())
+    .toolbarBackground(InterfaceColors.secondaryPanel, for: .windowToolbar)
+    .toolbarBackground(.visible, for: .windowToolbar)
+    .onOpenURL { model.open($0) }
+  }
+  private var importPage: some View {
+    VStack(spacing: 18) {
+      if let failure = model.importFailure {
+        Text("加载未完成").font(.title2)
+        ScrollView { Text(failure).font(.callout).textSelection(.enabled) }
+          .frame(maxWidth: 560, maxHeight: 180)
+        HStack {
+          Button("返回主页") { model.cancelImport() }
+          Button("重试") { model.retryImport() }.buttonStyle(.borderedProminent)
+        }
+      } else {
+        Text("正在加载…").font(.title2)
+        ProgressView(value: Double(model.importCompleted), total: Double(max(1, model.importTotal)))
+          .frame(width: 280)
+        Text("\(model.importCompleted) / \(model.importTotal)").monospacedDigit().foregroundStyle(InterfaceColors.secondaryText)
+        Button("取消加载") { model.cancelImport() }
+      }
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(InterfaceColors.window)
+  }
+  private var editorContent: some View {
     VStack(spacing: 0) {
-      topBar
       if model.saveFailure || model.isExporting { operationStatus }
       Divider()
       HStack(spacing: 0) {
@@ -47,7 +81,7 @@ struct EditorView: View {
             .overlay(alignment: .bottomLeading) {
               if showPreviewLoadingHint {
                 Text("正在加载预览…")
-                  .font(.caption2).foregroundStyle(.secondary)
+                  .font(.caption2).foregroundStyle(.white.opacity(0.8))
                   .padding(8).background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 6))
                   .padding(12).allowsHitTesting(false)
               }
@@ -64,9 +98,8 @@ struct EditorView: View {
       filmstrip
     }
     .frame(minWidth: 1060, minHeight: 720)
-    .background(Color(nsColor: .windowBackgroundColor))
+    .background(InterfaceColors.window)
     .background(EditorKeyboardShortcuts(model: model))
-    .preferredColorScheme(.dark)
     .tint(accent)
     .alert(
       "操作未完成",
@@ -84,12 +117,15 @@ struct EditorView: View {
     } message: {
       Text(model.errorMessage ?? "")
     }
+    .sheet(isPresented: Binding(get: { model.showRollTimingDialog },
+      set: { if !$0 { model.cancelRollTiming() } })) {
+      RollTimingDialogView(model: model)
+    }
     .sheet(isPresented: $showAutoCropDialog) {
       AutoCropDialogView(model: model, isPresented: $showAutoCropDialog)
     }
     .sheet(item: $model.matrixManager) { kind in MatrixManagerView(model: model, kind: kind) }
     .sheet(isPresented: $model.showExportSummary) { ExportSummaryView(model: model) }
-    .onOpenURL { model.open($0) }
     .task(id: previewIsWaiting) {
       showPreviewLoadingHint = false
       guard previewIsWaiting else { return }
@@ -109,7 +145,7 @@ struct EditorView: View {
       }
       if model.isLoading || model.isDetailLoading || model.isNeutralSampling || model.isPreparingGeometry {
         Text(model.isLoading ? "正在准备图像预览…" : "正在准备原始精度图像…")
-          .font(.caption).foregroundStyle(.secondary)
+          .font(.caption).foregroundStyle(InterfaceColors.secondaryText)
       }
       Spacer(minLength: 10)
       if model.isExporting {
@@ -121,29 +157,71 @@ struct EditorView: View {
       }
     }.font(.caption2).padding(.horizontal, 18).padding(.bottom, 8)
   }
-  private var topBar: some View {
+  @ToolbarContentBuilder private var mainToolbar: some ToolbarContent {
+    if #available(macOS 26.0, *) {
+      ToolbarItem(placement: .navigation) { toolbarBranding }
+        .sharedBackgroundVisibility(.hidden)
+      ToolbarItem(placement: .principal) { toolbarRollTitle }
+        .sharedBackgroundVisibility(.hidden)
+      ToolbarItem(placement: .primaryAction) { toolbarActions }
+        .sharedBackgroundVisibility(.hidden)
+    } else {
+      ToolbarItem(placement: .navigation) { toolbarBranding }
+      ToolbarItem(placement: .principal) { toolbarRollTitle }
+      ToolbarItem(placement: .primaryAction) { toolbarActions }
+    }
+  }
+  private var toolbarBranding: some View {
     HStack(spacing: 10) {
       Image(systemName: "square.stack.3d.down.right").font(.title2).foregroundStyle(accent)
-      VStack(alignment: .leading, spacing: 1) {
-        Text("PRINTROOM").font(.system(size: 15, weight: .semibold, design: .monospaced)).tracking(
-          3)
-        Text(model.folder?.lastPathComponent ?? "NEGATIVE → PRINT").font(
-          .system(size: 10, design: .monospaced)
-        ).foregroundStyle(.secondary).lineLimit(1)
-      }.frame(maxWidth: 190, alignment: .leading)
-      Spacer(minLength: 10)
+      Text("PRINTROOM").font(.system(size: 15, weight: .semibold, design: .monospaced))
+        .tracking(3)
+    }.fixedSize()
+  }
+  private var toolbarRollTitle: some View {
+    HStack(spacing: 8) {
+      if model.project != nil {
+        Text(model.rollName)
+          .font(.system(size: 15, weight: .semibold))
+          .foregroundStyle(InterfaceColors.primaryText)
+          .lineLimit(1).truncationMode(.middle)
+          .help(model.rollName)
+        Button { model.renameRollPanel() } label: {
+          Image(systemName: "pencil").font(.system(size: 12, weight: .medium))
+        }.buttonStyle(.plain).help("命名胶卷").accessibilityLabel("命名胶卷")
+      }
+    }.frame(maxWidth: 260)
+  }
+  private var toolbarActions: some View {
+    HStack(spacing: 10) {
       Button {
         NSApp.keyWindow?.makeFirstResponder(nil)
         model.returnHome()
       } label: {
         Label("回到主页", systemImage: "house")
       }.disabled(model.project == nil || model.isExporting)
-      Button {
-        model.openPanel()
-      } label: {
-        Label("打开胶卷", systemImage: "folder")
-      }.disabled(model.isExporting)
       Divider().frame(height: 20)
+      Button { showAutoCropDialog = true } label: {
+        Label("自动裁剪", systemImage: "crop")
+      }.disabled(!model.canStartAutoCrop)
+        .help("设置并分析整卷自动裁剪")
+      Button {
+        model.stopTimingKey()
+        model.endAdjustment()
+        showRollTimingConfirmation = true
+      } label: {
+        Label("色罩分析", systemImage: "wand.and.stars")
+      }
+        .disabled(!model.canStartRollTiming)
+        .help(model.project?.calibration.isCalibrated == true && model.project?.calibrationNeedsReview == false
+          ? "色罩分析" : "色罩分析：请先框选片基完成对齐")
+        .accessibilityLabel("色罩分析")
+        .alert("色罩分析", isPresented: $showRollTimingConfirmation) {
+          Button("取消", role: .cancel) {}
+          Button("开始分析") { model.startRollTiming() }
+        } message: {
+          Text("将开始整卷色罩分析，请确认已完成有效画幅裁剪和片基框选")
+        }
       Button {
         model.resetAdjustments()
       } label: {
@@ -160,11 +238,18 @@ struct EditorView: View {
           Button("查看上次导出结果") { model.showExportSummary = true }
         }
       } label: {
-        Label("导出 TIFF", systemImage: "square.and.arrow.up")
+        Label("导出", systemImage: "square.and.arrow.up")
       }.menuStyle(.borderlessButton).fixedSize()
+        .foregroundStyle(InterfaceColors.primaryText)
         .disabled(model.project == nil || model.isExporting || model.isCropping)
 
-    }.padding(.horizontal, 18).frame(height: 65)
+    }
+    .labelStyle(.titleAndIcon)
+    .fixedSize()
+    .buttonStyle(MainToolbarButtonStyle())
+    .tint(InterfaceColors.primaryText)
+    .disabled(model.isImporting)
+
   }
   private var previewToolbar: some View {
     HStack {
@@ -173,15 +258,10 @@ struct EditorView: View {
       ).lineLimit(1).truncationMode(.middle).layoutPriority(-1)
       if model.sourceWidth > 0 {
         Text("\(model.displayWidth) × \(model.displayHeight)").font(.caption2).foregroundStyle(
-          .tertiary)
+          InterfaceColors.tertiaryText)
       }
       Spacer()
       HStack(spacing: 4) {
-        Button { showAutoCropDialog = true } label: {
-          PreviewToolLabel { Label("自动裁切", systemImage: "viewfinder") }
-        }.buttonStyle(.plain).fixedSize()
-          .disabled(!model.canStartAutoCrop)
-          .help("设置并分析整卷自动裁切")
         Button { model.beginCrop() } label: {
           PreviewToolLabel(selected: model.isCropping) {
             Label("裁剪", systemImage: "crop")
@@ -189,17 +269,19 @@ struct EditorView: View {
         }.buttonStyle(.plain).fixedSize()
           .disabled(!model.hasImage || model.isCropping || model.isAutoCropping)
           .help("裁剪与精细角度 · R")
-        PreviewToolMenu(title: "方向") {
-          Button("顺时针 90°") { model.changeOrientation(.rotateClockwise) }
-          Button("逆时针 90°") { model.changeOrientation(.rotateCounterclockwise) }
-          Divider()
-          Button("水平翻转 · 当前画面") { model.changeOrientation(.flipHorizontal) }
-          Button("垂直翻转 · 当前画面") { model.changeOrientation(.flipVertical) }
-          Divider()
-          Button("重置方向") { model.changeOrientation(.reset) }
+        HStack(spacing: 0) {
+          orientationButton("向左旋转 90°", symbol: "rotate.left", operation: .rotateCounterclockwise)
+          orientationButton("向右旋转 90°", symbol: "rotate.right", operation: .rotateClockwise)
+          orientationButton("水平翻转", symbol: "arrow.left.and.right.righttriangle.left.righttriangle.right", operation: .flipHorizontal)
+          orientationButton("垂直翻转", symbol: "arrow.left.and.right.righttriangle.left.righttriangle.right", rotation: 90, operation: .flipVertical)
         }.disabled(!model.hasImage || model.isCropping)
       }
       previewToolDivider
+      Toggle("裁剪预览", isOn: $model.cropPreviewEnabled)
+        .toggleStyle(.checkbox)
+        .font(.system(size: 12, weight: .medium))
+        .fixedSize()
+        .help("仅切换主画面的裁剪效果，直方图仍统计裁剪后的画面")
       PreviewToolMenu(title: "管线预览", value: pipelinePreviewTitle) {
         ForEach([PipelineStage.l2, .d3, .final], id: \.self) { stage in
           Toggle(pipelinePreviewTitle(for: stage), isOn: Binding(
@@ -225,13 +307,28 @@ struct EditorView: View {
       }
       .buttonStyle(.plain)
       .padding(2)
-      .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 7))
+      .background(InterfaceColors.control, in: RoundedRectangle(cornerRadius: 7))
       .disabled(!model.hasImage || model.isCropping)
     }.padding(.horizontal, 12).frame(height: 38)
-      .tint(Color(white: 0.8))
+      .background(InterfaceColors.panel)
+      .tint(InterfaceColors.primaryText)
+  }
+  private func orientationButton(_ title: String, symbol: String, rotation: Double = 0,
+                                 operation: OrientationOperation) -> some View {
+    Button { model.changeOrientation(operation) } label: {
+      PreviewToolLabel {
+        Image(systemName: symbol)
+          .rotationEffect(.degrees(rotation))
+          .frame(width: 16)
+      }
+    }
+    .buttonStyle(.plain)
+    .fixedSize()
+    .help(title)
+    .accessibilityLabel(title)
   }
   private var previewToolDivider: some View {
-    Rectangle().fill(.white.opacity(0.10)).frame(width: 1, height: 14)
+    Rectangle().fill(InterfaceColors.separator).frame(width: 1, height: 14)
       .padding(.horizontal, 4)
   }
   private var pipelinePreviewTitle: String { pipelinePreviewTitle(for: model.stage) }
@@ -253,8 +350,6 @@ struct EditorView: View {
           Label("管理缓存", systemImage: "internaldrive")
         }.buttonStyle(.bordered)
       }
-      Text("16-BIT LINEAR RGB  /  CINEON LOG LUT").font(.system(size: 10, design: .monospaced))
-        .tracking(1.5).foregroundStyle(.tertiary)
       if let history = model.recentRolls { RecentRollsView(history: history, model: model) }
     }
   }
@@ -266,23 +361,24 @@ struct EditorView: View {
     }.padding(.bottom, bottomPadding)
   }
   private func matrixPicker(_ kind: MatrixKind) -> some View {
-    VStack(alignment: .leading, spacing: 5) {
-      Text(kind.label).font(.caption).foregroundStyle(.secondary)
-      Picker(kind.label, selection: Binding(
-        get: { kind == .cmos ? model.cmosMatrix : model.matrix },
-        set: { model.setMatrixPreset($0, kind: kind) })) {
-          ForEach(model.matrixOptions(kind), id: \.self) { value in
-            Text(value.label + (model.isMatrixSnapshot(value, kind: kind) ? " · 本卷快照" : ""))
-              .tag(value)
-          }
-        }.labelsHidden().disabled(model.project == nil)
-        .accessibilityLabel(kind.label)
+    HStack(spacing: 10) {
+      Text(kind.label).font(.caption).foregroundStyle(InterfaceColors.secondaryText)
+        .frame(width: 64, alignment: .leading)
+      MatrixMenuControl(
+        options: model.matrixOptions(kind),
+        titles: model.matrixOptions(kind).map {
+          $0.label + (model.isMatrixSnapshot($0, kind: kind) ? " · 本卷快照" : "")
+        },
+        selection: kind == .cmos ? model.cmosMatrix : model.matrix,
+        label: kind.label, enabled: model.project != nil,
+        onSelect: { model.setMatrixPreset($0, kind: kind) })
+        .frame(maxWidth: .infinity).frame(height: 22)
     }.frame(maxWidth: .infinity, alignment: .leading)
   }
   private var inspector: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 18) {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 16) {
           HStack {
             heading("01", "矩阵矫正 · 整卷", bottomPadding: 0)
             Button("管理矩阵") {
@@ -290,6 +386,7 @@ struct EditorView: View {
               model.showMatrixMenu = true
             }
             .buttonStyle(.borderless)
+            .controlSize(.small).font(.system(size: 11))
             .popover(isPresented: $model.showMatrixMenu, arrowEdge: .bottom) {
               VStack(alignment: .leading, spacing: 12) {
                 ForEach(MatrixKind.allCases) { kind in
@@ -302,12 +399,12 @@ struct EditorView: View {
               }.padding(16)
             }
           }
-          HStack(spacing: 10) {
+          VStack(spacing: 14) {
             matrixPicker(.cmos)
             matrixPicker(.density)
           }
         }
-        Divider()
+        Divider().overlay(InterfaceColors.subtleSeparator).opacity(0.45)
         VStack(alignment: .leading, spacing: 10) {
           HStack(spacing: 6) {
             heading("02", "FILM BASE 对齐 · 整卷", bottomPadding: 0)
@@ -317,30 +414,31 @@ struct EditorView: View {
               model.sampling.toggle()
             } label: {
               Label(model.sampling ? "取消框选" : "框选片基", systemImage: "viewfinder")
-            }.controlSize(.regular).font(.system(size: 13))
+            }.controlSize(.small).font(.system(size: 11))
               .fixedSize().disabled(!model.hasImage || model.isCropping)
           }
           if model.project?.calibrationNeedsReview == true {
             Label("片基来源变化 · 请重新采样", systemImage: "exclamationmark.triangle")
               .foregroundStyle(accent).font(.caption)
           }
-        }
-        Divider()
+        }.padding(.vertical, 6)
+        Divider().overlay(InterfaceColors.subtleSeparator).opacity(0.45)
         VStack(alignment: .leading, spacing: 10) {
           HStack(spacing: 8) {
-            Text("03").font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+            Text("03").font(.system(size: 10, design: .monospaced)).foregroundStyle(InterfaceColors.secondaryText)
             Text("TIMING").font(.system(size: 11, weight: .medium))
             Spacer(minLength: 0)
             Picker("Timing 模式", selection: $model.timingMode) {
               Text("简易").tag(TimingMode.simple)
               Text("RGB").tag(TimingMode.rgb)
-            }.pickerStyle(.segmented).labelsHidden().frame(width: 108)
+            }.pickerStyle(.segmented).labelsHidden()
+              .controlSize(.small).font(.system(size: 11)).frame(width: 100)
               .help("切换 Timing 控件与快捷键，保持照片参数")
             Button {
               model.toggleNeutralPicker()
             } label: {
               Image(systemName: "eyedropper")
-                .foregroundStyle(model.neutralPicking ? accent : Color.secondary)
+                .foregroundStyle(model.neutralPicking ? accent : InterfaceColors.secondaryText)
                 .opacity(model.isNeutralSampling ? 0.4 : 1)
                 .frame(width: 24, height: 20)
             }.buttonStyle(.plain)
@@ -350,27 +448,27 @@ struct EditorView: View {
           }
           VStack(spacing: 9) {
             if model.timingMode == .simple {
-              simpleTimingRow(.exposure, color: .white)
-              simpleTimingRow(.temperature, color: .orange)
-              simpleTimingRow(.tint, color: .purple)
+              simpleTimingRow(.exposure, color: InterfaceColors.primaryText)
+              simpleTimingRow(.temperature, color: InterfaceColors.temperature)
+              simpleTimingRow(.tint, color: InterfaceColors.tint)
               Color.clear.frame(height: 24)
             } else {
-              timingRow("Master", \.master, color: .white)
+              timingRow("Master", \.master, color: InterfaceColors.primaryText)
               timingRow("Red", \.red, color: ChannelColors.red)
               timingRow("Green", \.green, color: ChannelColors.green)
               timingRow("Blue", \.blue, color: ChannelColors.blue)
             }
           }
         }.disabled(model.activeFrame == nil)
-        Divider()
+        Divider().overlay(InterfaceColors.subtleSeparator).opacity(0.45)
         VStack(alignment: .leading, spacing: 9) {
           heading("04", "RGB CONTRAST")
-          contrastRow("Master", \.master, color: .white)
+          contrastRow("Master", \.master, color: InterfaceColors.primaryText)
           contrastRow("Red", \.red, color: ChannelColors.red)
           contrastRow("Green", \.green, color: ChannelColors.green)
           contrastRow("Blue", \.blue, color: ChannelColors.blue)
         }.disabled(model.activeFrame == nil)
-        Divider()
+        Divider().overlay(InterfaceColors.subtleSeparator).opacity(0.45)
         HStack(spacing: 6) {
           heading("05", "Cineon Log LUT", bottomPadding: 0)
             .fixedSize(horizontal: true, vertical: false)
@@ -378,21 +476,18 @@ struct EditorView: View {
             get: { model.adjustments.cineonLogLUT },
             set: { value in model.edit { $0.cineonLogLUT = value } })) {
               ForEach(CineonLogLUT.allCases, id: \.self) { lut in Text(lut.label).tag(lut) }
-            }.labelsHidden()
+            }.labelsHidden().controlSize(.small).font(.system(size: 11))
         }.disabled(model.activeFrame == nil)
       }.padding(16).background(OverlayScrollbars())
-    }.background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+    }.background(InterfaceColors.panel)
   }
   private func simpleTimingRow(_ axis: SimpleTimingAxis, color: Color) -> some View {
-    HStack(spacing: 6) {
-      Text(axis.title).font(.system(size: 11)).frame(width: 28, alignment: .leading)
-      AdjustmentRow(title: axis.help,
+    AdjustmentRow(title: axis.help,
         value: Binding(get: { axis.value(in: model.adjustments.timing) },
           set: { model.setSimpleTiming(axis, value: $0) }),
         range: axis.range, step: 1, fractionDigits: 0, color: color,
         onEditingChanged: { if $0 { model.beginAdjustment() } else { model.endAdjustment() } },
-        resetValue: 0, quantizesValue: false, valueWidth: 72)
-    }
+        resetValue: 0, quantizesValue: false, label: axis.title)
   }
   private func timingRow(
     _ title: String, _ path: WritableKeyPath<TimingParameters, Int>, color: Color
@@ -405,7 +500,7 @@ struct EditorView: View {
       range: Double(TimingParameters.range.lowerBound)...Double(TimingParameters.range.upperBound),
       step: 1, fractionDigits: 0, color: color,
       onEditingChanged: { if $0 { model.beginAdjustment() } else { model.endAdjustment() } },
-      resetValue: 0)
+      resetValue: 0, label: title)
   }
   private func contrastRow(
     _ title: String, _ path: WritableKeyPath<ContrastParameters, Float>, color: Color
@@ -417,7 +512,7 @@ struct EditorView: View {
         set: { v in model.edit { $0.contrast[keyPath: path] = Float(v) } }),
       range: 0.25...2, step: 0.01, fractionDigits: 2, color: color,
       onEditingChanged: { if $0 { model.beginAdjustment() } else { model.endAdjustment() } },
-      resetValue: 1)
+      resetValue: 1, label: title)
   }
   private var filmstrip: some View {
     VStack(alignment: .leading, spacing: 6) {
@@ -426,7 +521,7 @@ struct EditorView: View {
           1.5)
         Text(
           "\(model.project?.frames.count ?? 0) 张 · 已选 \(model.selection.selectedFrameIDs.count) 张"
-        ).font(.caption2).foregroundStyle(.secondary)
+        ).font(.caption2).foregroundStyle(InterfaceColors.secondaryText)
         Spacer()
         if let snapshot = model.snapshot, !model.isAutoCropping {
           Text("已复制调色：\(snapshot.sourceName)").font(.caption2).foregroundStyle(accent)
@@ -438,13 +533,12 @@ struct EditorView: View {
             VStack(alignment: .leading, spacing: 14) {
               Text("同步当前照片").font(.headline)
               Text("来源：\(model.activeFrame?.filename ?? "")").lineLimit(2)
-              Text("目标：其余 \(model.syncTargetIDs.count) 张").foregroundStyle(.secondary)
+              Text("目标：其余 \(model.syncTargetIDs.count) 张").foregroundStyle(InterfaceColors.secondaryText)
               Divider()
               Toggle("RGB Timing", isOn: $model.syncTiming)
               Toggle("RGB Contrast", isOn: $model.syncContrast)
               Toggle("Cineon Log LUT", isOn: $model.syncLUT)
               Toggle("裁剪 · 范围与精细角度", isOn: $model.syncCrop)
-              Text("保留每张照片的旋转与翻转").font(.caption).foregroundStyle(.secondary)
               HStack {
                 Button("取消") { model.showSync = false }.keyboardShortcut(.cancelAction)
                 Spacer()
@@ -475,7 +569,7 @@ struct EditorView: View {
                   model.select(frame.id, command: flags.contains(.command), shift: flags.contains(.shift))
                 } label: {
                   thumbnail(frame, index: index).contentShape(Rectangle())
-                }.buttonStyle(.plain).id(frame.id)
+                }.buttonStyle(FilmstripButtonStyle()).id(frame.id)
                   .contextMenu {
                     Button("复制调色 · 当前照片（⌘C）") { model.copyParameters() }
                     Button("粘贴调色到所选照片（⌘V）") { model.applyParameters() }
@@ -506,6 +600,7 @@ struct EditorView: View {
           }
       }
     }.padding(.horizontal, 14).padding(.vertical, 10)
+      .background(InterfaceColors.secondaryPanel)
   }
   private var visibleFilmstripFrames: [(offset: Int, element: FrameRecord)] {
     let frames = Array((model.project?.frames ?? []).enumerated())
@@ -522,26 +617,20 @@ struct EditorView: View {
           Image(decorative: image, scale: 1).resizable().aspectRatio(contentMode: .fit)
         } else {
           Image(systemName: frame.isMissing ? "exclamationmark.triangle" : "photo").foregroundStyle(
-            .tertiary)
+            InterfaceColors.tertiaryText)
         }
         VStack {
           HStack {
             Text(String(format: "%02d", index + 1)).font(.system(size: 9, design: .monospaced))
-              .padding(3).background(.black.opacity(0.65))
+              .foregroundStyle(.white).padding(3).background(.black.opacity(0.65))
             Spacer()
           }
           Spacer()
-          if frame.adjustments != FrameAdjustments() || frame.orientation != .identity || frame.crop != nil {
-            HStack {
-              Spacer()
-              Circle().fill(accent).frame(width: 5, height: 5).padding(5)
-            }
-          }
         }
       }.frame(width: 124, height: 78).clipped()
       Text(frame.filename).font(.system(size: 9, design: .monospaced)).lineLimit(1).frame(
         width: 124)
-    }.padding(4).background(selected ? accent.opacity(0.16) : Color.clear).overlay(
+    }.padding(4).background(selected ? InterfaceColors.selected : Color.clear).overlay(
       RoundedRectangle(cornerRadius: 5).stroke(
         active ? accent : selected ? accent.opacity(0.45) : Color.clear, lineWidth: active ? 2 : 1)
     ).cornerRadius(5).opacity(frame.isMissing ? 0.4 : 1).accessibilityElement(children: .ignore)
@@ -556,12 +645,43 @@ private struct AutoCropDialogView: View {
   @State private var preserveExisting = false
   @State private var inwardPercent = 1
   @State private var started = false
+  @State private var ratioChoice = "3:2"
+  @State private var customWidth = "3"
+  @State private var customHeight = "2"
+  @State private var portrait = false
+  private let ratios = ["3:2", "4:3", "1:1", "5:4", "7:6", "2:1", "3:1", "自定义"]
+  private var selectedRatio: Double? {
+    let parts = ratioChoice == "自定义" ? [customWidth, customHeight] : ratioChoice.components(separatedBy: ":")
+    guard let w = Double(parts[0]), let h = Double(parts[1]),
+      w.isFinite, h.isFinite, w > 0, h > 0 else { return nil }
+    let ratio = portrait ? h / w : w / h
+    return ratio.isFinite && (0.1...10).contains(ratio) ? ratio : nil
+  }
+  private var invalidRatio: Bool { selectedRatio == nil }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
-      Text("自动裁切").font(.title3.weight(.semibold))
+      Text("自动裁剪").font(.title3.weight(.semibold))
 
-      Toggle("保留已裁切", isOn: $preserveExisting)
+      VStack(alignment: .leading, spacing: 10) {
+        Picker("画幅比例", selection: $ratioChoice) {
+          ForEach(ratios, id: \.self) { Text($0).tag($0) }
+        }.pickerStyle(.menu)
+        if ratioChoice == "自定义" {
+          HStack {
+            TextField("宽", text: $customWidth).accessibilityLabel("自定义比例宽")
+            Text(":")
+            TextField("高", text: $customHeight).accessibilityLabel("自定义比例高")
+          }.textFieldStyle(.roundedBorder)
+        }
+        Toggle("交换宽高", isOn: $portrait).toggleStyle(.checkbox)
+        if invalidRatio {
+          Text("请输入有效正数，比例范围为 1:10～10:1。")
+            .font(.caption).foregroundStyle(.red)
+        }
+      }.disabled(model.isAutoCropping)
+
+      Toggle("保留已裁剪", isOn: $preserveExisting)
         .toggleStyle(.checkbox)
         .disabled(model.isAutoCropping)
 
@@ -577,7 +697,7 @@ private struct AutoCropDialogView: View {
         VStack(alignment: .leading, spacing: 8) {
           ProgressView()
           Text(model.autoCropProgressText)
-            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            .font(.caption).foregroundStyle(InterfaceColors.secondaryText).lineLimit(1)
         }
       }
 
@@ -592,12 +712,13 @@ private struct AutoCropDialogView: View {
         }
         Spacer()
         Button("开始") {
+          guard let selectedRatio else { return }
           started = true
-          model.startAutoCrop(preserveExisting: preserveExisting, inwardPercent: Double(inwardPercent))
+          model.startAutoCrop(preserveExisting: preserveExisting, inwardPercent: Double(inwardPercent), aspectRatio: selectedRatio)
         }
         .buttonStyle(.borderedProminent)
         .keyboardShortcut(.defaultAction)
-        .disabled(model.isAutoCropping)
+        .disabled(model.isAutoCropping || invalidRatio)
       }
     }
     .padding(22).frame(width: 300)
@@ -607,6 +728,86 @@ private struct AutoCropDialogView: View {
       started = false
       isPresented = false
       if !model.pendingAutoCropFrameIDs.isEmpty { model.reviewAutoCrops() }
+    }
+  }
+}
+
+struct RollTimingDialogView: View {
+  @ObservedObject var model: EditorModel
+  @State private var preserveEdited = false
+  var body: some View {
+    VStack(alignment: .leading, spacing: 20) {
+      Text(!model.isAnalyzingRollTiming && model.rollTimingError == nil ? "分析完成" : "整卷自动调色").font(.headline)
+      if model.isAnalyzingRollTiming {
+        HStack { ProgressView().controlSize(.small); Text(model.rollTimingProgress) }
+      } else if let error = model.rollTimingError {
+        Text(error).foregroundStyle(InterfaceColors.secondaryText).fixedSize(horizontal: false, vertical: true)
+      } else if let timing = model.rollTimingValues {
+        VStack(alignment: .leading, spacing: 10) {
+          Text("整卷 RGB Timing")
+          HStack(spacing: 20) {
+            Text("R  " + String(format: "%+d", timing.red))
+            Text("G  " + String(format: "%+d", timing.green))
+            Text("B  " + String(format: "%+d", timing.blue))
+          }.font(.system(.body, design: .monospaced))
+        }
+        Toggle("保留已调色", isOn: $preserveEdited)
+      }
+      HStack {
+        Spacer()
+        Button(model.isAnalyzingRollTiming ? "取消分析" : "取消") { model.cancelRollTiming() }
+          .keyboardShortcut(.cancelAction)
+        if !model.isAnalyzingRollTiming && model.rollTimingError == nil {
+          Button("应用到整卷") { model.applyRollTiming(preserveEdited: preserveEdited) }
+            .keyboardShortcut(.defaultAction)
+        }
+      }
+    }.padding(24).frame(width: 310)
+      .interactiveDismissDisabled()
+  }
+}
+
+
+/// Native popup sizing follows the shared layout column rather than its selected title.
+private struct MatrixMenuControl: NSViewRepresentable {
+  let options: [MatrixPreset]
+  let titles: [String]
+  let selection: MatrixPreset
+  let label: String
+  let enabled: Bool
+  let onSelect: (MatrixPreset) -> Void
+
+  func makeCoordinator() -> Coordinator { Coordinator(self) }
+  func makeNSView(context: Context) -> NSPopUpButton {
+    let button = NSPopUpButton(frame: .zero, pullsDown: false)
+    button.controlSize = .small
+    button.font = .systemFont(ofSize: 11)
+    button.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    button.target = context.coordinator
+    button.action = #selector(Coordinator.select(_:))
+    return button
+  }
+  func updateNSView(_ button: NSPopUpButton, context: Context) {
+    context.coordinator.parent = self
+    if button.itemTitles != titles {
+      button.removeAllItems()
+      for (index, title) in titles.enumerated() {
+        button.menu?.addItem(NSMenuItem(title: title, action: nil, keyEquivalent: ""))
+        button.item(at: index)?.tag = index
+      }
+    }
+    button.selectItem(at: options.firstIndex(of: selection) ?? -1)
+    button.isEnabled = enabled
+    button.setAccessibilityLabel(label)
+  }
+  final class Coordinator: NSObject {
+    var parent: MatrixMenuControl
+    init(_ parent: MatrixMenuControl) { self.parent = parent }
+    @objc func select(_ sender: NSPopUpButton) {
+      let index = sender.indexOfSelectedItem
+      guard parent.options.indices.contains(index) else { return }
+      parent.onSelect(parent.options[index])
     }
   }
 }

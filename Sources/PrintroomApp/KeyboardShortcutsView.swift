@@ -60,7 +60,6 @@ struct KeyboardShortcutsView: View {
             row("⌘⇧ + 点击", "追加连续范围，保留当前照片")
           }
           group("文件与编辑") {
-            row("⌘O", "打开 TIFF、ARW 或胶卷")
             row("⌘S", "保存胶卷设置（平时自动保存）")
             row("⌘⇧E", "导出当前照片")
             row("⌘Z / ⌘⇧Z", "撤销 / 重做")

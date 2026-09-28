@@ -178,15 +178,18 @@ struct PreviewCanvas: NSViewRepresentable {
       model.requestDetail(PixelRect(x: x, y: y, width: right - x, height: bottom - y))
     }
   }
+  override func viewDidChangeEffectiveAppearance() {
+    super.viewDidChangeEffectiveAppearance()
+    needsDisplay = true
+  }
+
   override func draw(_ dirtyRect: NSRect) {
     guard let context = NSGraphicsContext.current?.cgContext else { return }
     context.saveGState()
     defer { context.restoreGState() }
     // Apply before either the image or the selection overlay is drawn.
     context.clip(to: bounds)
-    let backdrop = model?.project == nil
-      ? NSColor(calibratedWhite: 0.075, alpha: 1)
-      : NSColor(srgbRed: 72.0 / 255, green: 72.0 / 255, blue: 72.0 / 255, alpha: 1)
+    let backdrop = model?.project == nil ? InterfaceColors.home : InterfaceColors.canvas
     backdrop.setFill()
     bounds.fill()
     guard let image = model?.previewImage else { return }

@@ -54,15 +54,15 @@ struct MatrixManagerView: View {
         VStack(alignment: .leading, spacing: 12) {
           ScrollView {
             VStack(alignment: .leading, spacing: 4) {
-              Text("内置").font(.caption).foregroundStyle(.secondary)
+              Text("内置").font(.caption).foregroundStyle(InterfaceColors.secondaryText)
               ForEach(kind.builtIns) { preset in row(preset) }
               Divider().padding(.vertical, 6)
-              Text("本机矩阵").font(.caption).foregroundStyle(.secondary)
+              Text("本机矩阵").font(.caption).foregroundStyle(InterfaceColors.secondaryText)
               ForEach(model.matrixLibrary.filter { $0.kind == kind }.map(\.preset)) { preset in row(preset) }
               let current = kind == .cmos ? model.cmosMatrix : model.matrix
               if model.isMatrixSnapshot(current, kind: kind) {
                 Divider().padding(.vertical, 6)
-                Text("本卷快照").font(.caption).foregroundStyle(.secondary)
+                Text("本卷快照").font(.caption).foregroundStyle(InterfaceColors.secondaryText)
                 row(current)
               }
             }
@@ -80,23 +80,22 @@ struct MatrixManagerView: View {
           if kind == .cmos {
             Button(busy ? "正在识别并计算…" : "选择三张 TIFF / RAW…") { selectSources() }
               .disabled(readOnly || busy || model.matrixLibraryError != nil)
-            Text("分别仅开启红、绿、蓝光源拍摄。取每张照片中心区域识别并计算。").font(.caption).foregroundStyle(.secondary)
           }
           Grid(horizontalSpacing: 10, verticalSpacing: 8) {
             GridRow {
               Text("")
-              ForEach(["输入 R", "输入 G", "输入 B"], id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
+              ForEach(["输入 R", "输入 G", "输入 B"], id: \.self) { Text($0).font(.caption).foregroundStyle(InterfaceColors.secondaryText) }
             }
             ForEach(0..<3) { row in
               GridRow {
-                Text(["输出 R′", "输出 G′", "输出 B′"][row]).font(.caption).foregroundStyle(.secondary)
+                Text(["输出 R′", "输出 G′", "输出 B′"][row]).font(.caption).foregroundStyle(InterfaceColors.secondaryText)
                 ForEach(0..<3) { column in
                   Group {
                     if readOnly || kind == .cmos {
                       Text(fields[row*3+column]).textSelection(.enabled)
                         .lineLimit(1).minimumScaleFactor(0.65).help(fields[row*3+column])
                         .frame(width: 78, height: 22, alignment: .leading).padding(.horizontal, 5)
-                        .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 5))
+                        .background(InterfaceColors.control, in: RoundedRectangle(cornerRadius: 5))
                     } else {
                       TextField("系数", text: $fields[row*3+column])
                         .textFieldStyle(.roundedBorder).frame(width: 88).disabled(busy)
@@ -111,13 +110,10 @@ struct MatrixManagerView: View {
           if kind == .density {
             Button("粘贴 3×3 系数") { paste() }.disabled(readOnly || busy)
           }
-          if readOnly {
-            Text("内置矩阵只读，可复制为自定义矩阵。").font(.caption).foregroundStyle(.secondary)
-          }
           ForEach(identification, id: \.self) { Text($0).font(.caption).lineLimit(2) }
           Spacer(minLength: 0)
           if let failure { Text(failure).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
-          if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary) }
+          if !message.isEmpty { Text(message).font(.caption).foregroundStyle(InterfaceColors.secondaryText) }
           HStack {
             if readOnly {
               Button("应用到本卷") {
@@ -130,8 +126,6 @@ struct MatrixManagerView: View {
           }.disabled(busy || model.matrixLibraryError != nil)
         }.frame(width: 370, alignment: .leading)
       }
-      Text("矩阵库供所有胶卷使用；已有胶卷保留各自的系数快照。切换矩阵不会重新做片基对齐。")
-        .font(.caption).foregroundStyle(.secondary)
     }
     .padding(24).frame(width: 666, height: 500)
     .onAppear { choose(kind == .cmos ? model.cmosMatrix : model.matrix) }
@@ -143,9 +137,9 @@ struct MatrixManagerView: View {
       HStack {
         Text(preset.name).lineLimit(2)
         Spacer(minLength: 2)
-        if preset.isBuiltIn { Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.secondary) }
+        if preset.isBuiltIn { Image(systemName: "lock.fill").font(.caption2).foregroundStyle(InterfaceColors.secondaryText) }
       }.padding(7).frame(maxWidth: .infinity, alignment: .leading)
-        .background(selected == preset ? Color.accentColor.opacity(0.2) : Color.clear, in: RoundedRectangle(cornerRadius: 5))
+        .background(selected == preset ? InterfaceColors.selected : Color.clear, in: RoundedRectangle(cornerRadius: 5))
     }.buttonStyle(.plain)
   }
   private func choose(_ preset: MatrixPreset) {

@@ -30,7 +30,7 @@ struct AutoCropSourceStamp: Equatable, Sendable {
 enum AutoCropService {
   /// Two passes retain seeds only. Even a long roll holds at most one source proxy
   /// and one reduced analysis image; RAW never requests full-size export decoding.
-  static func run(inputs: [AutoCropInput], targets: Set<UUID>,
+  static func run(inputs: [AutoCropInput], targets: Set<UUID>, aspectRatio: Double,
                   progress: @escaping @Sendable (String) async -> Void) async throws -> [AutoCropOutput] {
     let worker = Task.detached(priority: .userInitiated) {
       var seeds: [AutoCropSeed] = [], stamps: [AutoCropSourceStamp] = []
@@ -41,17 +41,17 @@ enum AutoCropService {
         let image = try SourceImageIO.readPreview(url: input.url, maxDimension: 1600)
         let seed = try AutoCropAnalyzer.prepare(image).seed
         guard try AutoCropSourceStamp(input.url) == stamp else {
-          throw PrintroomError.invalid("自动裁切期间源照片已改变：\(input.url.lastPathComponent)")
+          throw PrintroomError.invalid("自动裁剪期间源照片已改变：\(input.url.lastPathComponent)")
         }
         seeds.append(seed); stamps.append(stamp)
       }
-      let template = try AutoCropAnalyzer.template(fromSeeds: seeds)
+      let template = try AutoCropAnalyzer.template(fromSeeds: seeds, aspectRatio: aspectRatio)
       var result: [AutoCropOutput] = []
       for (index, input) in inputs.enumerated() where targets.contains(input.id) {
         try Task.checkCancellation()
         await progress("定位裁框 \(result.count + 1)/\(targets.count)")
         guard try AutoCropSourceStamp(input.url) == stamps[index] else {
-          throw PrintroomError.invalid("自动裁切期间源照片已改变：\(input.url.lastPathComponent)")
+          throw PrintroomError.invalid("自动裁剪期间源照片已改变：\(input.url.lastPathComponent)")
         }
         let image = try SourceImageIO.readPreview(url: input.url, maxDimension: 1600)
         let metadata = try SourceImageIO.metadata(url: input.url)
@@ -60,7 +60,7 @@ enum AutoCropService {
           sourceWidth: metadata.width, sourceHeight: metadata.height,
           requiresAllEdges: index == inputs.startIndex || index == inputs.index(before: inputs.endIndex))
         guard try AutoCropSourceStamp(input.url) == stamps[index] else {
-          throw PrintroomError.invalid("自动裁切期间源照片已改变：\(input.url.lastPathComponent)")
+          throw PrintroomError.invalid("自动裁剪期间源照片已改变：\(input.url.lastPathComponent)")
         }
         result.append(AutoCropOutput(id: input.id, crop: fit.crop,
           needsReview: fit.needsReview, source: stamps[index]))
@@ -68,7 +68,7 @@ enum AutoCropService {
       try Task.checkCancellation()
       // Recheck all contributors: changing even a template-only frame invalidates this run.
       for stamp in stamps where try AutoCropSourceStamp(stamp.url) != stamp {
-        throw PrintroomError.invalid("自动裁切期间源照片已改变：\(stamp.url.lastPathComponent)")
+        throw PrintroomError.invalid("自动裁剪期间源照片已改变：\(stamp.url.lastPathComponent)")
       }
       return result
     }

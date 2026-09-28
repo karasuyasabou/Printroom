@@ -131,10 +131,12 @@ struct CineonLUTTests {
       let imageSource = try #require(CGImageSourceCreateWithURL(destination as CFURL, nil))
       let image = try #require(CGImageSourceCreateImageAtIndex(imageSource, 0, nil))
       #expect(image.bitsPerComponent == 16)
-      #expect(image.colorSpace?.copyICCData() as Data? == assets.profile)
+      let converter = try OutputColorConverter(p3Profile: assets.profile, output: request.settings.profile)
+      #expect(image.colorSpace?.copyICCData() as Data? == converter.outputProfile)
+      let outputSamples = try converter.quantized(expected)
       for i in expected.pixels.indices {
         for channel in 0..<3 {
-          let quantized = Int((Double(min(1, max(0, expected.pixels[i][channel]))) * 65535).rounded())
+          let quantized = Int(outputSamples[i * 3 + channel])
           #expect(abs(Int(readback.samples[i * 3 + channel]) - quantized) <= 2)
         }
       }

@@ -1,5 +1,9 @@
 # 验收计划与当前证据
 
+0.3.65 工具栏卷名的四种窗口尺寸／外观截图和打包证据见 [acceptance-0.3.65.md](acceptance-0.3.65.md)。
+
+0.3.64 卷名、独立导出设置、schema7 迁移和打包证据见 [acceptance-0.3.64.md](acceptance-0.3.64.md)；实际窗口逐项点击验收仍待执行。
+
 状态：本轮 0.3.3 验证契约见 K 节，实际执行状态记录于 [acceptance-0.3.3.md](acceptance-0.3.3.md)。0.1.0 至 0.3.0 的历史证据保留在各版本验收记录。**下列清单是验收契约，不代表测试、失败注入或硬件验证已经完成；未执行的新版条目继续待验证。** 无需 Photoshop 参考。
 
 ## A. 已完成的资产基线检查
@@ -286,3 +290,69 @@ DiffuseWhiteTests覆盖两份表685 CV的ICC亮度及RGB中性、不同通道反
 ## 0.3.49 五项输出空间
 
 新增Display P3 / Rec. 2020必须通过独立原色/曲线、暗部灰阶、系统参考和TIFF回读验证。菜单精确名称/顺序、旧p3草稿、默认设置和项目保存重开一并验证；记录见[acceptance-0.3.49.md](acceptance-0.3.49.md)。
+
+## 0.3.50 整卷自动调色
+
+针对性命令：`scripts/test.sh --filter 'RollTiming|NeutralTimingTests|AutoCropEditingTests|MatrixEditingTests'`。
+覆盖整卷P95解析值、超过685的高光保留、已知色偏恢复、整数精度、重复求解、非法/超范围输入、有效采样、实际TIFF裁切读取、忽略旧调色、片基门槛、保留已调色语义、覆盖后保存/撤销/重做、取消与过期结果、源文件变化保护。相关吸管、自动裁切和矩阵回归同时执行；执行记录见acceptance-0.3.50.md。窗口命令：`bash scripts/editor-window-qa.sh --release --skip-build --roll-timing --appearance`。真实胶卷主观观感和统计参数调优仍待用户验收。
+
+
+## 0.3.51 并行导出
+
+`scripts/test.sh --filter 'ExportColorTests|CineonLUTTests|ExportProfileOptionsTests|RAWSourceServiceTests'`覆盖四路补充队列、串行/并行完整TIFF一致、在途上限与进度单调、结果顺序、取消前/中途、已发布保留、未开始队列停止、临时文件清理、同名竞争及失败继续，复验五输出ICC、LUT与RAW四槽。真实性能用release构建后 `scripts/measure-export-concurrency.sh ROLL NEW_OUTPUT CONCURRENCY FIRST_FRAME COUNT`，独立进程选择1或4路；OUTPUT须是新的scratch/临时目录，FIRST_FRAME一基。记录总耗时、进程峰值RSS与输出SHA256；不清空系统文件缓存，不将测量进程RSS视为含Adobe子进程的系统峰值。实际证据与限制见acceptance-0.3.51.md。
+
+
+## 0.3.52 JPG与入口布局
+
+`scripts/test.sh --filter 'ExportColorTests|ExportProfileOptionsTests|CineonLUTTests'`覆盖JPG五ICC回读、8-bit、输出方向/命名、与转换后解析样本对照（有损容差）、原片及同名保护、取消清理、项目保存重开及面板草稿/格式切换；同时复验TIFF与混合LUT导出。窗口使用`bash scripts/editor-window-qa.sh --release --skip-build --export-layout --appearance`检查1060×720工具栏、主页和两种格式的导出选项。执行范围见acceptance-0.3.52.md。
+
+
+## 0.3.53 加载屏障验证
+
+- 新卷与已存项目加载过程中project/preview/thumbnails不提前发布；全部成功后才激活。
+- 缓存命中不重复转换，自动淘汰后metadata阶段重建两种代理，后续编辑读取复用。
+- 四路有界、进度、失败不进编辑、重试和取消/切卷的迟到结果隔离；旧设置保持。
+- 最小窗口加载/失败页面布局；release资源及签名检查。实际执行见acceptance-0.3.53.md。
+
+
+0.3.54 导出冲突选择、覆盖取消安全及说明文字清理的已执行证据与窗口验收边界见 [acceptance-0.3.54.md](acceptance-0.3.54.md)。
+
+
+## 0.3.55 深浅外观
+
+`bash scripts/editor-window-qa.sh --themes` 在同一1060×720窗口依次应用浅/深/浅，生成编辑器与主页截图，使用隔离偏好和内存合成图，不写用户卷。检查文字、滑杆、选中边框、直方图与画布颜色；实际结果及人工菜单/重启验收边界见 [acceptance-0.3.55.md](acceptance-0.3.55.md)。
+
+
+## 0.3.56 语义色板
+
+沿用 `bash scripts/editor-window-qa.sh --release --themes`，在活动的1060×720窗口浅→深→浅，覆盖简易/RGB、裁切与主页；对照 Toolbar、Inspector、Filmstrip、Canvas、直方图、原生控件与选中状态。hover 代码路径与真实鼠标检查须分开记录，不把静态截图当作交互通过。证据及未执行范围见 [acceptance-0.3.56.md](acceptance-0.3.56.md)。
+
+
+## 0.3.57 原生窗口顶部
+
+`bash scripts/editor-window-qa.sh --release --window-chrome`：NSHostingController 建立系统 Toolbar，截图包含 AppKit frame 及真实红黄绿；检查1060宽度、深浅/RGB/裁切/主页、宽窗口、最小化恢复、全屏进出与返回布局，并断言原生按钮存在、隐藏重复标题、可移动/调整尺寸。拖窗手势、绿钮悬停菜单及旧macOS仍需单独人工验收。`scripts/test.sh --build-system native -c release --filter 'EditorWindowCloseTests|EditorKeyboardRoutingTests'` 回归关闭/退出代理与快捷键路由。实际执行见 acceptance-0.3.57.md。
+
+
+## 0.3.58 面板布局
+
+沿用 editor-window-qa 的 --themes、--timing、--histogram 分别检查主题、模式固定布局与直方图；这些分支提前返回，需分别执行。实际证据见 [acceptance-0.3.58.md](acceptance-0.3.58.md)。
+
+
+## 0.3.61 指定比例自动裁切
+
+AutoCropTests新增单帧强错误边缘与指定比例联合选择、自定义/方形/竖幅、非法值拒绝、分析高度取整补偿；AutoCropEditingTests新增比例传递及模型校验，既有裁切/保存/撤销/取消回归继续执行。真实少片基胶卷的裁切效果与窗口操作仍需单独验收；执行结果见acceptance-0.3.61.md。
+
+
+## 0.3.62 色罩分析统一LUT
+
+`scripts/test.sh --filter 'RollTiming|CineonLUTTests'`：混合LUT与统一首张LUT的结果一致、切换首张LUT确实改变结果、首张缺失仍沿用其保存选择；覆盖、保存重开、整组撤销/重做包含LUT，保留已调色仍保护完整设置。真实混合LUT卷观感待用户验收。
+
+
+## 0.3.66 导出复选项
+
+`scripts/test.sh --build-system native --filter 'ExportColorTests|ExportProfileOptionsTests'` 覆盖面板默认/草稿/持久化/缺失字段兼容、格式切换，以及两种格式全部D4方向下关闭裁剪与无裁剪参考文件完全一致、开启裁剪尺寸变小、任务快照与原片保护。`bash scripts/editor-window-qa.sh --skip-build --export-layout` 检查两种格式的选项布局。实际结果见acceptance-0.3.66.md。
+
+
+## 0.3.68 裁剪预览
+
+SelectionCropTests 覆盖全图预览与裁后直方图分离、三阶段/全部D4方向、微调角度、切图/裁剪编辑/100%细节、快速切换及继续调色；与 EditorRefinementTests、EditingV2Tests、CropEditingTests 一起回归。`bash scripts/editor-window-qa.sh --skip-build --crop-preview` 检查最小窗口深浅外观、勾选及未勾选布局。执行结果见 acceptance-0.3.68.md。

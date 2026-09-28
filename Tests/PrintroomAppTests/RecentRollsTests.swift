@@ -17,6 +17,8 @@ import Testing
     history.record(folder: entry.url, projectID: entry.projectID)
     #expect(history.entries.first?.id == entry.id)
     #expect(history.entries.filter { $0.id == entry.id }.count == 1)
+    history.updateName(folder: entry.url, name: "京都 · 250D")
+    #expect(history.entries.first?.displayName == "京都 · 250D")
     #expect(RecentRolls(defaults: defaults).entries == history.entries)
     let before = history.entries
     history.remove(history.entries[3])
@@ -24,6 +26,18 @@ import Testing
     #expect(RecentRolls(defaults: defaults).entries.count == 19)
     history.undoRemoval()
     #expect(history.entries == before)
+  }
+
+  @Test func oldRecentHistoryWithoutNamesStillLoads() throws {
+    let suite = "Printroom.RecentTests.\(UUID())"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let entry: [String: Any] = [
+      "path": "/tmp/old-roll", "projectID": UUID().uuidString,
+      "openedAt": Date().timeIntervalSinceReferenceDate,
+    ]
+    defaults.set(try JSONSerialization.data(withJSONObject: [entry]), forKey: "recentRolls.v1")
+    #expect(RecentRolls(defaults: defaults).entries.first?.displayName == "old-roll")
   }
 
   @Test func openingRestoresFrameAndRemovalPreservesProject() throws {

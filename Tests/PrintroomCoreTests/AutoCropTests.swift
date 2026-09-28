@@ -3,6 +3,39 @@ import XCTest
 @testable import PrintroomCore
 
 final class AutoCropTests: XCTestCase {
+  func testSpecifiedRatioRejectsWrongWidthWithOnlyOneFrame() throws {
+    // Independent width picks 740; known 3:2 plus the supported 460 height
+    // must instead select the weaker, correct 690 width.
+    let seed = AutoCropSeed(width: 800, height: 533, angle: 0,
+      edges: [30, 770, 36, 496], evidence: [1, 1, 1, 1], candidates: [
+        [.init(position: 30, baseDensity: 0, weight: 1), .init(position: 55, baseDensity: 0, weight: 0.8)],
+        [.init(position: 770, baseDensity: 0, weight: 1), .init(position: 745, baseDensity: 0, weight: 0.8)],
+        [.init(position: 36, baseDensity: 0, weight: 1)],
+        [.init(position: 496, baseDensity: 0, weight: 1)]
+      ])
+    XCTAssertEqual(try AutoCropAnalyzer.template(fromSeeds: [seed]).width, 740)
+    let template = try AutoCropAnalyzer.template(fromSeeds: [seed], aspectRatio: 1.5)
+    XCTAssertEqual(template.width, 690, accuracy: 0.001)
+    XCTAssertEqual(template.height, 460, accuracy: 0.001)
+    for ratio in [1.0, 4.0/3, 7.0/6, 2.39, 2.0/3] {
+      let result = try AutoCropAnalyzer.template(fromSeeds: [seed], aspectRatio: ratio)
+      XCTAssertEqual(result.width / result.height, ratio, accuracy: 0.000001)
+      XCTAssertLessThanOrEqual(result.width, 800)
+      XCTAssertLessThanOrEqual(result.height, 533)
+    }
+    for ratio in [0.0, -1, .nan, .infinity, 11] {
+      XCTAssertThrowsError(try AutoCropAnalyzer.template(fromSeeds: [seed], aspectRatio: ratio))
+    }
+  }
+
+  func testSpecifiedRatioCompensatesAnalysisHeightRounding() throws {
+    let seed = AutoCropSeed(width: 800, height: 533, angle: 0,
+      edges: [40, 760, 26, 506], evidence: [1, 1, 1, 1], sourceAspect: 1.5)
+    let template = try AutoCropAnalyzer.template(fromSeeds: [seed], aspectRatio: 1.5)
+    XCTAssertEqual((template.width / 800) / (template.height / 533) * 1.5, 1.5, accuracy: 0.000001)
+    XCTAssertEqual(template.requestedRatio, 1.5)
+  }
+
   func testInternalEdgeCannotAnchorAnOutOfSourceRectangle() throws {
     let w = 800, h = 533
     var samples = [UInt16](repeating: 0, count: w * h * 3)
