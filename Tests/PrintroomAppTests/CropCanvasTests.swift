@@ -175,18 +175,19 @@ struct CropCanvasTests {
     #expect(abs(viewport.maxX - 753) <= 1)
     #expect(canvas.bounds.height > 330)
     let top = host.isFlipped ? viewport.minY : host.bounds.height - viewport.maxY
-    #expect(abs(top - 104) <= 2) // 104 px preview toolbar + one 38 px crop row + divider.
+    #expect(abs(top - 39) <= 2) // One 38 px crop row plus divider; main toolbar is native.
     // Native sliders/text fields above the preview belong to crop controls.
     let cropControls = views.filter { $0 is NSSlider || $0 is NSTextField }.filter { control in
       let frame = control.convert(control.bounds, to: host)
       let y = host.isFlipped ? frame.midY : host.bounds.height - frame.midY
-      return y > 104 && y < top
+      return y > 0 && y < top
     }
+    #expect(!cropControls.isEmpty)
     for control in cropControls {
       let frame = control.convert(control.bounds, to: host)
       #expect(frame.minX >= 0 && frame.maxX <= viewport.maxX)
       let y = host.isFlipped ? frame.midY : host.bounds.height - frame.midY
-      #expect(abs(y - 123) <= 4)
+      #expect(abs(y - 19) <= 4)
     }
   }
 }

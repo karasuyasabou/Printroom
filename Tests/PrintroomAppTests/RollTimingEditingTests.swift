@@ -29,7 +29,7 @@ struct RollTimingEditingTests {
     model.rollTimingRunner = { p, folder, _, progress in
       await progress("分析完成")
       return RollTimingResult(timing: .init(red: 35,green: 25,blue: 15),
-        sources: try p.frames.filter { !$0.isMissing }.map { try AutoCropSourceStamp(folder.appendingPathComponent($0.filename)) })
+        sources: try p.frames.filter { !$0.isMissing }.map { try SourceStamp(url: folder.appendingPathComponent($0.filename)) })
     }
     return (model, folder)
   }

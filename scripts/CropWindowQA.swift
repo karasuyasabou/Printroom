@@ -231,7 +231,7 @@ import SwiftUI
       precondition(abs(canvas.bounds.width - 753) < 1)
       let viewport = canvas.convert(canvas.bounds, to: host)
       let top = host.isFlipped ? viewport.minY : host.bounds.height - viewport.maxY
-      precondition(abs(top - 104) <= 2, "Crop controls must replace the existing 38 px toolbar")
+      precondition(abs(top - 39) <= 2, "Crop controls must replace the existing 38 px toolbar")
       try await capture("layout-only-minimum-window")
       print("LAYOUT CHECK COMPLETE: 1060x720 window, 753 px preview column, one 38 px crop row. Real keyboard/mouse/sync-click checks remain NOT RUN.")
       return
@@ -298,20 +298,20 @@ import SwiftUI
     precondition(abs(canvas.bounds.width - 753) < 1)
     try await capture("04-minimum-window")
     let savedDraft = model.cropDraft!
-    // Actual sync control sits next to Done in the single 38 px crop toolbar row.
-    let syncPoint = CGPoint(x: canvas.bounds.maxX - 100, y: -20)
-    try await activateWindow()
-    state("before sync click")
-    NSApp.postEvent(mouse(.leftMouseDown, syncPoint), atStart: false)
-    NSApp.postEvent(mouse(.leftMouseUp, syncPoint), atStart: false)
-    try await settle()
-    state("after sync click")
-    precondition(!model.isCropping, "Actual sync button must finish cropping")
+    // Commit through the real keyboard; sync now lives in the Filmstrip dialog.
+    window.makeFirstResponder(canvas)
+    try await press("\r", code: 36)
+    try await ready()
+    precondition(!model.isCropping && model.activeFrame?.crop == savedDraft)
+    let beforeSync = model.project!.frames
+    model.beginSync()
+    model.syncCrop = true
+    model.syncCurrentSettings()
     try await ready()
     precondition(model.project!.frames.allSatisfy { $0.crop == savedDraft })
     try await capture("05-synced-preview")
     model.undo()
-    precondition(model.project!.frames.allSatisfy { $0.crop == nil })
+    precondition(model.project!.frames == beforeSync)
     model.redo()
     precondition(model.project!.frames.allSatisfy { $0.crop == savedDraft })
     try await ready()
@@ -349,6 +349,6 @@ import SwiftUI
     window.makeFirstResponder(canvas)
     try await capture("08-final")
     model.flushSave()
-    print("PASS: real R/Enter/Esc, Command/Shift/Command-Shift selection, 7:6 + 4.75°, corner resize, move, single-row minimum window, actual sync button, group undo/redo, active-only commit, full-source sampling, text focus exclusion")
+    print("PASS: real R/Enter/Esc, Command/Shift/Command-Shift selection, 7:6 + 4.75°, corner resize, move, single-row minimum window, programmatic sync command, group undo/redo, active-only commit, full-source sampling, text focus exclusion")
   }
 }

@@ -61,8 +61,8 @@ struct EditingV2Tests {
     #expect(model.project?.frames == before.frames)
     model.redo()
     #expect(model.project?.frames == applied.frames)
-    model.setOutputProfile(.proPhoto)
-    model.setOutputCompression(.deflate)
+    do { var settings = model.exportSettings; settings.profile = .proPhoto; model.setExportSettings(settings) }
+    do { var settings = model.exportSettings; settings.compression = .deflate; model.setExportSettings(settings) }
     #expect(model.flushSave())
     let reopened = try ProjectStore.open(folder: folder)
     #expect(reopened.frames == applied.frames)
@@ -278,7 +278,7 @@ struct EditingV2Tests {
     #expect(model.previewImage == nil)
     #expect(model.histogram == nil)
     #expect(!model.isRendering)
-    #expect(!model.isHistogramUpdating)
+    #expect(!model.isRendering)
   }
 
   @Test func directionChangesNeverExposeOldImageWithNewGeometry() async throws {
@@ -352,15 +352,15 @@ struct EditingV2Tests {
     try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
     model.open(folder)
     let firstID = try #require(model.activeFrame?.id)
-    model.setOutputProfile(.displayP3)
+    do { var settings = model.exportSettings; settings.profile = .displayP3; model.setExportSettings(settings) }
     let captured = try #require(model.project)
     model.startExport(targetIDs: [firstID], directory: destination)
     #expect(model.isExporting)
     // These commands run before the export's Task gets its first actor turn.
     model.edit { $0.timing.master = 200; $0.contrast.red = 2 }
     model.changeOrientation(.rotateClockwise)
-    model.setOutputProfile(.sRGB)
-    model.setOutputCompression(.deflate)
+    do { var settings = model.exportSettings; settings.profile = .sRGB; model.setExportSettings(settings) }
+    do { var settings = model.exportSettings; settings.compression = .deflate; model.setExportSettings(settings) }
     model.selectAll()
     try await until("snapshot export completed", { !model.isExporting })
     let summary = try #require(model.exportSummary)

@@ -80,9 +80,9 @@ struct ImageServiceTests {
       image: raw, rect: region, matrix: .ledLightSource, sourceFrameID: frameID)
     let sampled = try await service.sample(
       url, rect: region, matrix: .ledLightSource, frameID: frameID)
-    #expect(sampled.0 == reference)
-    #expect(sampled.1.pixelCount == 16)
-    #expect(try await service.pixel(url, x: 8, y: 3) == raw.pixel(x: 8, y: 3))
+    #expect(sampled == reference)
+    #expect(try Pipeline.calibrationDiagnostics(image: raw, rect: region).pixelCount == 16)
+    #expect(try await service.region(url, rect: PixelRect(x: 8, y: 3, width: 1, height: 1)).pixels == [SIMD4(raw.pixel(x: 8, y: 3), 1)])
     let dimensions = try await service.preview(url)
     #expect(dimensions.1 == raw.width && dimensions.2 == raw.height)
   }

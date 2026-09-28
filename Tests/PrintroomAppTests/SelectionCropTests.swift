@@ -200,7 +200,10 @@ struct SelectionCropTests {
     model.selectAll()
     #expect(model.activeFrame?.orientation == activeOrientation)
     #expect(model.cropDraft == originalCrop && model.isCropping)
-    model.commitCrop(syncSelection: true)
+    model.commitCrop()
+    model.beginSync()
+    model.syncCrop = true
+    #expect(model.syncCurrentSettings())
     let applied = try #require(model.project)
     #expect(applied.frames.allSatisfy { $0.crop == originalCrop })
     #expect(applied.frames.map(\.orientation) == roll.frames.map(\.orientation))

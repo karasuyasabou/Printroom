@@ -53,7 +53,7 @@ struct SimpleTimingEditingTests {
     m.select(m.project!.frames[1].id)
     #expect(m.timingMode == .rgb)
     #expect(model(defaults).timingMode == .rgb)
-    m.startTimingKey("e", shift: false, isRepeat: false) { true }
+    m.startAdjustmentKey("e", contrast: false, shift: false, isRepeat: false) { true }
     m.timingMode = .simple
     let after = m.adjustments
     try await Task.sleep(for: .milliseconds(600))
@@ -68,13 +68,13 @@ struct SimpleTimingEditingTests {
     defer { defaults.removePersistentDomain(forName: suite) }
     let m = model(defaults)
     for key in ["z", "c"] {
-      m.startTimingKey(key, shift: true, isRepeat: false) { true }; m.stopTimingKey()
+      m.startAdjustmentKey(key, contrast: false, shift: true, isRepeat: false) { true }; m.stopTimingKey()
     }
     #expect(!m.canUndo)
     for (key, expected) in [("e", TimingParameters(red: 10, blue: -10)),
                             ("d", TimingParameters(red: 10, green: -20, blue: 10)),
                             ("w", TimingParameters(master: 10))] {
-      m.startTimingKey(key, shift: true, isRepeat: false) { true }; m.stopTimingKey()
+      m.startAdjustmentKey(key, contrast: false, shift: true, isRepeat: false) { true }; m.stopTimingKey()
       #expect(m.adjustments.timing == expected)
       m.undo()
       #expect(m.adjustments.timing == TimingParameters())

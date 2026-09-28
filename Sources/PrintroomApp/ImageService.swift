@@ -13,20 +13,12 @@ actor ImageService {
     let hits: Int
     let misses: Int
   }
-  private struct SourceIdentity: Equatable {
-    let url: URL
-    let modification: Date?
-    let size: Int64
-    let inode: UInt64
-    let rawProcessing: RAWProcessingIdentity?
-  }
   private struct Entry {
-    let identity: SourceIdentity
+    let identity: SourceStamp
     let dimension: Int
     let pixels: PixelBuffer
     let width: Int
     let height: Int
-    let profileName: String
     var access: UInt64
     var bytes: Int { pixels.pixels.count * MemoryLayout<SIMD4<Float>>.stride }
   }
@@ -42,26 +34,10 @@ actor ImageService {
     self.cacheLimitEntries = max(0, cacheLimitEntries)
   }
 
-  /// Compatibility/reference path only. No full-resolution image remains cached.
-  func load(_ url: URL) throws -> LinearImage {
-    try Task.checkCancellation()
-    let image = try autoreleasepool {
-      if SourceImageIO.isRAW(url) { return try SourceImageIO.readPreview(url: url, maxDimension: 1600) }
-      return try SourceImageIO.read(url: url)
-    }
-    try Task.checkCancellation()
-    return image
-  }
-
   func clear() {
     entries.removeAll(keepingCapacity: false)
     hits = 0
     misses = 0
-  }
-
-  func invalidate(_ url: URL) {
-    let normalized = url.standardizedFileURL
-    entries.removeAll { $0.identity.url == normalized }
   }
 
   func cacheStatistics() -> CacheStatistics {
@@ -72,9 +48,9 @@ actor ImageService {
 
   /// Width/height stay in TIFF-orientation-corrected source coordinates. User
   /// orientation is applied after the pipeline, independently of the input cache.
-  func preview(_ url: URL) throws -> (PixelBuffer, Int, Int, String) {
+  func preview(_ url: URL) throws -> (PixelBuffer, Int, Int) {
     let entry = try previewEntry(url, maxDimension: 1600)
-    return (entry.pixels, entry.width, entry.height, entry.profileName)
+    return (entry.pixels, entry.width, entry.height)
   }
 
   /// neutral-relative-008-v1: sample 0.8% of the uncropped source long edge
@@ -128,20 +104,18 @@ actor ImageService {
     guard rect.width > 0, rect.height > 0,
       rect.width <= 8_388_608 / rect.height
     else { throw PrintroomError.invalid("1:1 检查区域超过 8 百万像素，请缩小检查视口") }
-    let identity = try sourceIdentity(url)
+    let identity = try SourceStamp(url: url)
     let image = try autoreleasepool { try SourceImageIO.readRegion(url: url, rect: rect) }
     try Task.checkCancellation()
-    guard identity == (try sourceIdentity(url)) else {
+    guard identity == (try SourceStamp(url: url)) else {
       throw PrintroomError.invalid("读取期间源图像已改变，请重新打开照片")
     }
     return try pixelBuffer(image)
   }
 
-  func sample(_ url: URL, rect: PixelRect, matrix: PrintDensityMatrix, frameID: UUID, cmosMatrix: MatrixPreset = .identity) throws -> (
-    FilmCalibration, CalibrationDiagnostics
-  ) {
+  func sample(_ url: URL, rect: PixelRect, matrix: PrintDensityMatrix, frameID: UUID, cmosMatrix: MatrixPreset = .identity) throws -> FilmCalibration {
     try Task.checkCancellation()
-    let identity = try sourceIdentity(url)
+    let identity = try SourceStamp(url: url)
     let metadata = try autoreleasepool { try SourceImageIO.metadata(url: url) }
     let image = try autoreleasepool { try SourceImageIO.readRegion(url: url, rect: rect) }
     let local = PixelRect(x: 0, y: 0, width: image.width, height: image.height)
@@ -151,27 +125,11 @@ actor ImageService {
     calibration.selection = rect
     calibration.sourceWidth = metadata.width
     calibration.sourceHeight = metadata.height
-    let diagnostics = try Pipeline.calibrationDiagnostics(image: image, rect: local)
     try Task.checkCancellation()
-    guard identity == (try sourceIdentity(url)) else {
+    guard identity == (try SourceStamp(url: url)) else {
       throw PrintroomError.invalid("采样期间源图像已改变，请重新采样")
     }
-    return (calibration, diagnostics)
-  }
-
-  func pixel(_ url: URL, x: Int, y: Int) throws -> SIMD3<Float> {
-    try Task.checkCancellation()
-    let identity = try sourceIdentity(url)
-    let metadata = try autoreleasepool { try SourceImageIO.metadata(url: url) }
-    let rect = PixelRect(
-      x: max(0, min(metadata.width - 1, x)), y: max(0, min(metadata.height - 1, y)),
-      width: 1, height: 1)
-    let image = try autoreleasepool { try SourceImageIO.readRegion(url: url, rect: rect) }
-    try Task.checkCancellation()
-    guard identity == (try sourceIdentity(url)) else {
-      throw PrintroomError.invalid("读取期间源图像已改变，请重新取样")
-    }
-    return image.pixel(x: 0, y: 0)
+    return calibration
   }
 
   private func previewEntry(_ url: URL, maxDimension: Int) throws -> Entry {
@@ -179,7 +137,7 @@ actor ImageService {
     guard (1...4096).contains(maxDimension) else {
       throw PrintroomError.invalid("预览长边必须在 1–4096 像素之间")
     }
-    let identity = try sourceIdentity(url)
+    let identity = try SourceStamp(url: url)
     access &+= 1
     entries.removeAll { $0.identity.url == identity.url && $0.identity != identity }
     if let index = entries.firstIndex(where: {
@@ -194,13 +152,12 @@ actor ImageService {
     let image = try autoreleasepool { try SourceImageIO.readPreview(url: url, maxDimension: maxDimension) }
     let pixels = try pixelBuffer(image)
     try Task.checkCancellation()
-    guard identity == (try sourceIdentity(url)) else {
+    guard identity == (try SourceStamp(url: url)) else {
       throw PrintroomError.invalid("读取期间源图像已改变，请重新打开照片")
     }
     let entry = Entry(
       identity: identity, dimension: maxDimension, pixels: pixels,
-      width: metadata.width, height: metadata.height,
-      profileName: metadata.embeddedProfileName, access: access)
+      width: metadata.width, height: metadata.height, access: access)
     if cacheLimitEntries > 0, entry.bytes <= cacheLimitBytes {
       while !entries.isEmpty,
         entries.count >= cacheLimitEntries
@@ -214,16 +171,6 @@ actor ImageService {
     return entry
   }
 
-  private func sourceIdentity(_ url: URL) throws -> SourceIdentity {
-    // resourceValues can retain stale attributes after same-path replacement.
-    let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-    return SourceIdentity(
-      url: url.standardizedFileURL, modification: attributes[.modificationDate] as? Date,
-      size: (attributes[.size] as? NSNumber)?.int64Value ?? -1,
-      inode: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0,
-      rawProcessing: try SourceImageIO.processingIdentity(url: url))
-  }
-
   private func pixelBuffer(_ image: LinearImage) throws -> PixelBuffer {
     var pixels = [SIMD4<Float>]()
     pixels.reserveCapacity(image.width * image.height)
@@ -234,20 +181,4 @@ actor ImageService {
     return PixelBuffer(width: image.width, height: image.height, pixels: pixels)
   }
 
-  /// Legacy callers share the same immutable request, color conversion and
-  /// publishing implementation as the batch queue.
-  func export(
-    source: URL, destination: URL, calibration: FilmCalibration, adjustments: FrameAdjustments,
-    assets: AppAssets, progress: @Sendable @escaping (Double) -> Void
-  ) async throws {
-    let request = try ExportRequest(
-      source: source, destination: destination, calibration: calibration, adjustments: adjustments)
-  let result = try await ExportEngine().run(request, lut: assets.lut, p3Profile: assets.profile, fujifilmLUT: assets.fujifilmLUT) {
-      progress($0.fraction)
-    }
-    if result.wasCancelled { throw CancellationError() }
-    guard result.completedCount == 1 else {
-      throw PrintroomError.invalid(result.results.first?.error ?? "导出未完成")
-    }
-  }
 }

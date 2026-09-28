@@ -22,7 +22,7 @@ struct AdjustmentPerformanceMeasurements {
     let input = try await service.preview(source).0
     let calibration = try await service.sample(source,
       rect: PixelRect(x: 359, y: 604, width: 79, height: 494),
-      matrix: .ledLightSource, frameID: UUID()).0
+      matrix: .ledLightSource, frameID: UUID())
     print("ADJUSTMENT_ENV mode=\(mode) gpu=\(assets.gpu.deviceName) os=\(ProcessInfo.processInfo.operatingSystemVersionString) input=DSC07079.tiff preview=\(input.width)x\(input.height) calibration=LED_ROI_359_604_79_494")
     if mode == "renderer" {
       try await measureRenderer(input, calibration: calibration, assets: assets)
@@ -120,7 +120,7 @@ struct AdjustmentPerformanceMeasurements {
     rollCalibration.sourceFrameID = try #require(model.activeFrame?.id)
     model.project?.calibration = rollCalibration
     model.render()
-    try await waitUntil { !model.isRendering && !model.isHistogramUpdating && model.histogram != nil }
+    try await waitUntil { !model.isRendering && model.histogram != nil }
 
     let publication = AdjustmentPublicationProbe()
     let subscription = model.$previewImage.dropFirst().sink { image in
@@ -146,7 +146,7 @@ struct AdjustmentPerformanceMeasurements {
     model.endAdjustment()
     try await waitUntil { !model.isRendering && model.previewImage != nil }
     let renderIdle = ContinuousClock.now
-    try await waitUntil { !model.isHistogramUpdating && model.histogram != nil }
+    try await waitUntil { !model.isRendering && model.histogram != nil }
     let histogramIdle = ContinuousClock.now
     let times = publication.snapshot()
     let last = try #require(times.last)

@@ -1,5 +1,7 @@
 # 验收计划与当前证据
 
+当前 0.3.69 模块精简的验证见 [acceptance-0.3.69.md](acceptance-0.3.69.md)。默认回归使用 `scripts/test.sh --build-system native --no-parallel`；实际参考 TIFF 验证另加 `--full`（置于其余参数前），需要本机 `TEST/TIFF/` 原始输入。当前工作区缺少该目录，本轮不把真实 TIFF / RAW 或主观色彩外观记为通过。以下历史条目按当时证据保留。
+
 0.3.65 工具栏卷名的四种窗口尺寸／外观截图和打包证据见 [acceptance-0.3.65.md](acceptance-0.3.65.md)。
 
 0.3.64 卷名、独立导出设置、schema7 迁移和打包证据见 [acceptance-0.3.64.md](acceptance-0.3.64.md)；实际窗口逐项点击验收仍待执行。

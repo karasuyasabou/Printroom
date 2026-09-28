@@ -120,7 +120,7 @@ struct PreviewCanvasTests {
       #expect(abs(initial.maxX - (host.bounds.width - 307)) <= 1)
       let top = host.isFlipped ? initial.minY : host.bounds.height - initial.maxY
       let bottom = host.isFlipped ? host.bounds.height - initial.maxY : initial.minY
-      #expect(abs(top - 104) <= 2)
+      #expect(abs(top - 39) <= 2)
       // Native title/button heights differ by macOS version; Filmstrip
       // must still reserve its full thumbnail row and title.
       #expect((140...165).contains(bottom))
@@ -388,7 +388,7 @@ struct PreviewCanvasTests {
     #expect(calibration.selection == expected)
     #expect(calibration.sourceFrameID == frame.id)
     #expect(calibration.sourceWidth == 120 && calibration.sourceHeight == 80)
-    #expect(model.baseStatistics.hasPrefix("176 像素"))
+    #expect(calibration.selection?.width == 16 && calibration.selection?.height == 11)
     #expect(calibration.isCalibrated && !model.sampling)
     // Let the render and thumbnail work triggered by calibration finish before fixture cleanup.
     for _ in 0..<100 where model.isRendering || model.thumbnails[frame.id] == nil {

@@ -4,10 +4,8 @@ cd "$(dirname "$0")/.."
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/ModuleCache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/ModuleCache"
 configuration=debug
-optimization=()
 if [[ "${1:-}" == "--release" ]]; then
   configuration=release
-  optimization=(-O)
 fi
 swift build -c "$configuration" --disable-sandbox
 mkdir -p scratch/viewport-qa/roll
@@ -31,14 +29,7 @@ for orientation, name in [(1, '01-original'), (6, '02-rotate90'), (2, '03-mirror
     data += struct.pack(order+'H', len(updated)) + b''.join(updated) + b'\0'*4
     Path(f'scratch/viewport-qa/roll/{name}.tiff').write_bytes(data)
 PY
-app_sources=()
-for source_file in Sources/PrintroomApp/*.swift; do
-  [[ "$source_file" == "Sources/PrintroomApp/PrintroomApp.swift" ]] || app_sources+=("$source_file")
-done
-source scripts/native-raw-link.sh
-printroom_native_link_args "$PWD/.build/$configuration" "$PWD/scratch/viewport-qa"
-xcrun swiftc "${native_raw_flags[@]}" -parse-as-library -module-name ViewportWindowQA "${optimization[@]}" -I ".build/$configuration/Modules" \
-  "${app_sources[@]}" scripts/ViewportWindowQA.swift \
-  .build/"$configuration"/PrintroomCore.build/*.swift.o -o scratch/viewport-qa/window-qa
-cp -R .build/"$configuration"/Printroom_PrintroomCore.bundle scratch/viewport-qa/
+source scripts/build-window-qa.sh
+printroom_build_window_qa "$configuration" "$PWD/scratch/viewport-qa" ViewportWindowQA \
+  scripts/ViewportWindowQA.swift "$PWD/scratch/viewport-qa/window-qa"
 scratch/viewport-qa/window-qa "$@"

@@ -44,6 +44,15 @@ public struct FrameRecord: Identifiable, Codable, Equatable, Sendable {
     self.rawProcessing = rawProcessing
   }
 
+  /// The same manual-crop edit is used by single-frame commit and selective sync.
+  /// Fit first so a failed constraint never clears an existing crop/review state.
+  public mutating func applyManualCrop(_ value: FrameCrop?, sourceWidth: Int, sourceHeight: Int) throws {
+    let fitted = try value?.constrained(sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+    crop = fitted
+    cropOrigin = .manual
+    cropNeedsReview = false
+  }
+
   private enum CodingKeys: String, CodingKey {
     case id, filename, adjustments, orientation, crop, cropOrigin, cropNeedsReview, isMissing, sourceSize, sourceModified, rawProcessing
   }
@@ -762,7 +771,9 @@ public struct ParameterSnapshot: Sendable {
   }
 
   /// Value semantics form one reversible transaction. The UI registers before/after with UndoManager.
-  public func applying(to project: RollProject, targets: Set<UUID>) throws -> RollProject {
+  public func applying(to project: RollProject, targets: Set<UUID>,
+    timing: Bool = true, contrast: Bool = true, lut: Bool = true
+  ) throws -> RollProject {
     guard formatVersion == Self.currentFormatVersion, algorithmVersion == projectAlgorithmVersion,
       pivotCV == contrastPivotCV
     else {
@@ -786,7 +797,9 @@ public struct ParameterSnapshot: Sendable {
     }
     var updated = project
     for index in updated.frames.indices where targets.contains(updated.frames[index].id) {
-      updated.frames[index].adjustments = adjustments
+      if timing { updated.frames[index].adjustments.timing = adjustments.timing }
+      if contrast { updated.frames[index].adjustments.contrast = adjustments.contrast }
+      if lut { updated.frames[index].adjustments.cineonLogLUT = adjustments.cineonLogLUT }
     }
     return updated
   }

@@ -16,17 +16,9 @@ fi
 mkdir -p "$qa_root"
 export CLANG_MODULE_CACHE_PATH="$qa_root/ModuleCache"
 if [[ "$qa_mode" != --run-only ]]; then
-app_sources=()
-for source_file in Sources/PrintroomApp/*.swift; do
-  [[ "$source_file" == "Sources/PrintroomApp/PrintroomApp.swift" ]] || app_sources+=("$source_file")
-done
-source scripts/native-raw-link.sh
-printroom_native_link_args "$release_root" "$qa_root"
-xcrun swiftc "${native_raw_flags[@]}" -parse-as-library -swift-version 6 -O -module-name ExportPanelQA \
-  -module-cache-path "$CLANG_MODULE_CACHE_PATH" -I "$release_root/Modules" \
-  "${app_sources[@]}" scripts/ExportPanelQA.swift \
-  "$release_root"/PrintroomCore.build/*.swift.o -o "$qa_root/export-panel-qa"
-cp -R "$release_root/Printroom_PrintroomCore.bundle" "$qa_root/"
+source scripts/build-window-qa.sh
+printroom_build_window_qa "release" "$PWD/scratch/export-panel-qa" ExportPanelQA \
+  scripts/ExportPanelQA.swift "$PWD/scratch/export-panel-qa/export-panel-qa"
 fi
 if [[ "$qa_mode" != --compile-only ]]; then
 "$qa_root/export-panel-qa" 2>&1 | tee "$qa_root/latest.log"

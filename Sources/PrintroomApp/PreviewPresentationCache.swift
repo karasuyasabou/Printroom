@@ -2,27 +2,8 @@ import CoreGraphics
 import Foundation
 import PrintroomCore
 
-/// Display-only snapshots. Their exact identity prevents a cached photo from
-/// being paired with another crop, stage, source revision, or set of controls.
-struct PreviewSourceStamp: Equatable {
-  let url: URL
-  let size: Int64
-  let modified: Date?
-  let inode: UInt64
-  let rawProcessing: RAWProcessingIdentity?
-
-  init(url: URL) throws {
-    let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-    rawProcessing = try SourceImageIO.processingIdentity(url: url)
-    self.url = url.standardizedFileURL
-    size = (attributes[.size] as? NSNumber)?.int64Value ?? -1
-    modified = attributes[.modificationDate] as? Date
-    inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
-  }
-}
-
 struct PreviewPresentationKey: Equatable {
-  let source: PreviewSourceStamp
+  let source: SourceStamp
   let frameID: UUID
   let calibration: FilmCalibration
   let adjustments: FrameAdjustments

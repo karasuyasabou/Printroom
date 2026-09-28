@@ -17,6 +17,7 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
   @MainActor static func main() {
     let app = NSApplication.shared
     app.setActivationPolicy(.regular)
+    app.finishLaunching()
     Task { @MainActor in
       do {
         try await ExportPanelRun().run()
@@ -87,7 +88,9 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
       contentRect: NSRect(x: 100, y: 100, width: 1120, height: 760),
       styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
     window.title = "Printroom · Export panel QA · synthetic input"
-    window.contentView = NSHostingView(rootView: EditorView(model: model))
+    // Host the production export sheet in an isolated window; a full EditorView
+    // also presents export-result sheets and would race the next test scenario.
+    window.contentView = NSView(frame: window.contentLayoutRect)
     window.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
     defer { window.orderOut(nil) }
@@ -109,15 +112,14 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
     for (name, entry) in entries {
       let before = model.exportSettings
       let sidecar = try Data(contentsOf: roll.appendingPathComponent(ProjectStore.filename))
-      let driver = PanelDriver(name: name, output: output, initial: before,
-        chosen: .init(profile: .sRGB, compression: .none), confirm: false)
-      try exercise(driver, entry: entry)
+      try await exercise(name: name, initial: before,
+        chosen: .init(profile: .sRGB, compression: .none), confirm: false, entry: entry)
       try require(model.exportSettings == before, "\(name): cancel changed in-memory preferences")
       try require(try Data(contentsOf: roll.appendingPathComponent(ProjectStore.filename)) == sidecar,
         "\(name): cancel wrote project")
       try require(!model.isExporting && model.exportSummary == nil, "\(name): cancel started an export")
       try require(try fm.contentsOfDirectory(atPath: exports.path).isEmpty, "\(name): cancel created output")
-      record("PASS \(name): accessory visible on presentation; 4 ICC × 2 compression choices; cancel preserves project bytes and creates no export")
+      record("PASS \(name): independent settings sheet visible; 5 ICC × 2 ZIP states; cancel preserves project bytes and creates no export")
     }
 
     model.select(frames[1].id)
@@ -130,11 +132,19 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
       ("07-roll-prophoto", .init(profile: .proPhoto, compression: .deflate), Set(frames.map(\.id)),
         { self.model.batchExportPanel(allFrames: true) }),
     ]
-    for (name, settings, expectedIDs, entry) in confirms {
+    for (name, choice, expectedIDs, entry) in confirms {
+      var settings = choice
+      settings.destinationPath = exports.path
+      settings.filenamePrefix = name
       model.showExportSummary = false
-      let driver = PanelDriver(name: name, output: output, initial: model.exportSettings,
-        chosen: settings, confirm: true)
-      try exercise(driver, entry: entry)
+      // Let SwiftUI dismiss the previous export summary before attaching a new sheet.
+      try await Task.sleep(for: .milliseconds(400))
+      try await wait("previous sheet dismissed", until: { window.attachedSheet == nil })
+      NSApp.activate(ignoringOtherApps: true)
+      window.makeKeyAndOrderFront(nil)
+      try await wait("host window key", until: { NSApp.keyWindow === window })
+      try await exercise(name: name, initial: model.exportSettings,
+        chosen: settings, confirm: true, entry: entry)
       try require(model.exportSettings == settings, "\(name): confirmed settings missing from model")
       let reopened = try ProjectStore.open(folder: roll)
       try require(reopened.exportSettings == settings, "\(name): confirmed settings not persisted")
@@ -158,20 +168,68 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
       try require(try Data(contentsOf: url) == original, "Synthetic source changed: \(url.lastPathComponent)")
     }
     try require(try fm.contentsOfDirectory(atPath: exports.path).filter { $0.hasSuffix(".tiff") }.count == 7,
-      "Expected 7 distinct exports, including automatic collision suffixes")
-    record("PASS: 3 cancelled real dialogs, 4 confirmed real dialogs, 7 TIFF readbacks, sources unchanged, collision suffixes preserved")
+      "Expected 7 distinct exports with original roll numbering")
+    record("PASS: 3 cancelled real dialogs, 4 confirmed real dialogs, 7 TIFF readbacks, sources unchanged, original roll numbering preserved")
   }
 
-  func exercise(_ driver: PanelDriver, entry: () -> Void) throws {
-    let timer = Timer(timeInterval: 0.15, target: driver, selector: #selector(PanelDriver.tick(_:)),
-      userInfo: nil, repeats: true)
-    RunLoop.main.add(timer, forMode: .common)
-    RunLoop.main.add(timer, forMode: .modalPanel)
-    defer { timer.invalidate() }
+  func exercise(name: String, initial: ProjectExportSettings, chosen: ProjectExportSettings,
+    confirm: Bool, entry: () -> Void
+  ) async throws {
+    func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+    func presentedOptions() -> ExportOptionsView? {
+      NSApp.windows.filter { $0.isVisible && $0.sheetParent != nil }.compactMap { window in
+        window.contentView.flatMap { descendants($0).compactMap { $0 as? ExportOptionsView }.first }
+      }.first
+    }
+    try require(NSApp.keyWindow != nil, "Export sheet requires a key host window")
     entry()
-    if let failure = driver.failure { throw failure }
-    try require(driver.completed, "\(driver.name): real modal dialog was not exercised")
-    for line in driver.evidence { record(line) }
+    try await wait("\(name) settings sheet", until: { presentedOptions() != nil })
+    guard let options = presentedOptions(), let panel = options.window, let content = panel.contentView else {
+      throw QAError("Settings sheet unavailable")
+    }
+    content.layoutSubtreeIfNeeded()
+    try require(options.settings == initial, "\(name): saved options not restored")
+    try require(options.filenamePrefix == (initial.filenamePrefix ?? "roll"), "Saved/default prefix")
+    for control in [options.profilePopUp, options.compressionCheckbox, options.applyCropCheckbox] as [NSView] {
+      try require(!control.isHiddenOrHasHiddenAncestor && !control.visibleRect.isEmpty,
+        "\(name): option control clipped/hidden")
+    }
+    try require(options.profilePopUp.itemTitles == OutputColorProfile.selectable.map(\.label), "Five ICC choices")
+    for index in OutputColorProfile.selectable.indices {
+      for compression in TIFFCompression.allCases {
+        options.profilePopUp.selectItem(at: index)
+        options.compressionCheckbox.state = compression == .deflate ? .on : .off
+        try require(options.settings.profile == OutputColorProfile.selectable[index]
+          && options.settings.compression == compression, "Option selection mapping")
+      }
+    }
+    options.applyCropCheckbox.performClick(nil)
+    try require(options.settings.applyCrop != initial.applyCrop, "Crop checkbox mapping")
+    options.applyCropCheckbox.state = chosen.applyCrop ? .on : .off
+    options.profilePopUp.selectItem(at: OutputColorProfile.selectable.firstIndex(of: chosen.profile)!)
+    options.compressionCheckbox.state = chosen.compression == .deflate ? .on : .off
+    // Set a disposable destination directly; folder chooser interaction is separate QA.
+    options.destinationURL = output.appendingPathComponent("roll/Printroom Exports")
+    options.prefixField.stringValue = name
+    options.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: options.prefixField))
+    options.refreshValidity()
+    if confirm { try require(options.settings == chosen, "\(name): draft settings mismatch") }
+    if let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
+      content.cacheDisplay(in: content.bounds, to: bitmap)
+      guard let data = bitmap.representation(using: .png, properties: [:]) else { throw QAError("PNG capture failed") }
+      try data.write(to: output.appendingPathComponent(name + ".png"))
+    } else { throw QAError("Window capture unavailable") }
+    let title = confirm ? "导出" : "取消"
+    guard let button = descendants(content).compactMap({ $0 as? NSButton }).first(where: { $0.title == title }) else {
+      throw QAError("Missing sheet button: \(title)")
+    }
+    try require(button.isEnabled, "Sheet button disabled")
+    button.performClick(nil)
+    try await wait("\(name) dismiss", until: { panel.sheetParent == nil })
+    if confirm {
+      try await wait("\(name) settings commit", until: { self.model.exportSettings == chosen })
+    }
+    record("DIALOG \(name): actual settings sheet and \(title) action; destination assigned to synthetic fixture")
   }
 
   func wait(_ message: String, until ready: () -> Bool) async throws {
@@ -208,126 +266,5 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
     try require(image.width == 24 && image.height == 16 && image.bitsPerComponent == 16, "ImageIO dimensions/depth")
     let decoded = try TIFFCodec.read(url: url)
     try require(decoded.samples.count == 24 * 16 * 3, "TIFF sample count")
-  }
-}
-
-@MainActor private final class PanelDriver: NSObject {
-  let name: String
-  let output: URL
-  let initial: ProjectExportSettings
-  let chosen: ProjectExportSettings
-  let confirm: Bool
-  let started = Date()
-  var appeared: Date?
-  var phase = 0
-  var completed = false
-  var failure: Error?
-  var evidence: [String] = []
-
-  init(name: String, output: URL, initial: ProjectExportSettings, chosen: ProjectExportSettings, confirm: Bool) {
-    self.name = name
-    self.output = output
-    self.initial = initial
-    self.chosen = chosen
-    self.confirm = confirm
-  }
-
-  @objc func tick(_ timer: Timer) {
-    guard failure == nil else { return }
-    let panel = NSApp.modalWindow as? NSSavePanel
-      ?? NSApp.windows.compactMap { $0 as? NSSavePanel }.first(where: { $0.isVisible })
-    do {
-      try require(Date().timeIntervalSince(started) < 20, "\(name): panel timed out (phase \(phase))")
-      guard !completed else { return }
-      guard let panel, panel.isVisible, let options = panel.accessoryView as? ExportOptionsView else { return }
-      if appeared == nil { appeared = Date() }
-      guard Date().timeIntervalSince(appeared!) > 0.8 else { return }
-      if phase == 0 {
-        if let open = panel as? NSOpenPanel {
-          try require(open.isAccessoryViewDisclosed, "\(name): accessory collapsed on presentation")
-        }
-        try require(options.window != nil && !options.isHiddenOrHasHiddenAncestor && !options.visibleRect.isEmpty,
-          "\(name): accessory not visibly hosted")
-        for control in [options.profilePopUp, options.compressionPopUp] {
-          try require(!control.isHiddenOrHasHiddenAncestor && !control.visibleRect.isEmpty,
-            "\(name): option control clipped/hidden")
-        }
-        var defaults = initial
-        defaults.compression = .deflate
-        try require(options.settings == defaults, "\(name): initial ICC / default ZIP not loaded")
-        try require(options.filenamePrefix == "roll", "Default prefix uses roll folder")
-        options.prefixField.stringValue = name
-        try require(options.profilePopUp.itemTitles == OutputColorProfile.selectable.map(\.label), "Five ICC choices")
-        try require(options.compressionPopUp.itemTitles == ["无压缩", "ZIP"], "Two compression choices")
-        try capture(panel, suffix: "initial")
-        for profileIndex in OutputColorProfile.selectable.indices {
-          for compressionIndex in TIFFCompression.allCases.indices {
-            options.profilePopUp.selectItem(at: profileIndex)
-            options.compressionPopUp.selectItem(at: compressionIndex)
-            try require(options.settings.profile == OutputColorProfile.selectable[profileIndex]
-              && options.settings.compression == TIFFCompression.allCases[compressionIndex], "Option selection mapping")
-          }
-        }
-        options.profilePopUp.selectItem(at: OutputColorProfile.selectable.firstIndex(of: chosen.profile)!)
-        options.compressionPopUp.selectItem(at: TIFFCompression.allCases.firstIndex(of: chosen.compression)!)
-        try require(options.settings == chosen, "\(name): draft settings mismatch")
-        if confirm && !(panel is NSOpenPanel) {
-          // The presented save panel's filename field lives in the system service.
-          // Send real key events to its initial filename focus instead of changing
-          // configuration properties after runModal() has begun.
-          postKey("a", code: 0, modifiers: .command, to: panel)
-          postKey(name + ".tiff", code: 0, to: panel)
-        }
-        phase = 1
-        appeared = Date()
-      } else {
-        try capture(panel, suffix: "draft")
-        evidence.append("DIALOG \(name): \(type(of: panel)), window=\(panel.windowNumber), accessory=\(options.frame), ICC=\(options.profilePopUp.title), compression=\(options.compressionPopUp.title)")
-        completed = true
-        if confirm {
-          // Public ok(nil) does not reliably commit the remote macOS save panel;
-          // Return follows the same event route as its default Export button.
-          postKey("\r", code: 36, to: panel)
-        } else { panel.cancel(nil) }
-      }
-    } catch {
-      failure = error
-      timer.invalidate()
-      let message = "FAIL \(name): \(error)"
-      print(message)
-      fflush(stdout)
-      try? (evidence.joined(separator: "\n") + "\n" + message + "\n").write(
-        to: output.appendingPathComponent(name + "-failure.txt"), atomically: true, encoding: .utf8)
-      // A failed remote panel can enter a second alert loop. Do not leave an
-      // automated QA process/window waiting indefinitely for manual dismissal.
-      exit(1)
-    }
-  }
-
-  func postKey(_ characters: String, code: UInt16, modifiers: NSEvent.ModifierFlags = [], to panel: NSSavePanel) {
-    for type in [NSEvent.EventType.keyDown, .keyUp] {
-      if let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: modifiers,
-        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
-        context: nil, characters: characters, charactersIgnoringModifiers: characters,
-        isARepeat: false, keyCode: code)
-      { NSApp.postEvent(event, atStart: false) }
-    }
-  }
-
-  func capture(_ panel: NSSavePanel, suffix: String) throws {
-    // Never capture a display/desktop or another application's window.
-    let windowID = CGWindowID(panel.windowNumber)
-    guard let info = CGWindowListCopyWindowInfo(.optionIncludingWindow, windowID) as? [[String: Any]],
-      let own = info.first,
-      own[kCGWindowOwnerPID as String] as? Int == Int(ProcessInfo.processInfo.processIdentifier)
-    else { throw QAError("\(name): refused screenshot of a window not owned by this QA application") }
-    let url = output.appendingPathComponent("\(name)-\(suffix).png")
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-    process.arguments = ["-x", "-o", "-l", String(windowID), url.path]
-    try process.run()
-    process.waitUntilExit()
-    try require(process.terminationStatus == 0, "\(name): window screenshot failed")
-    evidence.append("SCREENSHOT \(url.lastPathComponent)")
   }
 }

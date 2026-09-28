@@ -70,7 +70,6 @@ public final class RAWSourceService: @unchecked Sendable {
   public static let shared = RAWSourceService()
   public static let strategyVersion = "adobe-linear-camera-rgb-v1"
   public static let proxySamplingVersion = "nearest-original-1600-v1"
-  public static let editingSamplingVersion = "proxy-region-nearest-v1"
   public static let preparationConcurrency = 4
   public static let defaultCacheLimit: Int64 = 8 * 1024 * 1024 * 1024
   private let root: URL
@@ -168,10 +167,8 @@ public final class RAWSourceService: @unchecked Sendable {
     var sourceSHA256: String
     var width: Int
     var height: Int
-    var dngSHA256: String?
     var proxySHA256: String
     var thumbnailSHA256: String
-    var fullSHA256: String?
   }
   private struct Entry {
     var directory: URL
@@ -249,7 +246,7 @@ public final class RAWSourceService: @unchecked Sendable {
     let thumbnail = temporary.appendingPathComponent("thumbnail.tiff")
     try writeProxy(image, to: thumbnail, maxDimension: 240, cancelled: cancelled)
     guard before == (try FileRevision(url)) else { throw Self.invalid("转换期间原始 RAW 已改变，请重试。") }
-    let manifest = Manifest(identity: identity, sourceSHA256: sourceHash, width: size.0, height: size.1, dngSHA256: nil,
+    let manifest = Manifest(identity: identity, sourceSHA256: sourceHash, width: size.0, height: size.1,
       proxySHA256: try digest(proxy, cancelled: cancelled),
       thumbnailSHA256: try digest(thumbnail, cancelled: cancelled))
     try JSONEncoder().encode(manifest).write(to: temporary.appendingPathComponent("manifest.json"), options: .atomic)
@@ -501,7 +498,9 @@ public final class RAWSourceService: @unchecked Sendable {
           if (try? FileRevision(file)) != nil { try? fm.removeItem(at: file) }
         }
       }
-      guard let children = try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.fileSizeKey]) else { continue }
+      // ManagedDiskCache alone collects sizes for the shared production budget.
+      guard !usesManagedPolicy,
+        let children = try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.fileSizeKey]) else { continue }
       let bytes = children.reduce(Int64(0)) { $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
       let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
       entries.append((url, date, bytes))

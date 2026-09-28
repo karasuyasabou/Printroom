@@ -43,7 +43,7 @@ struct MatrixEditingTests {
     try await wait { model.cmosMatrix == cmos }
     let cmosCalibration = try #require(model.project?.calibration)
     #expect(cmosCalibration.gainRGB != original.gainRGB)
-    model.setMatrix(.ledLightSource)
+    model.setMatrixPreset(.ledLightSource, kind: .density)
     #expect(model.project?.calibration.gainRGB == cmosCalibration.gainRGB)
     #expect(model.project?.calibration.filmBaseOffsetCV != original.filmBaseOffsetCV)
     #expect(model.project?.calibration.sampledDensityMatrix == .ledLightSource)
@@ -88,7 +88,7 @@ struct MatrixEditingTests {
     let original = try #require(model.project?.calibration)
     let edits = model.project?.frames[0].adjustments
     model.setMatrixPreset(.sonyA7CII, kind: .cmos)
-    model.setMatrix(.ledLightSource)
+    model.setMatrixPreset(.ledLightSource, kind: .density)
     try await wait { model.cmosMatrix == .sonyA7CII && model.matrix == .ledLightSource }
     #expect(model.project?.frames[0].adjustments == edits)
     let aligned = try #require(model.project?.calibration)
@@ -115,7 +115,7 @@ struct MatrixEditingTests {
     #expect(model.undoRevision == undoCount)
 
     try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1)], ofItemAtPath: url.path)
-    model.setMatrix(.ledLightSource)
+    model.setMatrixPreset(.ledLightSource, kind: .density)
     #expect(model.errorMessage != nil)
     #expect(model.project?.calibration == original)
     #expect(model.undoRevision == undoCount)
@@ -136,7 +136,7 @@ struct MatrixEditingTests {
     try first.saveMatrix(original,kind: .density,apply: true)
     let second = EditorModel(matrixStore: store)
     second.project = RollProject()
-    second.setMatrix(original)
+    second.setMatrixPreset(original, kind: .density)
     let edited = try MatrixPreset(id: original.id,name: "Edited",coefficients: RGBMatrix([1.1,0,0, 0,1,0, 0,0,1]))
     try second.saveMatrix(edited,kind: .density,apply: false)
     #expect(first.matrix == original)
@@ -144,7 +144,7 @@ struct MatrixEditingTests {
     #expect(second.isMatrixSnapshot(original,kind: .density))
     #expect(second.matrixOptions(.density).contains(original))
     #expect(second.matrixOptions(.density).contains(edited))
-    second.setMatrix(edited)
+    second.setMatrixPreset(edited, kind: .density)
     try second.deleteMatrix(edited)
     #expect(second.matrix == edited)
     #expect(try store.load().isEmpty)

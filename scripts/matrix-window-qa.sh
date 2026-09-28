@@ -7,14 +7,7 @@ if [[ "${1:-}" != "--skip-build" ]]; then
   swift build -c release --disable-sandbox
 fi
 mkdir -p scratch/matrix-ui-qa
-source scripts/native-raw-link.sh
-printroom_native_link_args "$PWD/.build/release" "$PWD/scratch/matrix-ui-qa"
-app_sources=()
-for source_file in Sources/PrintroomApp/*.swift; do
-  [[ "$source_file" == "Sources/PrintroomApp/PrintroomApp.swift" ]] || app_sources+=("$source_file")
-done
-xcrun swiftc -O -parse-as-library -module-name MatrixWindowQA -I .build/release/Modules \
-  "${native_raw_flags[@]}" "${app_sources[@]}" scripts/MatrixWindowQA.swift \
-  .build/release/PrintroomCore.build/*.swift.o -o scratch/matrix-ui-qa/window-qa
-cp -R .build/release/Printroom_PrintroomCore.bundle scratch/matrix-ui-qa/
+source scripts/build-window-qa.sh
+printroom_build_window_qa "release" "$PWD/scratch/matrix-ui-qa" MatrixWindowQA \
+  scripts/MatrixWindowQA.swift "$PWD/scratch/matrix-ui-qa/window-qa"
 scratch/matrix-ui-qa/window-qa

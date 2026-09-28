@@ -18,8 +18,7 @@ struct EditorIntegrationTests {
       "PrintroomFullPipeline-\(UUID().uuidString).tiff")
     defer { try? FileManager.default.removeItem(at: destination) }
     let assets = try AppAssets()
-    let service = ImageService()
-    let raw = try await service.load(source)
+    let raw = try SourceImageIO.read(url: source)
     let calibration = try Pipeline.calibrate(
       image: raw, rect: PixelRect(x: 359, y: 604, width: 79, height: 494), matrix: .ledLightSource,
       sourceFrameID: nil)
@@ -27,21 +26,23 @@ struct EditorIntegrationTests {
       timing: .init(master: 30, red: 5, green: -3, blue: 7),
       contrast: .init(master: 1.05, red: 0.95, green: 1.02, blue: 1.1))
     let started = ContinuousClock.now
-    try await service.export(
-      source: source, destination: destination, calibration: calibration, adjustments: adjustments,
-      assets: assets
-    ) { _ in }
+    let request = try ExportRequest(source: source, destination: destination,
+      calibration: calibration, adjustments: adjustments)
+    let summary = try await ExportEngine().run(request, lut: assets.lut, p3Profile: assets.profile)
+    #expect(summary.completedCount == 1 && summary.failedCount == 0)
     let elapsed = started.duration(to: .now)
     let result = try TIFFCodec.read(url: destination)
     #expect(result.width == 7008 && result.height == 4672)
-    #expect(result.embeddedProfileName == "P3 D65 Gamma 2.6")
+    #expect(result.embeddedProfileName == "Display P3")
+    let converter = try OutputColorConverter(p3Profile: assets.profile, output: .displayP3)
     var maxError: Float = 0
     for i in stride(from: 0, to: raw.width * raw.height, by: 32003) {
       let reference = try Pipeline.process(
         raw.pixel(x: i % raw.width, y: i / raw.width), calibration: calibration,
         adjustments: adjustments, lut: assets.lut)
+      let converted = try converter.convert(PixelBuffer(width: 1, height: 1, pixels: [SIMD4(reference, 1)]))
       for c in 0..<3 {
-        let difference = abs(Float(result.samples[i * 3 + c]) / 65535 - reference[c])
+        let difference = abs(Float(result.samples[i * 3 + c]) / 65535 - converted.pixels[0][c])
         maxError = max(maxError, difference)
         #expect(difference <= 2e-4 + 0.5 / 65535)
       }
@@ -49,7 +50,7 @@ struct EditorIntegrationTests {
     let imageSource = try unwrap(CGImageSourceCreateWithURL(destination as CFURL, nil))
     let image = try unwrap(CGImageSourceCreateImageAtIndex(imageSource, 0, nil))
     #expect(image.bitsPerComponent == 16)
-    #expect(image.colorSpace?.copyICCData() as Data? == assets.profile)
+    #expect(image.colorSpace?.copyICCData() as Data? == converter.outputProfile)
     print(
       "Full reference pipeline export: 7008×4672, \(elapsed), sampled CPU comparison max \(maxError), ICC bytes exact"
     )
@@ -97,13 +98,13 @@ struct EditorIntegrationTests {
     try TIFFCodec.write(url: url, width: 4, height: 4, profile: assets.profile) { r in
       Array(repeating: UInt16(12345), count: r.count * 12)
     }
-    #expect(try await service.load(url).samples[0] == 12345)
+    #expect(try await service.preview(url).0.pixels[0].x == Float(12345) / 65535)
     try FileManager.default.removeItem(at: url)
     try TIFFCodec.write(url: url, width: 5, height: 4, profile: assets.profile) { r in
       Array(repeating: UInt16(54321), count: r.count * 15)
     }
-    let updated = try await service.load(url)
-    #expect(updated.width == 5 && updated.samples[0] == 54321)
+    let updated = try await service.preview(url).0
+    #expect(updated.width == 5 && updated.pixels[0].x == Float(54321) / 65535)
   }
   @Test func testCopyApplyUndoRedoAndReopenKeepDistinctFrameValues() async throws {
     let model = EditorModel()
@@ -279,9 +280,8 @@ struct EditorIntegrationTests {
     // This is offscreen color-conversion coverage. Real-window regression evidence is
     // recorded separately; an offscreen context alone did not reveal the Float32 defect.
   }
-  @Test func testServiceExportsActualPipelineAndICC() async throws {
+  @Test func testExportEngineExportsActualPipelineAndICC() async throws {
     let assets = try AppAssets()
-    let service = ImageService()
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent(
       "PrintroomExport-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -299,21 +299,17 @@ struct EditorIntegrationTests {
     let adjustments = FrameAdjustments(
       timing: .init(master: 15, red: -7, green: 3, blue: 9),
       contrast: .init(master: 0.9, red: 1.1, green: 0.95, blue: 1.2))
-    try await service.export(
-      source: source, destination: dest, calibration: calibration, adjustments: adjustments,
-      assets: assets
-    ) { _ in }
+    let request = try ExportRequest(source: source, destination: dest,
+      calibration: calibration, adjustments: adjustments)
+    let summary = try await ExportEngine().run(request, lut: assets.lut, p3Profile: assets.profile)
+    #expect(summary.completedCount == 1 && summary.failedCount == 0)
     let decoded = try TIFFCodec.read(url: dest)
-    #expect((decoded.embeddedProfileName) == ("P3 D65 Gamma 2.6"))
+    #expect((decoded.embeddedProfileName) == ("Display P3"))
     let gpu = try assets.gpu.render(
       original.preview(maxDimension: 32), calibration: calibration, adjustments: adjustments,
       lut: assets.lut)
-    for i in gpu.pixels.indices {
-      for c in 0..<3 {
-        let expected = UInt16(floor(min(1, max(0, gpu.pixels[i][c])) * 65535 + 0.5))
-        #expect((decoded.samples[i * 3 + c]) == (expected))
-      }
-    }
+    let converter = try OutputColorConverter(p3Profile: assets.profile, output: .displayP3)
+    #expect(decoded.samples == (try converter.quantized(gpu)))
     #expect((try TIFFCodec.read(url: source).samples) == (samples))
   }
 }

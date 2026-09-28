@@ -33,9 +33,9 @@ struct RAWImageServiceTests {
     let sampled = try await service.sample(source, rect: roi, matrix: .identity, frameID: frameID)
     let expectedCalibration = try Pipeline.calibrate(image: referenceROI,
       rect: PixelRect(x: 0, y: 0, width: 11, height: 11), matrix: .identity, sourceFrameID: frameID)
-    #expect(sampled.0.gainRGB == expectedCalibration.gainRGB)
-    #expect(sampled.0.filmBaseOffsetCV == expectedCalibration.filmBaseOffsetCV)
-    #expect(sampled.0.sourceWidth == 7008 && sampled.0.sourceHeight == 4672)
+    #expect(sampled.gainRGB == expectedCalibration.gainRGB)
+    #expect(sampled.filmBaseOffsetCV == expectedCalibration.filmBaseOffsetCV)
+    #expect(sampled.sourceWidth == 7008 && sampled.sourceHeight == 4672)
     for value in 1...8 {
       let orientation = try #require(FrameOrientation(rawValue: value))
       let geometry = try CropGeometry(crop: nil, sourceWidth: 7008, sourceHeight: 4672, orientation: orientation)

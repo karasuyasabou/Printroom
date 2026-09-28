@@ -238,12 +238,14 @@ struct CropEditingTests {
     model.select(frames[0].id)
     try await until("sync source loaded", { !model.isLoading && model.histogram != nil })
     model.selectAll()
-    #expect(model.canSyncCrop)
-    let before = try #require(model.project)
-    model.undoManager.removeAllActions()
     model.beginCrop()
     model.updateCropDraft(FrameCrop(aspect: .sevenSix, width: 0.7, angleDegrees: 2.3))
-    model.commitCrop(syncSelection: true)
+    model.commitCrop()
+    let before = try #require(model.project)
+    model.undoManager.removeAllActions()
+    model.beginSync()
+    model.syncCrop = true
+    #expect(model.syncCurrentSettings())
     let applied = try #require(model.project)
     #expect(applied.frames.map(\.orientation) == before.frames.map(\.orientation))
     #expect(applied.frames.map(\.adjustments) == before.frames.map(\.adjustments))
@@ -264,7 +266,9 @@ struct CropEditingTests {
       #expect(sourceCrop == crop)
     }
     // An identical explicit sync must not add an otherwise invisible undo entry.
-    model.syncCurrentCropToSelection()
+    model.beginSync()
+    model.syncCrop = true
+    #expect(model.syncCurrentSettings())
     model.undo()
     #expect(model.project?.frames == before.frames)
     #expect(!model.canUndo)
@@ -274,12 +278,17 @@ struct CropEditingTests {
     #expect(try ProjectStore.open(folder: folder).frames == applied.frames)
     model.beginCrop()
     model.resetCropDraft()
-    model.commitCrop(syncSelection: true)
+    model.commitCrop()
+    let beforeResetSync = try #require(model.project)
+    model.undoManager.removeAllActions()
+    model.beginSync()
+    model.syncCrop = true
+    #expect(model.syncCurrentSettings())
     #expect(model.project?.frames.allSatisfy { $0.crop == nil } == true)
     #expect(model.project?.frames.map(\.orientation) == before.frames.map(\.orientation))
     #expect(model.project?.frames.map(\.adjustments) == before.frames.map(\.adjustments))
     model.undo()
-    #expect(model.project?.frames == applied.frames)
+    #expect(model.project?.frames == beforeResetSync.frames)
     model.redo()
     #expect(model.project?.frames.allSatisfy { $0.crop == nil } == true)
     try await until("reset full-frame histogram", { model.histogram?.pixelCount == 120 * 80 })
@@ -349,25 +358,27 @@ struct CropEditingTests {
     model.open(folder)
     try await until("failure fixture loaded", { model.histogram != nil })
     model.selectAll()
-    let before = try #require(model.project)
     model.beginCrop()
     model.updateCropDraft(FrameCrop(aspect: .fourThree, width: 0.6, angleDegrees: -2.12))
-    let draft = try #require(model.cropDraft)
-    // The final target disappears after selection, so earlier valid targets must
-    // not be committed before the source validation for the whole group finishes.
+    model.commitCrop()
+    let before = try #require(model.project)
+    model.undoManager.removeAllActions()
+    // Validate every target before committing any of the batch.
     try FileManager.default.removeItem(at: folder.appendingPathComponent("C.tif"))
-    model.commitCrop(syncSelection: true)
+    model.beginSync(); model.syncCrop = true
+    #expect(!model.syncCurrentSettings())
     #expect(model.errorMessage != nil)
     #expect(model.project?.frames == before.frames)
-    #expect(model.cropDraft == draft && model.isCropping)
     #expect(!model.canUndo)
     model.errorMessage = nil
-    model.resetCropDraft()
-    model.commitCrop(syncSelection: true)
+    model.beginCrop(); model.resetCropDraft(); model.commitCrop()
+    let beforeReset = try #require(model.project)
+    model.undoManager.removeAllActions()
+    model.beginSync(); model.syncCrop = true
+    #expect(!model.syncCurrentSettings())
     #expect(model.errorMessage != nil)
-    #expect(model.project?.frames == before.frames)
+    #expect(model.project?.frames == beforeReset.frames)
     #expect(!model.canUndo)
-    model.cancelCrop()
     try await until("valid active frame still renders", { model.histogram != nil })
   }
 

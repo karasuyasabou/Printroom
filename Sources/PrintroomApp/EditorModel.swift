@@ -86,7 +86,6 @@ import UniformTypeIdentifiers
       render()
     }
   }
-  var isHistogramUpdating: Bool { isRendering && !isCropping }
   @Published var detailImage: CGImage?
   @Published var detailRect: PixelRect?
   @Published var isDetailLoading = false
@@ -194,7 +193,7 @@ import UniformTypeIdentifiers
         current.frames == old.frames else {
         throw PrintroomError.invalid("照片或参数已改变，请重新分析。")
       }
-      for stamp in result.sources where try AutoCropSourceStamp(stamp.url) != stamp {
+      for stamp in result.sources where try SourceStamp(url: stamp.url) != stamp {
         throw PrintroomError.invalid("源照片已改变，请重新分析。")
       }
       var next = current
@@ -212,8 +211,6 @@ import UniformTypeIdentifiers
         project = next; dirty = true
         render(); refreshThumbnails(affectedIDs: targets); scheduleSave(immediate: true)
       }
-      let missing = next.frames.filter(\.isMissing).count
-      status = missing == 0 ? "已应用整卷自动调色" : "已应用整卷自动调色，跳过 \(missing) 张缺失照片"
       cancelRollTiming()
     } catch { rollTimingError = error.localizedDescription; rollTimingResult = nil }
   }
@@ -236,7 +233,6 @@ import UniformTypeIdentifiers
     project != nil && !isAutoCropping && !isCropping && !isLoading && !isExporting
       && project?.frames.contains(where: { !$0.isMissing }) == true
   }
-  @Published var status = "打开 TIFF 或 ARW，开始整卷调色"
   @Published var errorMessage: String?
   @Published var isLoading = false
   @Published var isRendering = false
@@ -251,8 +247,6 @@ import UniformTypeIdentifiers
   @Published var saveFailure = false
   @Published var sourceWidth = 0
   @Published var sourceHeight = 0
-  @Published var embeddedProfile = ""
-  @Published var baseStatistics = ""
   @Published private(set) var neutralPicking = false
   @Published private(set) var isNeutralSampling = false
   @Published var undoRevision = 0
@@ -296,7 +290,7 @@ import UniformTypeIdentifiers
     PixelBuffer, FilmCalibration, FrameAdjustments, CubeLUT, Data
   ) throws -> FrameAdjustments
   private let neutralSolver: NeutralSolver
-  private var previewSourceStamp: PreviewSourceStamp?
+  private var previewSourceStamp: SourceStamp?
   private var presentationCache = PreviewPresentationCache()
   private var thumbnailPresentationKeys: [UUID: PreviewPresentationKey] = [:]
   private var loadTask: Task<Void, Never>?
@@ -306,10 +300,9 @@ import UniformTypeIdentifiers
   private var renderTask: Task<Void, Never>?
   private var thumbnailTask: Task<Void, Never>?
   private var exportTask: Task<Void, Never>?
-  private var saveTask: Task<Void, Never>?
+  private let persistence = ProjectPersistence()
   private var loadRevision = 0
   private var renderRevision = 0
-  private var expectedModification: Date?
   private var gestureBefore: RollProject?
   private var thumbnailGeneration = UUID()
   var activeFrame: FrameRecord? { project?.frames.first { $0.id == selection.activeFrameID } }
@@ -335,7 +328,6 @@ import UniformTypeIdentifiers
   /// Only controls and pointer gestures use the direction-adjusted copy. The
   /// actual draft, project value and batch snapshot stay in original coordinates.
   var displayedCropDraft: FrameCrop? { cropDraftGeometry?.displayCrop }
-  var canSyncCrop: Bool { activeFrame != nil && selection.selectedFrameIDs.count > 1 }
   var exportSettings: ProjectExportSettings { project?.exportSettings ?? .init() }
   var matrix: PrintDensityMatrix { project?.calibration.matrix ?? .identity }
 
@@ -422,15 +414,14 @@ import UniformTypeIdentifiers
     thumbnailPresentationKeys = [:]
     presentationCache.clear()
     pendingThumbnailIDs = []
-    baseStatistics = ""
     loadTask?.cancel()
     renderTask?.cancel()
     thumbnailTask?.cancel()
-    saveTask?.cancel()
+    persistence.cancel()
     folder = targetFolder
     project = roll
     recentRolls?.record(folder: targetFolder, projectID: roll.id, replacing: replacingRecent, name: roll.name)
-    expectedModification = roll.loadedModificationDate
+    persistence.expectedModification = roll.loadedModificationDate
     saveFailure = false
     selection = SelectionState()
     let available = roll.frames.filter { !$0.isMissing }
@@ -445,7 +436,6 @@ import UniformTypeIdentifiers
     undoRevision += 1
     dirty = true
     sampling = false
-    status = "\(targetFolder.lastPathComponent) · \(available.count) 张照片"
     _ = flushSave()
     loadActive()
     refreshThumbnails()
@@ -474,9 +464,8 @@ import UniformTypeIdentifiers
     thumbnailPresentationKeys = [:]
     presentationCache.clear()
     preparedGeometryMetadata = [:]
-    expectedModification = nil
+    persistence.expectedModification = nil
     gestureBefore = nil
-    baseStatistics = ""
     showSync = false
     matrixManager = nil
     showMatrixMenu = false
@@ -485,7 +474,6 @@ import UniformTypeIdentifiers
     undoManager.removeAllActions()
     undoRevision += 1
     errorMessage = nil
-    status = "打开 TIFF 或 ARW，开始整卷调色"
   }
 
   func select(_ id: UUID, command: Bool = false, shift: Bool = false) {
@@ -618,7 +606,6 @@ import UniformTypeIdentifiers
     cancelSampling()
     cancelNeutralPicker()
     isRendering = false
-    embeddedProfile = ""
     loadTask?.cancel()
     cancelPreviewWorker()
     previewContext = nil
@@ -640,14 +627,13 @@ import UniformTypeIdentifiers
     }
     isLoading = true
     let url = folder.appendingPathComponent(frame.filename)
-    if SourceImageIO.isRAW(url) { status = "正在准备 RAW 预览：\(frame.filename)" }
-    previewSourceStamp = try? PreviewSourceStamp(url: url)
+    previewSourceStamp = try? SourceStamp(url: url)
     showCachedPreview()
     loadTask = Task {
       do {
         let result = try await imageService.preview(url)
         guard !Task.isCancelled, revision == loadRevision else { return }
-        let stamp = try PreviewSourceStamp(url: url)
+        let stamp = try SourceStamp(url: url)
         guard stamp == previewSourceStamp else {
           throw PrintroomError.invalid("读取期间源图像已改变，请重新打开照片")
         }
@@ -655,7 +641,6 @@ import UniformTypeIdentifiers
         previewInputIdentity = UUID()
         sourceWidth = result.1
         sourceHeight = result.2
-        embeddedProfile = result.3
         if isCropping {
           let initial = frame.crop ?? FrameCrop(aspect: .free, freeRatio: Double(sourceWidth) / Double(sourceHeight))
           cropDraft = try initial.sourceCoordinates(sourceWidth: sourceWidth,
@@ -669,7 +654,6 @@ import UniformTypeIdentifiers
           project?.frames[index].rawProcessing = identity
           dirty = true
           scheduleSave()
-          status = "RAW 预览已就绪：\(frame.filename)"
         }
         isLoading = false
         render()
@@ -710,7 +694,7 @@ import UniformTypeIdentifiers
     }
   }
   private func publishThumbnail(_ image: CGImage, key: PreviewPresentationKey) {
-    guard (try? PreviewSourceStamp(url: key.source.url)) == key.source else { return }
+    guard (try? SourceStamp(url: key.source.url)) == key.source else { return }
     thumbnails[key.frameID] = image
     thumbnailPresentationKeys[key.frameID] = key
     if activeFrame?.id == key.frameID { showCachedPreview() }
@@ -857,11 +841,6 @@ import UniformTypeIdentifiers
     isAutoCropping = false
     autoCropProgressText = ""
   }
-  func autoCropTargetCount(preserveExisting: Bool) -> Int {
-    project?.frames.filter {
-      !$0.isMissing && (!preserveExisting || ($0.crop == nil && $0.cropOrigin == nil))
-    }.count ?? 0
-  }
   func startAutoCrop(preserveExisting: Bool = true, inwardPercent: Double = 0, aspectRatio: Double = 1.5) {
     guard canStartAutoCrop, let old = project, let folder else { return }
     guard inwardPercent.isFinite, (0...5).contains(inwardPercent) else {
@@ -908,7 +887,7 @@ import UniformTypeIdentifiers
             next.frames[index].cropOrigin == before.cropOrigin,
             next.frames[index].cropNeedsReview == before.cropNeedsReview,
             !next.frames[index].isMissing,
-            try AutoCropSourceStamp(result.source.url) == result.source else {
+            try SourceStamp(url: result.source.url) == result.source else {
             throw PrintroomError.invalid("照片或裁剪已改变，请重新运行自动裁剪。")
           }
           var crop = result.crop
@@ -1040,15 +1019,29 @@ import UniformTypeIdentifiers
     cropViewportToken += 1
     render()
   }
-  func commitCrop(syncSelection: Bool = false) {
-    guard isCropping, !isLoading, sourceWidth > 0, sourceHeight > 0, let id = activeFrame?.id else { return }
-    let targets = syncSelection ? selection.selectedFrameIDs : [id]
-    applyCrop(cropDraft, targets: targets)
-  }
-  func syncCurrentCropToSelection() {
-    guard canSyncCrop, let frame = activeFrame else { return }
-    if isCropping { commitCrop(syncSelection: true) }
-    else { applyCrop(frame.crop, targets: selection.selectedFrameIDs) }
+  func commitCrop() {
+    guard isCropping, !isLoading, sourceWidth > 0, sourceHeight > 0,
+      let old = project, let folder, let frame = activeFrame else { return }
+    let url = folder.appendingPathComponent(frame.filename)
+    if prepareGeometryIfNeeded([url], then: { self.commitCrop() }) { return }
+    do {
+      let metadata = try geometryMetadata(url)
+      let crop = try cropDraft?.sourceCoordinates(sourceWidth: sourceWidth,
+        sourceHeight: sourceHeight, orientation: orientation)
+      var next = old
+      guard let index = next.frames.firstIndex(where: { $0.id == frame.id }), !frame.isMissing else {
+        throw PrintroomError.invalid("裁剪照片不可用")
+      }
+      try next.frames[index].applyManualCrop(crop, sourceWidth: metadata.width, sourceHeight: metadata.height)
+      retainCropPreview()
+      let changed = next.frames != old.frames
+      if changed { registerUndo(old: old, name: "裁剪照片"); project = next; dirty = true }
+      isCropping = false
+      cropDraft = nil
+      cropViewportToken += 1
+      render()
+      if changed { refreshThumbnails(affectedIDs: [frame.id]); scheduleSave(immediate: true) }
+    } catch { errorMessage = error.localizedDescription }
   }
   // Prepared dimensions live only for the synchronous commit following this background job.
   var rawGeometryMetadataLoader: @Sendable (URL) throws -> TIFFMetadata = {
@@ -1095,7 +1088,6 @@ import UniformTypeIdentifiers
     let token = UUID()
     geometryPreparationToken = token
     isPreparingGeometry = true
-    status = "正在准备 RAW 原始尺寸…"
     let loader = rawGeometryMetadataLoader
     geometryPreparationTask = Task {
       defer {
@@ -1133,45 +1125,6 @@ import UniformTypeIdentifiers
       }
     }
     return true
-  }
-  private func applyCrop(_ crop: FrameCrop?, targets: Set<UUID>) {
-    guard let old = project, let folder, !targets.isEmpty else { return }
-    let urls = old.frames.filter { targets.contains($0.id) }.map { folder.appendingPathComponent($0.filename) }
-    if prepareGeometryIfNeeded(urls, then: { self.applyCrop(crop, targets: targets) }) { return }
-    do {
-      let sourceCrop = try crop?.sourceCoordinates(sourceWidth: sourceWidth,
-        sourceHeight: sourceHeight, orientation: orientation)
-      guard targets.isSubset(of: Set(old.frames.filter { !$0.isMissing }.map(\.id))) else {
-        throw PrintroomError.invalid("裁剪同步包含不可用照片")
-      }
-      var next = old
-      // Validate and fit every captured target before changing any frame. The
-      // saved normalized crop is a value snapshot, independent of later edits.
-      for index in next.frames.indices where targets.contains(next.frames[index].id) {
-        let frame = next.frames[index]
-        let metadata = try geometryMetadata(folder.appendingPathComponent(frame.filename))
-        next.frames[index].crop = try sourceCrop?.constrained(sourceWidth: metadata.width,
-          sourceHeight: metadata.height)
-        next.frames[index].cropOrigin = .manual
-        next.frames[index].cropNeedsReview = false
-      }
-      let changed = next.frames != old.frames
-      retainCropPreview()
-      if changed {
-        registerUndo(old: old, name: targets.count > 1 ? "同步裁剪到 \(targets.count) 张" : "裁剪照片")
-        project = next
-        dirty = true
-      }
-      isCropping = false
-      cropDraft = nil
-      cropViewportToken += 1
-      render()
-      if changed {
-        refreshThumbnails(affectedIDs: targets)
-        scheduleSave(immediate: true)
-      }
-      status = changed ? "已应用裁剪到 \(targets.count) 张" : "所选照片裁剪已相同"
-    } catch { errorMessage = error.localizedDescription }
   }
   func inspectNativeResolution() { if !isCropping { nativeZoomToken += 1 } }
   func invalidateDetail() {
@@ -1216,8 +1169,7 @@ import UniformTypeIdentifiers
       } catch {
         if !Task.isCancelled && revision == detailRevision {
           isDetailLoading = false
-          status = "原始像素区域读取失败：\(error.localizedDescription)"
-          errorMessage = status
+          errorMessage = "原始像素区域读取失败：\(error.localizedDescription)"
         }
       }
     }
@@ -1269,12 +1221,12 @@ import UniformTypeIdentifiers
       do {
         try Task.checkCancellation()
         guard contextIsCurrent() else { return }
-        guard try PreviewSourceStamp(url: url) == stamp else {
+        guard try SourceStamp(url: url) == stamp else {
           throw PrintroomError.invalid("源图像已改变，请重新打开照片后取样")
         }
         let samples = try await imageService.neutralSample(url, sourceX: sx, sourceY: sy)
         try Task.checkCancellation()
-        guard try PreviewSourceStamp(url: url) == stamp else {
+        guard try SourceStamp(url: url) == stamp else {
           throw PrintroomError.invalid("取样期间源图像已改变，请重新打开照片")
         }
         guard contextIsCurrent() else { return }
@@ -1293,7 +1245,7 @@ import UniformTypeIdentifiers
         }
         try Task.checkCancellation()
         guard contextIsCurrent() else { return }
-        guard try PreviewSourceStamp(url: url) == stamp else {
+        guard try SourceStamp(url: url) == stamp else {
           throw PrintroomError.invalid("标定期间源图像已改变，请重新打开照片")
         }
         // edit() is the same atomic frame transaction used by manual controls.
@@ -1377,14 +1329,12 @@ import UniformTypeIdentifiers
     if isCropping { cancelCrop(); return }
     undoManager.undo()
     undoRevision += 1
-    status = "已撤销操作"
   }
   func redo() {
     stopTimingKey()
     if isCropping { cancelCrop(); return }
     undoManager.redo()
     undoRevision += 1
-    status = "已重做操作"
   }
   func resetAdjustments() { edit { $0 = .init() } }
   @Published var showSync = false
@@ -1423,28 +1373,23 @@ import UniformTypeIdentifiers
         crop = try savedCrop.sourceCoordinates(sourceWidth: metadata.width,
           sourceHeight: metadata.height, orientation: source.orientation)
       }
-      if syncTiming || syncContrast || syncLUT {
-        _ = try ParameterSnapshot(frame: source).applying(to: old, targets: targets)
-      }
       var next = old
+      if syncTiming || syncContrast || syncLUT {
+        next = try ParameterSnapshot(frame: source).applying(to: old, targets: targets,
+          timing: syncTiming, contrast: syncContrast, lut: syncLUT)
+      }
       for index in next.frames.indices where targets.contains(next.frames[index].id) {
         let url = folder.appendingPathComponent(next.frames[index].filename)
         guard FileManager.default.fileExists(atPath: url.path) else {
           throw PrintroomError.invalid("目标文件已丢失：\(url.lastPathComponent)")
         }
-        if syncTiming { next.frames[index].adjustments.timing = source.adjustments.timing }
-        if syncContrast { next.frames[index].adjustments.contrast = source.adjustments.contrast }
-        if syncLUT { next.frames[index].adjustments.cineonLogLUT = source.adjustments.cineonLogLUT }
         if syncCrop {
           let metadata = try geometryMetadata(url)
-          next.frames[index].crop = try crop?.constrained(sourceWidth: metadata.width,
-            sourceHeight: metadata.height)
-          next.frames[index].cropOrigin = .manual
-          next.frames[index].cropNeedsReview = false
+          try next.frames[index].applyManualCrop(crop,
+            sourceWidth: metadata.width, sourceHeight: metadata.height)
         }
       }
       guard next.frames != old.frames else {
-        status = "所选照片的同步内容已相同"
         showSync = false
         return true
       }
@@ -1453,7 +1398,6 @@ import UniformTypeIdentifiers
       dirty = true
       refreshThumbnails(affectedIDs: targets)
       scheduleSave(immediate: true)
-      status = "已同步到其余 \(targets.count) 张"
       showSync = false
       return true
     } catch {
@@ -1465,7 +1409,6 @@ import UniformTypeIdentifiers
   func copyParameters() {
     guard let activeFrame else { return }
     snapshot = ParameterSnapshot(frame: activeFrame)
-    status = "已复制：\(activeFrame.filename)"
   }
   func applyParameters() {
     guard let snapshot, let project, !selection.selectedFrameIDs.isEmpty, let folder else { return }
@@ -1478,7 +1421,6 @@ import UniformTypeIdentifiers
       }
       let next = try snapshot.applying(to: project, targets: targets)
       guard next.frames != project.frames else {
-        status = "所选照片参数已相同"
         return
       }
       registerUndo(old: project, name: "应用到 \(targets.count) 张")
@@ -1487,7 +1429,6 @@ import UniformTypeIdentifiers
       render()
       refreshThumbnails(affectedIDs: targets)
       scheduleSave(immediate: true)
-      status = "已应用到 \(targets.count) 张"
     } catch { errorMessage = error.localizedDescription }
   }
   var cmosMatrix: MatrixPreset { project?.calibration.cmosMatrix ?? .identity }
@@ -1526,7 +1467,6 @@ import UniformTypeIdentifiers
     matrixLibrary = next
     // The current roll, other rolls and undo snapshots retain their coefficients.
   }
-  func setMatrix(_ matrix: PrintDensityMatrix) { setMatrixPreset(matrix, kind: .density) }
   func setMatrixPreset(_ preset: MatrixPreset, kind: MatrixKind) {
     guard let current = project, !preset.isBuiltIn || kind.builtIns.contains(preset) else { return }
     var target = pendingMatrixCalibration ?? current.calibration
@@ -1559,7 +1499,6 @@ import UniformTypeIdentifiers
       let requested = target
       let revision = sampleRevision
       pendingMatrixCalibration = requested
-      status = "正在按新矩阵重新对齐片基…"
       sampleTask = Task {
         do {
           let result = try await imageService.sample(sourceURL, rect: rect,
@@ -1568,22 +1507,20 @@ import UniformTypeIdentifiers
             let latest = self.project, latest.id == current.id,
             latest.calibration == current.calibration else { return }
           _ = try calibrationSource(latest)
-          guard result.0.sourceWidth == requested.sourceWidth,
-            result.0.sourceHeight == requested.sourceHeight else {
+          guard result.sourceWidth == requested.sourceWidth,
+            result.sourceHeight == requested.sourceHeight else {
             throw PrintroomError.invalid("片基原图尺寸已改变，请重新框选片基。")
           }
           pendingMatrixCalibration = nil
-          commitMatrixCalibration(result.0, name: "切换矩阵并对齐片基")
+          commitMatrixCalibration(result, name: "切换矩阵并对齐片基")
         } catch {
           guard !Task.isCancelled, revision == sampleRevision else { return }
           pendingMatrixCalibration = nil
           errorMessage = error.localizedDescription
-          status = "重新对齐失败，已保留原矩阵和片基校准"
         }
       }
     } catch {
       errorMessage = error.localizedDescription
-      status = "重新对齐失败，已保留原矩阵和片基校准"
     }
   }
 
@@ -1612,7 +1549,6 @@ import UniformTypeIdentifiers
     registerUndo(old: old, name: name)
     project = next
     dirty = true
-    status = calibration.isCalibrated ? "整卷片基已重新对齐至 95 CV" : "已切换矩阵"
     render()
     refreshThumbnails()
     scheduleSave(immediate: true)
@@ -1634,50 +1570,40 @@ import UniformTypeIdentifiers
     let cmos = project.calibration.cmosMatrix
     let rollID = project.id
     sampling = false
-    status = "正在采样原始像素…"
     sampleTask = Task {
       do {
         let result = try await imageService.sample(
           folder.appendingPathComponent(frame.filename), rect: rect, matrix: matrix, frameID: id, cmosMatrix: cmos)
         guard !Task.isCancelled, revision == sampleRevision, var next = self.project, next.id == rollID else { return }
         guard next.calibration.matrix == matrix, next.calibration.cmosMatrix == cmos else { return }
-        next.calibration = result.0
+        next.calibration = result
         next.calibrationNeedsReview = false
-        baseStatistics = String(
-          format: "%d 像素 · 零值 %.2f%% · 饱和 %.2f%%", result.1.pixelCount, result.1.zeroFraction * 100,
-          result.1.saturatedFraction * 100)
         if let old = self.project { registerUndo(old: old, name: "片基校准") }
         self.project = next
         dirty = true
-        status = "整卷片基已校准至 95 CV"
         render()
         refreshThumbnails()
         scheduleSave(immediate: true)
       } catch {
         if !Task.isCancelled && revision == sampleRevision {
           errorMessage = error.localizedDescription
-          status = "片基采样未完成"
         }
       }
     }
   }
   func scheduleSave(immediate: Bool = false) {
-    saveTask?.cancel()
+    persistence.cancel()
     if immediate {
       _ = flushSave()
       return
     }
-    saveTask = Task {
-      try? await Task.sleep(for: .seconds(2))
-      if !Task.isCancelled { _ = flushSave() }
-    }
+    persistence.schedule { [weak self] in _ = self?.flushSave() }
   }
   @discardableResult func flushSave() -> Bool {
-    saveTask?.cancel()
+    persistence.cancel()
     guard dirty, let folder, let project else { return true }
     do {
-      expectedModification = try ProjectStore.save(
-        project, folder: folder, expectedModification: expectedModification)
+      try persistence.save(project, folder: folder)
       dirty = false
       saveFailure = false
       return true
@@ -1708,7 +1634,6 @@ import UniformTypeIdentifiers
       let encoder = JSONEncoder()
       encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
       try encoder.encode(project).write(to: url, options: .atomic)
-      status = "设置副本已保存：\(url.lastPathComponent)"
       errorMessage = nil
     } catch { errorMessage = error.localizedDescription }
   }
@@ -1768,13 +1693,12 @@ import UniformTypeIdentifiers
     cropViewportToken += 1
     registerUndo(old: previous, name: "恢复设置副本")
     project = next
-    expectedModification = saved
+    persistence.expectedModification = saved
     dirty = false
     saveFailure = false
     errorMessage = nil
     render()
     refreshThumbnails(changedFrom: previous, to: next)
-    status = "已恢复本卷设置副本"
   }
   var rollName: String { project?.name ?? folder?.lastPathComponent ?? "Printroom" }
 
@@ -1860,7 +1784,6 @@ import UniformTypeIdentifiers
       exportDetail = "准备导出 \(targetIDs.count) 张"
       exportSummary = nil
       showExportSummary = false
-      status = "导出已开始；可以继续调色与切图"
       exportTask = Task {
         do {
           let summary = try await exportEngine.run(request, lut: assets.lut, p3Profile: assets.profile, fujifilmLUT: assets.fujifilmLUT,
@@ -1889,46 +1812,15 @@ import UniformTypeIdentifiers
             }
           }
           exportSummary = summary
-          status = "\(summary.wasCancelled ? "导出已取消" : "导出完成") · 成功 \(summary.completedCount) · 失败 \(summary.failedCount)"
           showExportSummary = true
         } catch {
           errorMessage = error.localizedDescription
-          status = "导出未完成"
         }
         isExporting = false
       }
     } catch { errorMessage = error.localizedDescription }
   }
   func cancelExport() { exportTask?.cancel(); exportDetail = "正在取消；保留已完成文件…" }
-  func clearRAWCache() {
-    guard !isExporting else { return }
-    cancelImport()
-    status = "正在清理 RAW 中间文件…"
-    Task {
-      do {
-        try await Task.detached(priority: .utility) { try RAWSourceService.shared.clearCache() }.value
-        status = "RAW 中间文件已清理；再次需要时自动重建"
-      } catch { errorMessage = error.localizedDescription }
-    }
-  }
-  func clearThumbnailCache() {
-    guard let folder, let project else { return }
-    thumbnailTask?.cancel()
-    thumbnailGeneration = UUID()
-    thumbnails = [:]
-    thumbnailPresentationKeys = [:]
-    presentationCache.clear()
-    let cache = DiskThumbnailCache.forRoll(folder: folder, projectID: project.id)
-    Task {
-      do {
-        await thumbnailService.clear()
-        try? await cache.migrateLegacy(from: folder)
-        let result = try await cache.clear()
-        status = "已清理 \(result.removedFiles) 个缩略图缓存；重新生成当前卷"
-        refreshThumbnails()
-      } catch { errorMessage = error.localizedDescription }
-    }
-  }
   private func refreshThumbnails(changedFrom old: RollProject, to next: RollProject) {
     guard old.calibration == next.calibration else { refreshThumbnails(); return }
     let previous = Dictionary(uniqueKeysWithValues: old.frames.map { ($0.id, $0) })
@@ -1958,19 +1850,18 @@ import UniformTypeIdentifiers
         guard !Task.isCancelled, generation == thumbnailGeneration else { return }
         do {
           let sourceURL = folder.appendingPathComponent(frame.filename)
-          let stamp = try PreviewSourceStamp(url: sourceURL)
+          let stamp = try SourceStamp(url: sourceURL)
           let presentationKey = PreviewPresentationKey(source: stamp, frameID: frame.id,
             calibration: project.calibration, adjustments: frame.adjustments,
             orientation: frame.orientation, crop: frame.crop, stage: .final)
-          let attributes = try FileManager.default.attributesOfItem(atPath: sourceURL.path)
           let encoder = JSONEncoder()
           encoder.outputFormatting = .sortedKeys
           let keyData = try encoder.encode(
             ThumbnailKey(
               filename: frame.filename,
-              modified: (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0,
-              size: (attributes[.size] as? NSNumber)?.int64Value ?? 0,
-              inode: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0,
+              modified: stamp.modified?.timeIntervalSince1970 ?? 0,
+              size: stamp.size,
+              inode: stamp.inode,
               calibration: project.calibration, adjustments: frame.adjustments,
               orientation: frame.orientation,
               crop: frame.crop,
@@ -1997,7 +1888,8 @@ import UniformTypeIdentifiers
           guard !Task.isCancelled, generation == thumbnailGeneration else { return }
           pendingThumbnailIDs.remove(frame.id)
         } catch {
-          if !Task.isCancelled && generation == thumbnailGeneration { status = "缩略图不可用：\(frame.filename)" }
+          // Keep the frame pending for a later refresh; disposable thumbnails
+          // must not interrupt editing or replace the main preview's error.
         }
       }
     }
@@ -2020,7 +1912,6 @@ import UniformTypeIdentifiers
       let token = UUID()
       geometryPreparationToken = token
       isPreparingGeometry = true
-      status = "正在验证 Adobe RAW 重新定位目标…"
       geometryPreparationTask = Task {
         defer {
           if geometryPreparationToken == token {
@@ -2064,17 +1955,6 @@ import UniformTypeIdentifiers
     loadActive()
     refreshThumbnails()
     scheduleSave(immediate: true)
-    status = "已重新定位；保留照片 ID、调色与方向"
-  }
-  func setOutputProfile(_ profile: OutputColorProfile) {
-    var settings = exportSettings
-    settings.profile = profile
-    setExportSettings(settings)
-  }
-  func setOutputCompression(_ compression: TIFFCompression) {
-    var settings = exportSettings
-    settings.compression = compression
-    setExportSettings(settings)
   }
   func setExportSettings(_ settings: ProjectExportSettings) {
     guard project != nil, exportSettings != settings else { return }

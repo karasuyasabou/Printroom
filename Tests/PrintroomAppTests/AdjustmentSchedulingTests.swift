@@ -147,12 +147,13 @@ struct AdjustmentSchedulingTests {
     #expect(model.project?.frames == beforeProject.frames)
     #expect(model.thumbnails[frames[0].id] === sourceThumbnail)
     let beforeMatrix = model.thumbnails
-    model.setMatrix(.ledLightSource)
+    #expect(model.project?.calibration.matrix == .ledLightSource)
+    model.setMatrixPreset(.identity, kind: .density)
     try await until("roll matrix refreshes every thumbnail") {
       frames.allSatisfy { model.thumbnails[$0.id] !== beforeMatrix[$0.id] }
     }
     try await settled(model, thumbnails: 3)
-    #expect(model.project?.calibration.matrix == .ledLightSource)
+    #expect(model.project?.calibration.matrix == .identity)
     for frame in frames {
       let expected = try await referenceThumbnail(model, frameID: frame.id, folder: folder, assets: assets)
       try expectSameThumbnail(try #require(model.thumbnails[frame.id]), expected)
@@ -212,7 +213,7 @@ struct AdjustmentSchedulingTests {
 
   private func settled(_ model: EditorModel, thumbnails: Int) async throws {
     try await until("latest preview, histogram and \(thumbnails) thumbnails") {
-      !model.isLoading && !model.isRendering && !model.isHistogramUpdating
+      !model.isLoading && !model.isRendering
         && model.previewImage != nil && model.histogram != nil
         && model.thumbnails.count == thumbnails
     }

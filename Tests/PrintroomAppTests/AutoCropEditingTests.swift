@@ -56,7 +56,7 @@ struct AutoCropEditingTests {
       return AutoCropOutput(id: input.id,
         crop: FrameCrop(aspect: .free, width: 0.75, angleDegrees: 0,
                         freeRatio: 1.5),
-        needsReview: index != 1, source: try AutoCropSourceStamp(input.url))
+        needsReview: index != 1, source: try SourceStamp(url: input.url))
     }
   }
 

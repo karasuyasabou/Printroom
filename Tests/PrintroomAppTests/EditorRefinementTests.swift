@@ -31,7 +31,7 @@ struct EditorRefinementTests {
   }
   private func settled(_ model: EditorModel) async throws {
     try await until("settled preview") {
-      !model.isLoading && !model.isRendering && !model.isHistogramUpdating && model.histogram != nil
+      !model.isLoading && !model.isRendering && model.histogram != nil
     }
     #expect(model.errorMessage == nil)
   }
@@ -355,7 +355,7 @@ struct EditorRefinementTests {
     var cache = PreviewPresentationCache(byteLimit: bytes * 2, countLimit: 3)
     let frames = try #require(model.project?.frames)
     let keys = try frames.map { frame in
-      PreviewPresentationKey(source: try PreviewSourceStamp(url: folder.appendingPathComponent(frame.filename)),
+      PreviewPresentationKey(source: try SourceStamp(url: folder.appendingPathComponent(frame.filename)),
         frameID: frame.id, calibration: FilmCalibration(), adjustments: .init(),
         orientation: .identity, crop: nil, stage: .final)
     }

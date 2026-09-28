@@ -142,9 +142,4 @@ import PrintroomCore
     return cleaned.isEmpty ? "Printroom" : cleaned
   }
 
-  /// Shared by the real export panels and window QA; batch options start visible.
-  func attach(to panel: NSSavePanel) {
-    panel.accessoryView = self
-    if let openPanel = panel as? NSOpenPanel { openPanel.isAccessoryViewDisclosed = true }
-  }
 }

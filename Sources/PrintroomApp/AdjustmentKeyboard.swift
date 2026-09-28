@@ -60,12 +60,6 @@ extension EditorModel {
     adjustmentKeyboard.stop(model: self, key: key)
   }
 
-  func startTimingKey(_ key: String, shift: Bool, isRepeat: Bool,
-                      canContinue: @escaping @MainActor () -> Bool) {
-    startAdjustmentKey(key, contrast: false, shift: shift, isRepeat: isRepeat,
-      canContinue: canContinue)
-  }
-
   func startAdjustmentKey(_ key: String, contrast: Bool, shift: Bool, isRepeat: Bool,
                           canContinue: @escaping @MainActor () -> Bool) {
     adjustmentKeyboard.start(model: self, key: key, contrast: contrast, shift: shift,

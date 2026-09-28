@@ -12,15 +12,13 @@ mkdir -p "$PWD/output"
 staging=$(mktemp -d "$PWD/output/.printroom-package.XXXXXX")
 trap 'rm -rf "$staging"' EXIT
 app="$staging/Printroom.app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/Assets/ICC" "$app/Contents/Resources/Assets/LUT"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/Assets/ICC"
 cp .build/release/Printroom "$app/Contents/MacOS/Printroom"
 cp assets/AppIcon/Printroom.icns "$app/Contents/Resources/Printroom.icns"
 mkdir -p "$app/Contents/Resources/ThirdParty"
 cp -R ThirdParty/LibRaw "$app/Contents/Resources/ThirdParty/LibRaw"
 cp -R .build/release/Printroom_PrintroomCore.bundle "$app/Contents/Resources/"
 cp ICC/DCIP3_D65.icc "$app/Contents/Resources/Assets/ICC/"
-cp 'LUT/DCI-P3 Fujifilm 3513DI D65.cube' "$app/Contents/Resources/Assets/LUT/"
-cp 'LUT/DCI-P3 Kodak 2383 D65.cube' "$app/Contents/Resources/Assets/LUT/"
 mkdir -p "$app/Contents/Resources/Assets/assets/DerivedLUTs"
 cp -R assets/DerivedLUTs/diffuse-white-v1 "$app/Contents/Resources/Assets/assets/DerivedLUTs/"
 cat > "$app/Contents/Info.plist" <<'PLIST'
@@ -33,7 +31,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>Printroom</string>
 <key>CFBundleIconFile</key><string>Printroom</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.3.68</string>
+<key>CFBundleShortVersionString</key><string>0.3.69</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSHighResolutionCapable</key><true/>

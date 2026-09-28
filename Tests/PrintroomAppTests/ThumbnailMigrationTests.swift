@@ -114,7 +114,8 @@ struct ThumbnailMigrationTests {
     #expect(!FileManager.default.fileExists(atPath: legacyURL.path))
     #expect(try await destination.image(for: key) != nil)
     #expect(model.flushSave())
-    model.clearThumbnailCache()
+    _ = try await destination.clear()
+    model.open(roll)
     let clearDeadline = Date().addingTimeInterval(8)
     while model.thumbnails.isEmpty, Date() < clearDeadline { try await Task.sleep(for: .milliseconds(20)) }
     #expect(!model.thumbnails.isEmpty)

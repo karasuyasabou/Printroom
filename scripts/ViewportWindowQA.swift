@@ -250,7 +250,7 @@ import SwiftUI
     model.sampleBase(PixelRect(x: 359, y: 604, width: 79, height: 494))
     for _ in 0..<200 where model.project?.calibration.isCalibrated != true { try await Task.sleep(for: .milliseconds(50)) }
     precondition(model.project?.calibration.isCalibrated == true)
-    model.setMatrix(.ledLightSource)
+    model.setMatrixPreset(.ledLightSource, kind: .density)
     model.edit { $0 = FrameAdjustments(timing: .init(master: 30, red: 5, green: -3, blue: 7),
       contrast: .init(master: 1.05, red: 0.95, green: 1.02, blue: 1.1)) }
     try await ready()

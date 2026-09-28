@@ -35,13 +35,13 @@ struct TimingKeyboardTests {
 
   @Test func tapShiftAndSystemRepeat() async throws {
     let m = model()
-    m.startTimingKey("w", shift: false, isRepeat: false) { true }
-    m.startTimingKey("w", shift: false, isRepeat: true) { true }
+    m.startAdjustmentKey("w", contrast: false, shift: false, isRepeat: false) { true }
+    m.startAdjustmentKey("w", contrast: false, shift: false, isRepeat: true) { true }
     #expect(m.adjustments.timing.master == 1)
     try await Task.sleep(for: .milliseconds(200))
     #expect(m.adjustments.timing.master == 1)
     m.stopTimingKey("w")
-    m.startTimingKey("E", shift: true, isRepeat: false) { true }
+    m.startAdjustmentKey("E", contrast: false, shift: true, isRepeat: false) { true }
     m.stopTimingKey("e")
     #expect(m.adjustments.timing.red == 10)
     m.undo()
@@ -51,7 +51,7 @@ struct TimingKeyboardTests {
 
   @Test func fixedRateReleaseAndSingleUndo() async throws {
     let m = model()
-    m.startTimingKey("w", shift: false, isRepeat: false) { true }
+    m.startAdjustmentKey("w", contrast: false, shift: false, isRepeat: false) { true }
     try await Task.sleep(for: .milliseconds(1400))
     m.stopTimingKey("w")
     let value = m.adjustments.timing.master
@@ -66,14 +66,14 @@ struct TimingKeyboardTests {
 
   @Test func reversalFocusLossAndFrameSwitchStopHold() async throws {
     let m = model()
-    m.startTimingKey("w", shift: false, isRepeat: false) { true }
-    m.startTimingKey("s", shift: false, isRepeat: false) { false }
+    m.startAdjustmentKey("w", contrast: false, shift: false, isRepeat: false) { true }
+    m.startAdjustmentKey("s", contrast: false, shift: false, isRepeat: false) { false }
     m.stopTimingKey("w") // Releasing the previous key must not end the new gesture.
     try await Task.sleep(for: .milliseconds(550))
     #expect(m.adjustments.timing.master == 0)
     m.undo()
     #expect(m.adjustments.timing.master == 1)
-    m.startTimingKey("w", shift: false, isRepeat: false) { true }
+    m.startAdjustmentKey("w", contrast: false, shift: false, isRepeat: false) { true }
     m.select(m.project!.frames[1].id)
     try await Task.sleep(for: .milliseconds(550))
     #expect(m.project?.frames[0].adjustments.timing.master == 2)

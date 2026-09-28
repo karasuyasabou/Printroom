@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../../.."
 # Build with scripts/test.sh first. Only the explicitly supplied roll folders are processed.
 work="$PWD/scratch/white-removal"
 mkdir -p "$work"
@@ -13,6 +13,6 @@ while IFS= read -r source_file; do
 done < "$native_build_root/PrintroomCore.build/sources"
 xcrun swiftc -parse-as-library -swift-version 6 -O "${native_raw_flags[@]}" \
   -module-cache-path "$work/ModuleCache" -I "$native_build_root/Modules" \
-  scripts/WhiteRemovalCompensation.swift "${core_objects[@]}" -o "$work/compensate"
+  scripts/archive/white-compensation/WhiteRemovalCompensation.swift "${core_objects[@]}" -o "$work/compensate"
 cp -R "$native_build_root/Printroom_PrintroomCore.bundle" "$work/"
 "$work/compensate" "$@"

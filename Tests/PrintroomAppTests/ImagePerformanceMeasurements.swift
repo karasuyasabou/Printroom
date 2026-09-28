@@ -149,7 +149,7 @@ extension ImagePerformanceMeasurements {
     project.calibration = try await service.sample(
       rollFolder.appendingPathComponent(first.filename),
       rect: PixelRect(x: 359, y: 604, width: 79, height: 494),
-      matrix: .ledLightSource, frameID: first.id).0
+      matrix: .ledLightSource, frameID: first.id)
     for index in project.frames.indices {
       project.frames[index].adjustments = FrameAdjustments(
         timing: .init(master: 30, red: 5, green: -3, blue: 7),
