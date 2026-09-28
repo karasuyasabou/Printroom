@@ -6,4 +6,4 @@
 - WhiteRestoreCompensation / prepare-white-restore 用历史报告反向扣回指定两卷的补偿，包含当时的本机路径。
 - 重现历史结果时使用相应 Git 历史、隔离项目副本及当时依赖。归档保留源码；不回写历史验收记录中的原始命令和证据。
 
-结论见 [0.3.27](../../../docs/acceptance-0.3.27.md) 和 [0.3.36](../../../docs/acceptance-0.3.36.md)。原始 LUT、ICC、照片和用户项目未移动。
+历史结论保存在维护者本地的 `docs/acceptance-0.3.27.md` 和 `docs/acceptance-0.3.36.md`。所需 `docs/white-removal-2026-09-12.json` 也仅本地保留；这些工具不是克隆后可直接运行的通用迁移入口。原始 LUT、ICC、照片和用户项目未移动。

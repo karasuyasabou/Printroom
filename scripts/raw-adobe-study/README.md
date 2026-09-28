@@ -1,6 +1,6 @@
 # RAW / Adobe 路径实验工具
 
-这些是本地研究工具，不是 Printroom 的新 RAW 导入功能。结论与边界见 [实验记录](../../docs/raw-adobe-study-2026-09-09.md)。所有路径基于仓库根目录，输入只读 `TEST/RAW`，输出只写 `scratch/raw-adobe-study`。不运行在原始资产目录内，不修改桌面的 open_make_tiff 源码。
+这些是本地研究工具，不是 Printroom 的新 RAW 导入功能。实验记录 `docs/raw-adobe-study-2026-09-09.md` 由维护者本地保留，不随仓库提供。所有路径基于仓库根目录，输入只读 `TEST/RAW`，输出只写 `scratch/raw-adobe-study`。不运行在原始资产目录内，不修改桌面的 open_make_tiff 源码。
 
 ## 文件
 
