@@ -188,6 +188,14 @@ scripts/build-app.sh
 
 开发与验证说明见 [参与开发](CONTRIBUTING.md)。如遇问题，欢迎提交 [Issue](https://github.com/karasuyasabou/Printroom/issues)，附上系统版本、输入格式与复现步骤。
 
+## 项目支持
+
+项目由个人持续维护，若对后期工作流程有帮助，可以支持作者：
+
+<p align="center">
+  <img src="docs/images/support-alipay.jpeg" width="280" alt="支付宝收款码，支持 Printroom 作者">
+</p>
+
 ## 许可
 
 Printroom 原创代码与文档采用 **GNU GPL 第三版（GPL-3.0-only）**，详见 [LICENSE](LICENSE)。第三方组件保留各自声明，见 [第三方说明](THIRD_PARTY_NOTICES.md)。
