@@ -25,6 +25,45 @@ private actor AutoCropTestGate {
 
 @Suite(.serialized) @MainActor
 struct AutoCropEditingTests {
+  @Test func serviceAcceptsDifferentTIFFScanDimensions() async throws {
+    let folder = FileManager.default.temporaryDirectory
+      .appendingPathComponent("PrintroomMixedScan-\(UUID())", isDirectory: true)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let scans = [(1600, 1066, 110, 72), (1680, 1140, 170, 100)]
+    var inputs = [AutoCropInput]()
+    for (index, scan) in scans.enumerated() {
+      let (width, height, left, top) = scan
+      let url = folder.appendingPathComponent("\(index).tif")
+      try TIFFCodec.write(url: url, width: width, height: height, profile: nil) { rows in
+        var samples = [UInt16](repeating: 44000, count: rows.count * width * 3)
+        for y in rows where (top..<(top + 920)).contains(y) {
+          for x in left..<(left + 1380) {
+            for channel in 0..<3 { samples[((y - rows.lowerBound) * width + x) * 3 + channel] = 6500 }
+          }
+        }
+        return samples
+      }
+      inputs.append(AutoCropInput(id: UUID(), url: url))
+    }
+    let stamps = try inputs.map { try SourceStamp(url: $0.url) }
+    let result = try await AutoCropService.run(inputs: inputs, targets: Set(inputs.map(\.id)),
+      aspectRatio: 1.5, progress: { _ in })
+    #expect(result.count == inputs.count)
+    for (index, output) in result.enumerated() {
+      let (width, height, left, top) = scans[index]
+      #expect(output.id == inputs[index].id)
+      #expect(output.source == stamps[index])
+      #expect(try SourceStamp(url: inputs[index].url) == stamps[index])
+      #expect(!output.needsReview)
+      let geometry = try CropGeometry(crop: output.crop, sourceWidth: width, sourceHeight: height)
+      #expect(abs(geometry.outputWidth - 1380) <= 6)
+      #expect(abs(geometry.outputHeight - 920) <= 6)
+      #expect(abs(output.crop.centerX * Double(width) - Double(left + 690)) <= 3)
+      #expect(abs(output.crop.centerY * Double(height) - Double(top + 460)) <= 3)
+    }
+  }
+
   private func fixture(_ model: EditorModel, count: Int = 3) throws -> URL {
     let folder = FileManager.default.temporaryDirectory
       .appendingPathComponent("PrintroomAutoCrop-\(UUID())", isDirectory: true)
@@ -74,6 +113,7 @@ struct AutoCropEditingTests {
     let folder = try fixture(model)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
     try await loaded(model)
     model.autoCropRunner = { inputs, targets, ratio, _ in
       #expect(ratio == 2.39)
@@ -94,6 +134,7 @@ struct AutoCropEditingTests {
     let folder = try fixture(model)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
     try await loaded(model)
     let before = try #require(model.project)
     installRunner(model)
@@ -122,6 +163,7 @@ struct AutoCropEditingTests {
     let folder = try fixture(model, count: 4)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
     try await loaded(model)
     var before = try #require(model.project)
     before.frames[0].crop = FrameCrop(aspect: .square, width: 0.5)
@@ -152,6 +194,7 @@ struct AutoCropEditingTests {
     let folder = try fixture(model, count: 2)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
     try await loaded(model)
     model.beginCrop()
     try await loaded(model)
@@ -176,6 +219,7 @@ struct AutoCropEditingTests {
     let folder = try fixture(model)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
     try await loaded(model)
     installRunner(model)
     model.startAutoCrop()
@@ -213,6 +257,7 @@ struct AutoCropEditingTests {
       try? FileManager.default.removeItem(at: other)
     }
     model.open(folder)
+    try await waitForProxyImport(model)
     try await loaded(model)
     let before = try #require(model.project)
     let cancelled = AutoCropTestGate()
@@ -231,6 +276,7 @@ struct AutoCropEditingTests {
     model.startAutoCrop()
     try await until("old-roll runner entered", { model.autoCropProgressText == "fixture ready" })
     model.open(other)
+    try await waitForProxyImport(model)
     try await loaded(model)
     let newProject = try #require(model.project)
     #expect(newProject.id != before.id)
@@ -247,6 +293,7 @@ struct AutoCropEditingTests {
     let folder = try fixture(model)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
     try await loaded(model)
     let gate = AutoCropTestGate()
     installRunner(model, gate: gate)
@@ -283,6 +330,7 @@ struct AutoCropEditingTests {
     let folder = try fixture(model)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
     try await loaded(model)
     let before = try #require(model.project)
     model.autoCropRunner = { inputs, targets, _, _ in

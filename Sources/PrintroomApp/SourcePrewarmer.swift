@@ -2,7 +2,7 @@ import Foundation
 import PrintroomCore
 
 /// Prepares the entire roll before the editor starts preview/thumbnail work.
-enum RAWPrewarmer {
+enum SourcePrewarmer {
   static let concurrency = 4
   struct Failure: Sendable {
     let url: URL

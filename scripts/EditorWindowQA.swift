@@ -42,7 +42,9 @@ import SwiftUI
     }
     var project = RollProject()
     project.frames = frames
-    if CommandLine.arguments.contains("--roll-name") { project.name = "京都 · Kodak 250D · 第 12 卷" }
+    if CommandLine.arguments.contains("--roll-name") || CommandLine.arguments.contains("--toolbar-alignment") {
+      project.name = "京都 · Kodak 250D · 第 12 卷"
+    }
     model.project = project
     model.selection.click(frames[0].id, ordered: frames.map(\.id))
     model.sourceWidth = 1200
@@ -99,6 +101,176 @@ import SwiftUI
       guard process.terminationStatus == 0 else { throw PrintroomError.invalid("Screenshot failed") }
       print("Saved \(name): \(host.bounds.size)")
     }
+    if CommandLine.arguments.contains("--toolbar-alignment") {
+      for appearance in [AppAppearance.light, .dark] {
+        appearance.apply()
+        for width in [1060, 1360, 1800, 1060] {
+          window.setContentSize(NSSize(width: width, height: 720))
+          try await capture("toolbar-right-\(appearance.rawValue)-\(width)")
+          guard let item = window.toolbar?.items.first(where: {
+            $0.itemIdentifier.rawValue.contains("printroom-actions")
+          }), let view = item.view else {
+            let identifiers = window.toolbar?.items.map { $0.itemIdentifier.rawValue } ?? []
+            throw PrintroomError.invalid("Toolbar action item missing: \(identifiers)")
+          }
+          let rect = view.convert(view.bounds, to: nil)
+          let trailing = window.contentLayoutRect.width - rect.maxX
+          print("TOOLBAR ALIGNMENT: width=\(width) actions=\(rect) trailing=\(trailing)")
+          guard trailing >= 0, trailing <= 28 else {
+            throw PrintroomError.invalid("Toolbar actions are not right-aligned: trailing=\(trailing)")
+          }
+        }
+        model.project = nil
+        model.previewImage = nil
+        try await capture("toolbar-right-home-\(appearance.rawValue)")
+        model.project = project
+        model.previewImage = preview
+      }
+      print("TOOLBAR ALIGNMENT QA PASS: light/dark, 1060/1360/1800/1060 resize and home")
+      return
+    }
+    if CommandLine.arguments.contains("--film-base") {
+      let directory = URL(fileURLWithPath: "scratch/editor-ui-qa/film-base-\(UUID())", isDirectory: true)
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      defer { model.returnHome(); try? FileManager.default.removeItem(at: directory) }
+      let assets = model.assets!
+      for index in 0..<2 {
+        try TIFFCodec.write(url: directory.appendingPathComponent("frame-\(index).tif"),
+          width: 600, height: 400, profile: assets.profile) { rows in
+          var samples: [UInt16] = []
+          samples.reserveCapacity(rows.count * 600 * 3)
+          for y in rows { for x in 0..<600 {
+            samples.append(UInt16(14000 + x * 30))
+            samples.append(UInt16(26000 + y * 30))
+            samples.append(UInt16(36000 + x * 20))
+          } }
+          return samples
+        }
+      }
+      func ready(_ predicate: () -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+        while !predicate(), ContinuousClock.now < deadline {
+          try await Task.sleep(for: .milliseconds(20))
+        }
+        guard predicate() else { throw PrintroomError.invalid("Film base QA timed out") }
+      }
+      func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+      // This branch checks film-base dialogs on an existing roll; onboarding is covered by --roll-name.
+      try ProjectStore.save(try ProjectStore.open(folder: directory), folder: directory, expectedModification: nil)
+      model.open(directory)
+      try await ready { model.hasImage && !model.isRendering && model.thumbnails.count == 2 }
+      model.project?.name = "片基预览 QA"
+      guard !model.hasFilmBase, model.histogram == nil, !model.canPickNeutral else {
+        throw PrintroomError.invalid("New roll must remain in original mode")
+      }
+      for appearance in [AppAppearance.light, .dark] {
+        appearance.apply()
+        try await capture("film-base-original-\(appearance.rawValue)")
+        model.showMissingFilmBaseDialog = true
+        try await ready { window.attachedSheet != nil }
+        let content = window.attachedSheet!.contentView!
+        content.layoutSubtreeIfNeeded()
+        let buttons = descendants(content).compactMap { $0 as? NSButton }
+        guard let select = buttons.first(where: { $0.title == "框选片基" }),
+          let cancel = buttons.first(where: { $0.title == "取消" }), select.isEnabled,
+          descendants(content).compactMap({ ($0 as? NSTextField)?.stringValue }).contains("未框选片基") else {
+          throw PrintroomError.invalid("Missing film-base native dialog text or buttons")
+        }
+        guard let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) else {
+          throw PrintroomError.invalid("Cannot capture film-base dialog")
+        }
+        content.cacheDisplay(in: content.bounds, to: bitmap)
+        try bitmap.representation(using: .png, properties: [:])!.write(
+          to: URL(fileURLWithPath: "scratch/editor-ui-qa/film-base-missing-\(appearance.rawValue).png"))
+        let screenCapture = Process()
+        screenCapture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        screenCapture.arguments = ["-x", "-o", "-l", String(window.attachedSheet!.windowNumber),
+          "scratch/editor-ui-qa/film-base-missing-\(appearance.rawValue)-screen.png"]
+        try screenCapture.run()
+        screenCapture.waitUntilExit()
+        guard screenCapture.terminationStatus == 0 else {
+          throw PrintroomError.invalid("Cannot capture the composed native film-base dialog")
+        }
+        cancel.performClick(nil)
+        try await ready { window.attachedSheet == nil }
+        guard !model.sampling && !model.hasFilmBase else {
+          throw PrintroomError.invalid("Cancel changed film-base state")
+        }
+        model.showMissingFilmBaseDialog = true
+        try await ready { window.attachedSheet != nil }
+        guard let primary = descendants(window.attachedSheet!.contentView!).compactMap({ $0 as? NSButton })
+          .first(where: { $0.title == "框选片基" }) else {
+          throw PrintroomError.invalid("Missing selection button")
+        }
+        primary.performClick(nil)
+        try await ready { window.attachedSheet == nil && model.sampling }
+        try await capture("film-base-selection-\(appearance.rawValue)")
+        model.sampling = false
+      }
+      model.sampleBase(.init(x: 520, y: 320, width: 40, height: 40))
+      try await ready { model.hasFilmBase && !model.isRendering && model.histogram != nil }
+      for appearance in [AppAppearance.light, .dark] {
+        appearance.apply()
+        try await capture("film-base-calibrated-\(appearance.rawValue)")
+      }
+      guard !model.showRollTimingDialog && model.canStartRollTiming else {
+        throw PrintroomError.invalid("Selection must enable analysis without starting it")
+      }
+      print("FILM BASE QA PASS: original/selection/calibrated in light and dark; native Cancel/Select buttons")
+      return
+    }
+    if CommandLine.arguments.contains("--sprocket") {
+      let assets = model.assets!
+      let crop = FrameCrop(aspect: .threeTwo, width: 0.75)
+      var calibration = FilmCalibration()
+      calibration.baseRGB = SIMD3(repeating: 0.2)
+      calibration.gainRGB = SIMD3(repeating: 3.75)
+      calibration = try Pipeline.recalibrate(calibration, matrix: .identity)
+      model.project?.calibration = calibration
+      for i in frames.indices { model.project?.frames[i].crop = crop }
+      model.cropPreviewEnabled = false
+      var raw: [SIMD4<Float>] = []
+      for y in 0..<400 {
+        for x in 0..<600 {
+          let interior = (75..<525).contains(x) && (50..<350).contains(y)
+          let hole = ((24..<47).contains(x) || (553..<576).contains(x)) && (y % 60 >= 15 && y % 60 <= 40)
+          let v: Float = hole ? 0.9 : interior ? 0.045 + Float(x + y) / 6000 : 0.2
+          raw.append(SIMD4(v, v, v, 1))
+        }
+      }
+      let input = PixelBuffer(width: 600, height: 400, pixels: raw)
+      let renderer = PreviewRenderService()
+      for theme in [AppAppearance.dark, .light] {
+        theme.apply()
+        for enabled in [false, true] {
+          let settings = SprocketWhiteningSettings(enabled: enabled)
+          model.project?.sprocketWhitening = settings
+          let image = try await renderer.render(input, calibration: calibration, adjustments: .init(), assets: assets,
+            sourceWidth: 1200, sourceHeight: 800, sprocketWhitening: settings, protectedCrop: crop)
+          model.previewImage = image.image
+          try await capture("sprocket-\(theme.rawValue)-\(enabled)")
+        }
+        let controls = NSHostingController(rootView: SprocketWhiteningControlsView(model: model)
+          .foregroundStyle(InterfaceColors.primaryText).tint(InterfaceColors.accent)
+          .background(InterfaceColors.secondaryPanel))
+        let panel = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 326, height: 206),
+          styleMask: [.borderless], backing: .buffered, defer: false)
+        panel.isReleasedWhenClosed = false
+        panel.contentViewController = controls
+        panel.orderFront(nil)
+        try await Task.sleep(for: .milliseconds(250))
+        let view = controls.view
+        view.layoutSubtreeIfNeeded()
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+          throw PrintroomError.invalid("Sprocket controls bitmap unavailable")
+        }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        try bitmap.representation(using: .png, properties: [:])!.write(to:
+          URL(fileURLWithPath: "scratch/editor-ui-qa/sprocket-controls-\(theme.rawValue).png"))
+        panel.orderOut(nil)
+      }
+      return
+    }
     if CommandLine.arguments.contains("--crop-preview") {
       for appearance in [AppAppearance.dark, .light] {
         appearance.apply()
@@ -117,6 +289,81 @@ import SwiftUI
           try await capture("roll-name-\(appearance.rawValue)-\(width)")
         }
       }
+      func ready(_ predicate: () -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+        while !predicate(), ContinuousClock.now < deadline {
+          try await Task.sleep(for: .milliseconds(20))
+        }
+        guard predicate() else { throw PrintroomError.invalid("Roll naming QA timed out") }
+      }
+      func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+      NSApp.activate(ignoringOtherApps: true)
+      window.makeKeyAndOrderFront(nil)
+      window.setContentSize(NSSize(width: 1060, height: 720))
+      for appearance in [AppAppearance.light, .dark] {
+        appearance.apply()
+        let directory = URL(fileURLWithPath: "scratch/editor-ui-qa/roll-name-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { model.returnHome(); try? FileManager.default.removeItem(at: directory) }
+        try TIFFCodec.write(url: directory.appendingPathComponent("frame.tiff"),
+          width: 8, height: 6, profile: nil) { rows in
+          Array(repeating: UInt16(32768), count: rows.count * 8 * 3)
+        }
+        model.open(directory)
+        try await ready { window.attachedSheet != nil }
+        guard let content = window.attachedSheet?.contentView else {
+          throw PrintroomError.invalid("New roll naming sheet missing")
+        }
+        let views = descendants(content)
+        guard views.compactMap({ ($0 as? NSTextField)?.stringValue }).contains("命名胶卷"),
+          let field = views.compactMap({ $0 as? NSTextField }).first(where: { $0.isEditable }),
+          let save = views.compactMap({ $0 as? NSButton }).first(where: { $0.title == "保存" }),
+          let cancel = views.compactMap({ $0 as? NSButton }).first(where: { $0.title == "取消" }) else {
+          throw PrintroomError.invalid("New roll naming controls missing")
+        }
+        content.layoutSubtreeIfNeeded()
+        guard let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) else {
+          throw PrintroomError.invalid("Cannot capture naming sheet")
+        }
+        content.cacheDisplay(in: content.bounds, to: bitmap)
+        try bitmap.representation(using: .png, properties: [:])!.write(to:
+          URL(fileURLWithPath: "scratch/editor-ui-qa/roll-name-dialog-\(appearance.rawValue).png"))
+        let screenCapture = Process()
+        screenCapture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        screenCapture.arguments = ["-x", "-o", "-l", String(window.attachedSheet!.windowNumber),
+          "scratch/editor-ui-qa/roll-name-dialog-\(appearance.rawValue)-screen.png"]
+        try screenCapture.run()
+        screenCapture.waitUntilExit()
+        guard screenCapture.terminationStatus == 0 else {
+          throw PrintroomError.invalid("Cannot capture composed naming sheet")
+        }
+        if appearance == .light {
+          field.stringValue = "新卷命名 QA"
+          save.performClick(nil)
+        } else { cancel.performClick(nil) }
+        try await ready { window.attachedSheet == nil && model.hasImage }
+        let expectedName: String? = appearance == .light ? "新卷命名 QA" : nil
+        guard try ProjectStore.open(folder: directory).name == expectedName,
+          model.newRollNamingID == nil, model.project?.name == expectedName else {
+          throw PrintroomError.invalid("New roll naming save/cancel did not persist correctly")
+        }
+        try await capture("roll-name-after-dialog-\(appearance.rawValue)")
+        model.returnHome()
+        model.open(directory)
+        try await ready { model.hasImage && !model.isImporting }
+        try await Task.sleep(for: .milliseconds(350))
+        guard window.attachedSheet == nil, model.newRollNamingID == nil else {
+          throw PrintroomError.invalid("Saved roll unexpectedly prompted for a name")
+        }
+        if appearance == .dark {
+          model.openRollFolderInFinder()
+          guard model.errorMessage == nil else {
+            throw PrintroomError.invalid(model.errorMessage ?? "Finder could not open the roll folder")
+          }
+        }
+      }
+      try await capture("roll-name-home-dark")
+      print("ROLL NAMING QA PASS: filmstrip at two widths/themes; automatic new-roll sheet; Save/Cancel; no prompt on reopen; Finder accepted roll folder")
       return
     }
     if CommandLine.arguments.contains("--themes") {
@@ -125,11 +372,21 @@ import SwiftUI
       for theme in [AppAppearance.light, .dark, .light] {
         theme.apply()
         try await capture("theme-\(theme.rawValue)-editor")
+        model.saveFailure = true
+        model.isExporting = true
+        model.exportProgress = 0.42
+        model.exportDetail = "2/4 · frame.tiff"
+        try await capture("theme-\(theme.rawValue)-without-status-row")
+        model.isExporting = false
+        model.saveFailure = false
         model.timingMode = .rgb
         try await capture("theme-\(theme.rawValue)-rgb")
         model.timingMode = .simple
         model.beginCrop()
         try await capture("theme-\(theme.rawValue)-crop")
+        model.project?.frames[0].cropNeedsReview = true
+        try await capture("theme-\(theme.rawValue)-crop-review")
+        model.project?.frames[0].cropNeedsReview = false
         model.cancelCrop()
         let savedProject = model.project
         model.project = nil
@@ -192,7 +449,7 @@ import SwiftUI
       try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
       defer { model.cancelImport(); try? FileManager.default.removeItem(at: folder) }
       for index in 0..<8 { try Data([1]).write(to: folder.appendingPathComponent("\(index).ARW")) }
-      model.rawProxyLoader = { url in
+      model.proxyLoader = { url in
         if url.lastPathComponent == "0.ARW" { return }
         while !Task.isCancelled { Thread.sleep(forTimeInterval: 0.01) }
         throw CancellationError()
@@ -201,7 +458,7 @@ import SwiftUI
       try await Task.sleep(for: .milliseconds(200))
       try await capture("0353-loading")
       model.cancelImport()
-      model.rawProxyLoader = { _ in throw PrintroomError.invalid("代理读取失败，请重试") }
+      model.proxyLoader = { _ in throw PrintroomError.invalid("代理读取失败，请重试") }
       model.open(folder)
       try await Task.sleep(for: .milliseconds(200))
       try await capture("0353-loading-failed")
@@ -249,10 +506,11 @@ import SwiftUI
         rect: .init(x: 0, y: 0, width: 4, height: 4), matrix: .identity,
         sourceFrameID: roll.frames[0].id)
       model.project = roll; model.folder = directory
-      model.rollTimingRunner = { _, _, _, progress in
+      model.rollTimingRunner = { p, _, _, autoExposure, progress in
         await progress("分析 1/1")
         try await Task.sleep(for: .seconds(2))
-        return RollTimingResult(timing: .init(red: 30, green: 20, blue: 10), sources: [])
+        return RollTimingResult(timing: .init(red: 30, green: 20, blue: 10), sources: [],
+          masters: autoExposure ? Dictionary(uniqueKeysWithValues: p.frames.map { ($0.id, 100) }) : [:])
       }
       model.startRollTiming()
       func sheetCapture(_ name: String) async throws {
@@ -260,18 +518,9 @@ import SwiftUI
         guard window.attachedSheet != nil else {
           throw PrintroomError.invalid("Missing automatic timing sheet")
         }
-        // Sheets use separately composited native surfaces; render the same view
-        // against an opaque background for an inspectable, permission-free artifact.
-        let content = NSHostingView(rootView: RollTimingDialogView(model: model)
-          .preferredColorScheme(.dark).background(Color(nsColor: .windowBackgroundColor)))
-        let fixture = NSWindow(contentRect: CGRect(origin: .zero, size: content.fittingSize),
-          styleMask: [.borderless], backing: .buffered, defer: false)
-        fixture.isReleasedWhenClosed = false
-        fixture.appearance = NSAppearance(named: .darkAqua)
-        fixture.contentView = content
-        fixture.orderFront(nil)
-        defer { fixture.orderOut(nil) }
-        try await Task.sleep(for: .milliseconds(200))
+        guard let content = window.attachedSheet?.contentView else {
+          throw PrintroomError.invalid("Missing native alert content")
+        }
         content.layoutSubtreeIfNeeded()
         guard let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) else {
           throw PrintroomError.invalid("Cannot render timing sheet")
@@ -375,6 +624,7 @@ import SwiftUI
         }
         return samples
       }
+      try ProjectStore.save(try ProjectStore.open(folder: hoverFolder), folder: hoverFolder, expectedModification: nil)
       model.open(hoverFolder)
       func settleHover() async throws {
         let limit = ContinuousClock.now.advanced(by: .seconds(15))
@@ -532,7 +782,7 @@ import SwiftUI
     model.isExporting = true
     model.exportProgress = 0.42
     model.exportDetail = "正在导出 frame-2.tiff · 2 / 4"
-    try await capture("03-export-save-status-minimum-window")
+    try await capture("03-export-save-without-status-row-minimum-window")
     model.isExporting = false
     model.saveFailure = false
     model.project = nil
@@ -584,6 +834,7 @@ import SwiftUI
     guard NSApp.isActive, window.isKeyWindow, window.isVisible, window.windowNumber > 0 else {
       throw KeyboardBlocked(detail: "一次激活后 QA 窗口未获得焦点；active=\(NSApp.isActive), key=\(window.isKeyWindow), visible=\(window.isVisible), windowNumber=\(window.windowNumber), frontmost=\(NSWorkspace.shared.frontmostApplication?.localizedName ?? "nil")。未发送键鼠事件，不继续尝试激活。")
     }
+    try ProjectStore.save(try ProjectStore.open(folder: folder), folder: folder, expectedModification: nil)
     model.open(folder)
     func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
       guard condition() else { throw PrintroomError.invalid(message) }

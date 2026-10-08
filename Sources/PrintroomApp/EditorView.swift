@@ -5,11 +5,12 @@ import SwiftUI
 struct EditorView: View {
   @Environment(\.openWindow) private var openWindow
   @ObservedObject var model: EditorModel
-  @State private var resetToken = 0
-  @State private var viewportMode: PreviewViewportMode? = .fit
   @State private var showPreviewLoadingHint = false
   @State private var showAutoCropDialog = false
+  @State private var showSprocketWhitening = false
   @State private var showRollTimingConfirmation = false
+  @State private var autoExposure = false
+  @State private var preserveRollTimingEdits = false
   private let accent = InterfaceColors.accent
   var body: some View {
     Group {
@@ -23,6 +24,7 @@ struct EditorView: View {
     .toolbarBackground(InterfaceColors.secondaryPanel, for: .windowToolbar)
     .toolbarBackground(.visible, for: .windowToolbar)
     .onOpenURL { model.open($0) }
+    .onChange(of: model.newRollNamingID, initial: true) { _, _ in model.nameNewRollIfNeeded() }
   }
   private var importPage: some View {
     VStack(spacing: 18) {
@@ -47,7 +49,6 @@ struct EditorView: View {
   }
   private var editorContent: some View {
     VStack(spacing: 0) {
-      if model.saveFailure || model.isExporting { operationStatus }
       Divider()
       HStack(spacing: 0) {
         VStack(spacing: 0) {
@@ -60,7 +61,7 @@ struct EditorView: View {
           }.frame(height: 38)
           GeometryReader { viewport in
             ZStack {
-              PreviewCanvas(model: model, resetToken: resetToken, onViewportChange: { viewportMode = $0 })
+              PreviewCanvas(model: model)
                 .frame(width: viewport.size.width, height: viewport.size.height)
               if model.project == nil { emptyState }
               if model.sampling {
@@ -73,7 +74,7 @@ struct EditorView: View {
             }
             .frame(width: viewport.size.width, height: viewport.size.height)
             .overlay(alignment: .topTrailing) {
-              if model.activeFrame != nil && !model.isCropping {
+              if model.hasFilmBase && model.activeFrame != nil && !model.isCropping {
                 HistogramView(model: model)
                   .padding(12)
               }
@@ -117,15 +118,35 @@ struct EditorView: View {
     } message: {
       Text(model.errorMessage ?? "")
     }
-    .sheet(isPresented: Binding(get: { model.showRollTimingDialog },
-      set: { if !$0 { model.cancelRollTiming() } })) {
-      RollTimingDialogView(model: model)
-    }
-    .sheet(isPresented: $showAutoCropDialog) {
-      AutoCropDialogView(model: model, isPresented: $showAutoCropDialog)
-    }
+    .nativeDialog(isPresented: model.showMissingFilmBaseDialog,
+      title: "未框选片基", primaryTitle: "框选片基",
+      primaryEnabled: model.hasImage,
+      primary: { model.beginFilmBaseSelection() },
+      cancel: { model.showMissingFilmBaseDialog = false }) { EmptyView() }
+    .nativeDialog(isPresented: showRollTimingConfirmation || model.showRollTimingDialog,
+      title: showRollTimingConfirmation ? "色罩分析" : (model.isAnalyzingRollTiming ? "色罩分析" : (model.rollTimingError == nil ? "分析成功" : "分析未完成")),
+      message: showRollTimingConfirmation ? "将开始整卷色罩分析，请确认已完成有效画幅裁剪和片基框选" : (model.rollTimingError ?? ""),
+      primaryTitle: showRollTimingConfirmation ? "开始分析" : (!model.isAnalyzingRollTiming && model.rollTimingError == nil ? "应用到整卷" : nil),
+      cancelTitle: model.isAnalyzingRollTiming ? "取消分析" : "取消",
+      primary: {
+        if showRollTimingConfirmation {
+          model.startRollTiming(autoExposure: autoExposure)
+          showRollTimingConfirmation = false
+        } else { model.applyRollTiming(preserveEdited: preserveRollTimingEdits) }
+      }, cancel: {
+        showRollTimingConfirmation = false
+        model.cancelRollTiming()
+      }) {
+        if showRollTimingConfirmation {
+          Toggle("自动曝光", isOn: $autoExposure).toggleStyle(.checkbox)
+        } else if model.isAnalyzingRollTiming {
+          HStack { ProgressView().controlSize(.small); Text(model.rollTimingProgress); Spacer() }
+        } else if model.rollTimingError == nil {
+          Toggle("保留已调色", isOn: $preserveRollTimingEdits).toggleStyle(.checkbox)
+        }
+      }
+    .background(AutoCropDialogView(model: model, isPresented: $showAutoCropDialog))
     .sheet(item: $model.matrixManager) { kind in MatrixManagerView(model: model, kind: kind) }
-    .sheet(isPresented: $model.showExportSummary) { ExportSummaryView(model: model) }
     .task(id: previewIsWaiting) {
       showPreviewLoadingHint = false
       guard previewIsWaiting else { return }
@@ -137,38 +158,17 @@ struct EditorView: View {
   private var previewIsWaiting: Bool {
     model.project != nil && model.previewImage == nil && (model.isLoading || model.isRendering)
   }
-  private var operationStatus: some View {
-    HStack(spacing: 10) {
-      if model.saveFailure {
-        Label("设置未保存", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
-        Button("重试保存") { model.flushSave() }.buttonStyle(.link)
-      }
-      if model.isLoading || model.isDetailLoading || model.isNeutralSampling || model.isPreparingGeometry {
-        Text(model.isLoading ? "正在准备图像预览…" : "正在准备原始精度图像…")
-          .font(.caption).foregroundStyle(InterfaceColors.secondaryText)
-      }
-      Spacer(minLength: 10)
-      if model.isExporting {
-        Text(model.exportDetail).lineLimit(1)
-        ProgressView(value: model.exportProgress).frame(width: 110)
-        Text(model.exportProgress, format: .percent.precision(.fractionLength(0)))
-          .monospacedDigit().frame(width: 34, alignment: .trailing)
-        Button("取消导出") { model.cancelExport() }.controlSize(.small)
-      }
-    }.font(.caption2).padding(.horizontal, 18).padding(.bottom, 8)
-  }
   @ToolbarContentBuilder private var mainToolbar: some ToolbarContent {
     if #available(macOS 26.0, *) {
-      ToolbarItem(placement: .navigation) { toolbarBranding }
+      ToolbarItem(id: "printroom-branding", placement: .navigation) { toolbarBranding }
         .sharedBackgroundVisibility(.hidden)
-      ToolbarItem(placement: .principal) { toolbarRollTitle }
-        .sharedBackgroundVisibility(.hidden)
-      ToolbarItem(placement: .primaryAction) { toolbarActions }
+      ToolbarSpacer(.flexible, placement: .primaryAction)
+      ToolbarItem(id: "printroom-actions", placement: .primaryAction) { toolbarActions }
         .sharedBackgroundVisibility(.hidden)
     } else {
-      ToolbarItem(placement: .navigation) { toolbarBranding }
-      ToolbarItem(placement: .principal) { toolbarRollTitle }
-      ToolbarItem(placement: .primaryAction) { toolbarActions }
+      ToolbarItem(id: "printroom-branding", placement: .navigation) { toolbarBranding }
+      ToolbarItem(placement: .principal) { Spacer(minLength: 0) }
+      ToolbarItem(id: "printroom-actions", placement: .primaryAction) { toolbarActions }
     }
   }
   private var toolbarBranding: some View {
@@ -176,21 +176,28 @@ struct EditorView: View {
       Image(systemName: "square.stack.3d.down.right").font(.title2).foregroundStyle(accent)
       Text("PRINTROOM").font(.system(size: 15, weight: .semibold, design: .monospaced))
         .tracking(3)
+      AppearanceToggle()
     }.fixedSize()
   }
-  private var toolbarRollTitle: some View {
+  private var filmstripRollTitle: some View {
     HStack(spacing: 8) {
       if model.project != nil {
         Text(model.rollName)
-          .font(.system(size: 15, weight: .semibold))
+          .font(.system(size: 12, weight: .semibold))
           .foregroundStyle(InterfaceColors.primaryText)
           .lineLimit(1).truncationMode(.middle)
           .help(model.rollName)
         Button { model.renameRollPanel() } label: {
           Image(systemName: "pencil").font(.system(size: 12, weight: .medium))
         }.buttonStyle(.plain).help("命名胶卷").accessibilityLabel("命名胶卷")
+        Button { model.openRollFolderInFinder() } label: {
+          Image(systemName: "folder").font(.system(size: 12, weight: .medium))
+        }.buttonStyle(.plain).help("在 Finder 中打开底片文件夹")
+          .accessibilityLabel("在 Finder 中打开底片文件夹")
+          .disabled(model.folder == nil)
       }
-    }.frame(maxWidth: 260)
+    }.frame(maxWidth: 320, alignment: .leading)
+      .fixedSize(horizontal: true, vertical: false)
   }
   private var toolbarActions: some View {
     HStack(spacing: 10) {
@@ -201,6 +208,18 @@ struct EditorView: View {
         Label("回到主页", systemImage: "house")
       }.disabled(model.project == nil || model.isExporting)
       Divider().frame(height: 20)
+      Button {
+        model.stopTimingKey()
+        model.endAdjustment()
+        showSprocketWhitening = true
+      } label: {
+        Label("齿孔置白", systemImage: "film")
+      }
+      .disabled(model.project == nil || model.isLoading || model.isExporting || model.isCropping || model.isAutoCropping)
+      .help("设置整卷齿孔置白")
+      .popover(isPresented: $showSprocketWhitening, arrowEdge: .bottom) {
+        SprocketWhiteningControlsView(model: model)
+      }
       Button { showAutoCropDialog = true } label: {
         Label("自动裁剪", systemImage: "crop")
       }.disabled(!model.canStartAutoCrop)
@@ -208,35 +227,29 @@ struct EditorView: View {
       Button {
         model.stopTimingKey()
         model.endAdjustment()
+        if !model.hasFilmBase {
+          model.showMissingFilmBaseDialog = true
+          return
+        }
+        autoExposure = false
+        preserveRollTimingEdits = false
         showRollTimingConfirmation = true
       } label: {
         Label("色罩分析", systemImage: "wand.and.stars")
       }
-        .disabled(!model.canStartRollTiming)
-        .help(model.project?.calibration.isCalibrated == true && model.project?.calibrationNeedsReview == false
-          ? "色罩分析" : "色罩分析：请先框选片基完成对齐")
+        .disabled(model.hasFilmBase ? !model.canStartRollTiming : !model.canOpenRollTiming)
+        .help("色罩分析")
         .accessibilityLabel("色罩分析")
-        .alert("色罩分析", isPresented: $showRollTimingConfirmation) {
-          Button("取消", role: .cancel) {}
-          Button("开始分析") { model.startRollTiming() }
-        } message: {
-          Text("将开始整卷色罩分析，请确认已完成有效画幅裁剪和片基框选")
-        }
       Button {
         model.resetAdjustments()
       } label: {
         Label("重置调色", systemImage: "arrow.counterclockwise")
-      }.disabled(model.activeFrame == nil)
+      }.disabled(!model.canAdjustColors)
         .help("重置当前照片的 Timing、Contrast 与 Cineon Log LUT · 可撤销")
       Menu {
-        Button("导出当前照片…") { model.exportPanel() }.disabled(!model.hasImage)
         Button("导出选中 \(model.selection.selectedFrameIDs.count) 张…") { model.batchExportPanel(allFrames: false) }
           .disabled(model.selection.selectedFrameIDs.isEmpty)
         Button("导出整卷…") { model.batchExportPanel(allFrames: true) }
-        if model.exportSummary != nil {
-          Divider()
-          Button("查看上次导出结果") { model.showExportSummary = true }
-        }
       } label: {
         Label("导出", systemImage: "square.and.arrow.up")
       }.menuStyle(.borderlessButton).fixedSize()
@@ -256,10 +269,9 @@ struct EditorView: View {
       Text(model.activeFrame?.filename ?? "预览").font(
         .system(size: 12, weight: .medium, design: .monospaced)
       ).lineLimit(1).truncationMode(.middle).layoutPriority(-1)
-      if model.sourceWidth > 0 {
-        Text("\(model.displayWidth) × \(model.displayHeight)").font(.caption2).foregroundStyle(
-          InterfaceColors.tertiaryText)
-      }
+        .help(model.sourceWidth > 0
+          ? "\(model.activeFrame?.filename ?? "预览") · \(model.displayWidth) × \(model.displayHeight)"
+          : model.activeFrame?.filename ?? "预览")
       Spacer()
       HStack(spacing: 4) {
         Button { model.beginCrop() } label: {
@@ -283,32 +295,15 @@ struct EditorView: View {
         .fixedSize()
         .help("仅切换主画面的裁剪效果，直方图仍统计裁剪后的画面")
       PreviewToolMenu(title: "管线预览", value: pipelinePreviewTitle) {
-        ForEach([PipelineStage.l2, .d3, .final], id: \.self) { stage in
-          Toggle(pipelinePreviewTitle(for: stage), isOn: Binding(
-            get: { model.stage == stage },
-            set: { selected in if selected { model.stage = stage } }
-          ))
-        }
-      }.help("管线预览：\(pipelinePreviewTitle)")
-      previewToolDivider
-      HStack(spacing: 0) {
-        Button { resetToken += 1 } label: {
-          PreviewToolLabel(selected: viewportMode == .fit) { Text("适应") }
-        }.help("适应窗口 · 双击照片复位")
-        Button { model.inspectNativeResolution() } label: {
-          PreviewToolLabel(selected: viewportMode == .native) {
-            Text("100%")
+        if model.hasFilmBase {
+          ForEach([PipelineStage.l2, .d3, .final], id: \.self) { stage in
+            Toggle(pipelinePreviewTitle(for: stage), isOn: Binding(
+              get: { model.stage == stage },
+              set: { selected in if selected { model.stage = stage } }
+            ))
           }
         }
-        .opacity(model.isDetailLoading ? 0.5 : 1)
-        .help(model.activeFrame?.rawProcessing != nil
-          ? "放大代理查看；全尺寸仅用于导出 · ⌘1"
-          : (model.isDetailLoading ? "正在读取原始分辨率区域" : "查看原始分辨率 · ⌘1"))
-      }
-      .buttonStyle(.plain)
-      .padding(2)
-      .background(InterfaceColors.control, in: RoundedRectangle(cornerRadius: 7))
-      .disabled(!model.hasImage || model.isCropping)
+      }.disabled(!model.hasFilmBase).help("管线预览：\(pipelinePreviewTitle)")
     }.padding(.horizontal, 12).frame(height: 38)
       .background(InterfaceColors.panel)
       .tint(InterfaceColors.primaryText)
@@ -331,7 +326,7 @@ struct EditorView: View {
     Rectangle().fill(InterfaceColors.separator).frame(width: 1, height: 14)
       .padding(.horizontal, 4)
   }
-  private var pipelinePreviewTitle: String { pipelinePreviewTitle(for: model.stage) }
+  private var pipelinePreviewTitle: String { model.hasFilmBase ? pipelinePreviewTitle(for: model.stage) : "原图" }
   private func pipelinePreviewTitle(for stage: PipelineStage) -> String {
     switch stage {
     case .l2: "线性"
@@ -345,7 +340,7 @@ struct EditorView: View {
       Image(systemName: "viewfinder.rectangular").font(.system(size: model.recentRolls != nil ? 32 : 52, weight: .ultraLight))
         .foregroundStyle(accent)
       HStack(spacing: 10) {
-        Button("打开底片文件夹") { model.openPanel() }.buttonStyle(.borderedProminent)
+        Button("打开底片") { model.openPanel() }.buttonStyle(.borderedProminent)
         Button { openWindow(id: "cache-manager") } label: {
           Label("管理缓存", systemImage: "internaldrive")
         }.buttonStyle(.bordered)
@@ -381,7 +376,7 @@ struct EditorView: View {
         VStack(alignment: .leading, spacing: 16) {
           HStack {
             heading("01", "矩阵矫正 · 整卷", bottomPadding: 0)
-            Button("管理矩阵") {
+            Button("管理…") {
               model.stopTimingKey()
               model.showMatrixMenu = true
             }
@@ -417,16 +412,12 @@ struct EditorView: View {
             }.controlSize(.small).font(.system(size: 11))
               .fixedSize().disabled(!model.hasImage || model.isCropping)
           }
-          if model.project?.calibrationNeedsReview == true {
-            Label("片基来源变化 · 请重新采样", systemImage: "exclamationmark.triangle")
-              .foregroundStyle(accent).font(.caption)
-          }
         }.padding(.vertical, 6)
         Divider().overlay(InterfaceColors.subtleSeparator).opacity(0.45)
         VStack(alignment: .leading, spacing: 10) {
           HStack(spacing: 8) {
             Text("03").font(.system(size: 10, design: .monospaced)).foregroundStyle(InterfaceColors.secondaryText)
-            Text("TIMING").font(.system(size: 11, weight: .medium))
+            Text("Color Timing").font(.system(size: 11, weight: .medium))
             Spacer(minLength: 0)
             Picker("Timing 模式", selection: $model.timingMode) {
               Text("简易").tag(TimingMode.simple)
@@ -459,15 +450,15 @@ struct EditorView: View {
               timingRow("Blue", \.blue, color: ChannelColors.blue)
             }
           }
-        }.disabled(model.activeFrame == nil)
+        }.disabled(!model.canAdjustColors)
         Divider().overlay(InterfaceColors.subtleSeparator).opacity(0.45)
         VStack(alignment: .leading, spacing: 9) {
-          heading("04", "RGB CONTRAST")
+          heading("04", "RGB Contrast")
           contrastRow("Master", \.master, color: InterfaceColors.primaryText)
           contrastRow("Red", \.red, color: ChannelColors.red)
           contrastRow("Green", \.green, color: ChannelColors.green)
           contrastRow("Blue", \.blue, color: ChannelColors.blue)
-        }.disabled(model.activeFrame == nil)
+        }.disabled(!model.canAdjustColors)
         Divider().overlay(InterfaceColors.subtleSeparator).opacity(0.45)
         HStack(spacing: 6) {
           heading("05", "Cineon Log LUT", bottomPadding: 0)
@@ -477,7 +468,7 @@ struct EditorView: View {
             set: { value in model.edit { $0.cineonLogLUT = value } })) {
               ForEach(CineonLogLUT.allCases, id: \.self) { lut in Text(lut.label).tag(lut) }
             }.labelsHidden().controlSize(.small).font(.system(size: 11))
-        }.disabled(model.activeFrame == nil)
+        }.disabled(!model.canAdjustColors)
       }.padding(16).background(OverlayScrollbars())
     }.background(InterfaceColors.panel)
   }
@@ -517,32 +508,30 @@ struct EditorView: View {
   private var filmstrip: some View {
     VStack(alignment: .leading, spacing: 6) {
       HStack {
-        Text("FILMSTRIP").font(.system(size: 10, weight: .medium, design: .monospaced)).tracking(
-          1.5)
+        if model.project != nil { filmstripRollTitle }
         Text(
           "\(model.project?.frames.count ?? 0) 张 · 已选 \(model.selection.selectedFrameIDs.count) 张"
-        ).font(.caption2).foregroundStyle(InterfaceColors.secondaryText)
+        ).font(.caption2).foregroundStyle(InterfaceColors.secondaryText).fixedSize()
         Spacer()
         if let snapshot = model.snapshot, !model.isAutoCropping {
-          Text("已复制调色：\(snapshot.sourceName)").font(.caption2).foregroundStyle(accent)
+          Text("已复制：\(snapshot.sourceName)").font(.caption2).foregroundStyle(accent)
         }
         Button("同步…") { model.beginSync() }
           .disabled(!model.canSync)
           .help(model.isCropping ? "先完成当前照片裁剪，再同步" : "把当前照片的设置同步到其余所选照片")
           .popover(isPresented: $model.showSync, arrowEdge: .top) {
             VStack(alignment: .leading, spacing: 14) {
-              Text("同步当前照片").font(.headline)
+              Text("同步").font(.headline)
               Text("来源：\(model.activeFrame?.filename ?? "")").lineLimit(2)
-              Text("目标：其余 \(model.syncTargetIDs.count) 张").foregroundStyle(InterfaceColors.secondaryText)
               Divider()
-              Toggle("RGB Timing", isOn: $model.syncTiming)
-              Toggle("RGB Contrast", isOn: $model.syncContrast)
-              Toggle("Cineon Log LUT", isOn: $model.syncLUT)
-              Toggle("裁剪 · 范围与精细角度", isOn: $model.syncCrop)
+              Toggle("Color Timing", isOn: $model.syncTiming).disabled(!model.hasFilmBase)
+              Toggle("RGB Contrast", isOn: $model.syncContrast).disabled(!model.hasFilmBase)
+              Toggle("Cineon Log LUT", isOn: $model.syncLUT).disabled(!model.hasFilmBase)
+              Toggle("裁剪", isOn: $model.syncCrop)
               HStack {
                 Button("取消") { model.showSync = false }.keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("应用到其余 \(model.syncTargetIDs.count) 张") { model.syncCurrentSettings() }
+                Button("应用到 \(model.syncTargetIDs.count) 张") { model.syncCurrentSettings() }
                   .buttonStyle(.borderedProminent)
                   .disabled(!model.canSync || !model.hasSyncSelection)
               }
@@ -551,6 +540,7 @@ struct EditorView: View {
           .onChange(of: model.selection.selectedFrameIDs) { _, _ in model.showSync = false }
           .onChange(of: model.selection.activeFrameID) { _, _ in model.showSync = false }
           .onChange(of: model.isCropping) { _, _ in model.showSync = false }
+          .onChange(of: model.hasFilmBase) { _, _ in model.showSync = false }
       }
       ScrollViewReader { proxy in
         ScrollView(.horizontal) {
@@ -571,8 +561,8 @@ struct EditorView: View {
                   thumbnail(frame, index: index).contentShape(Rectangle())
                 }.buttonStyle(FilmstripButtonStyle()).id(frame.id)
                   .contextMenu {
-                    Button("复制调色 · 当前照片（⌘C）") { model.copyParameters() }
-                    Button("粘贴调色到所选照片（⌘V）") { model.applyParameters() }
+                    Button("复制调色（⌘C）") { model.copyParameters() }.disabled(!model.canAdjustColors)
+                    Button("粘贴调色（⌘V）") { model.applyParameters() }
                       .disabled(!model.canApply)
                     Divider()
                     Group {
@@ -660,69 +650,65 @@ private struct AutoCropDialogView: View {
   private var invalidRatio: Bool { selectedRatio == nil }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 18) {
-      Text("自动裁剪").font(.title3.weight(.semibold))
-
-      VStack(alignment: .leading, spacing: 10) {
-        Picker("画幅比例", selection: $ratioChoice) {
-          ForEach(ratios, id: \.self) { Text($0).tag($0) }
-        }.pickerStyle(.menu)
-        if ratioChoice == "自定义" {
-          HStack {
-            TextField("宽", text: $customWidth).accessibilityLabel("自定义比例宽")
-            Text(":")
-            TextField("高", text: $customHeight).accessibilityLabel("自定义比例高")
-          }.textFieldStyle(.roundedBorder)
-        }
-        Toggle("交换宽高", isOn: $portrait).toggleStyle(.checkbox)
-        if invalidRatio {
-          Text("请输入有效正数，比例范围为 1:10～10:1。")
-            .font(.caption).foregroundStyle(.red)
-        }
-      }.disabled(model.isAutoCropping)
-
-      Toggle("保留已裁剪", isOn: $preserveExisting)
-        .toggleStyle(.checkbox)
-        .disabled(model.isAutoCropping)
-
-      Picker("每边内收", selection: $inwardPercent) {
-        ForEach(0...5, id: \.self) { percent in
-          Text("\(percent)%").tag(percent)
-        }
-      }
-      .pickerStyle(.menu)
-      .disabled(model.isAutoCropping)
-
-      if model.isAutoCropping {
-        VStack(alignment: .leading, spacing: 8) {
-          ProgressView()
-          Text(model.autoCropProgressText)
-            .font(.caption).foregroundStyle(InterfaceColors.secondaryText).lineLimit(1)
-        }
-      }
-
-      HStack {
-        if model.isAutoCropping {
-          Button("取消分析") {
-            started = false
-            model.cancelAutoCrop()
-          }
-        } else {
-          Button("取消") { isPresented = false }.keyboardShortcut(.cancelAction)
-        }
-        Spacer()
-        Button("开始") {
+    Color.clear.frame(width: 0, height: 0)
+      .nativeDialog(isPresented: isPresented, title: "自动裁剪",
+        primaryTitle: model.isAutoCropping ? nil : "开始", primaryEnabled: !invalidRatio,
+        cancelTitle: model.isAutoCropping ? "取消分析" : "取消",
+        primary: {
           guard let selectedRatio else { return }
           started = true
           model.startAutoCrop(preserveExisting: preserveExisting, inwardPercent: Double(inwardPercent), aspectRatio: selectedRatio)
+        }, cancel: {
+          if model.isAutoCropping { started = false; model.cancelAutoCrop() }
+          else { isPresented = false }
+        }) {
+        VStack(alignment: .leading, spacing: 18) {
+          VStack(alignment: .leading, spacing: 10) {
+            Picker("画幅比例", selection: $ratioChoice) {
+              ForEach(ratios, id: \.self) { Text($0).tag($0) }
+            }.pickerStyle(.menu)
+            if ratioChoice == "自定义" {
+              HStack {
+                TextField("宽", text: $customWidth).accessibilityLabel("自定义比例宽")
+                Text(":")
+                TextField("高", text: $customHeight).accessibilityLabel("自定义比例高")
+              }.textFieldStyle(.roundedBorder)
+            }
+            Toggle("交换宽高", isOn: $portrait).toggleStyle(.checkbox)
+            if invalidRatio {
+              Text("请输入有效正数，比例范围为 1:10～10:1。")
+                .font(.caption).foregroundStyle(.red)
+            }
+          }.disabled(model.isAutoCropping)
+
+          Toggle("保留已裁剪", isOn: $preserveExisting)
+            .toggleStyle(.checkbox)
+            .disabled(model.isAutoCropping)
+
+          Picker("每边内收", selection: $inwardPercent) {
+            ForEach(0...5, id: \.self) { percent in
+              Text("\(percent)%").tag(percent)
+            }
+          }
+          .pickerStyle(.menu)
+          .disabled(model.isAutoCropping)
+
+          if model.isAutoCropping {
+            VStack(alignment: .leading, spacing: 8) {
+              ProgressView()
+              Text(model.autoCropProgressText)
+                .font(.caption).foregroundStyle(InterfaceColors.secondaryText).lineLimit(1)
+            }
+          }
+
         }
-        .buttonStyle(.borderedProminent)
-        .keyboardShortcut(.defaultAction)
-        .disabled(model.isAutoCropping || invalidRatio)
+      }
+    .onChange(of: isPresented) { _, shown in
+      if shown {
+        preserveExisting = false; inwardPercent = 1; started = false
+        ratioChoice = "3:2"; customWidth = "3"; customHeight = "2"; portrait = false
       }
     }
-    .padding(22).frame(width: 300)
-    .interactiveDismissDisabled(model.isAutoCropping)
     .onChange(of: model.autoCropCompletedRun) { _, _ in
       guard started else { return }
       started = false
@@ -731,42 +717,6 @@ private struct AutoCropDialogView: View {
     }
   }
 }
-
-struct RollTimingDialogView: View {
-  @ObservedObject var model: EditorModel
-  @State private var preserveEdited = false
-  var body: some View {
-    VStack(alignment: .leading, spacing: 20) {
-      Text(!model.isAnalyzingRollTiming && model.rollTimingError == nil ? "分析完成" : "整卷自动调色").font(.headline)
-      if model.isAnalyzingRollTiming {
-        HStack { ProgressView().controlSize(.small); Text(model.rollTimingProgress) }
-      } else if let error = model.rollTimingError {
-        Text(error).foregroundStyle(InterfaceColors.secondaryText).fixedSize(horizontal: false, vertical: true)
-      } else if let timing = model.rollTimingValues {
-        VStack(alignment: .leading, spacing: 10) {
-          Text("整卷 RGB Timing")
-          HStack(spacing: 20) {
-            Text("R  " + String(format: "%+d", timing.red))
-            Text("G  " + String(format: "%+d", timing.green))
-            Text("B  " + String(format: "%+d", timing.blue))
-          }.font(.system(.body, design: .monospaced))
-        }
-        Toggle("保留已调色", isOn: $preserveEdited)
-      }
-      HStack {
-        Spacer()
-        Button(model.isAnalyzingRollTiming ? "取消分析" : "取消") { model.cancelRollTiming() }
-          .keyboardShortcut(.cancelAction)
-        if !model.isAnalyzingRollTiming && model.rollTimingError == nil {
-          Button("应用到整卷") { model.applyRollTiming(preserveEdited: preserveEdited) }
-            .keyboardShortcut(.defaultAction)
-        }
-      }
-    }.padding(24).frame(width: 310)
-      .interactiveDismissDisabled()
-  }
-}
-
 
 /// Native popup sizing follows the shared layout column rather than its selected title.
 private struct MatrixMenuControl: NSViewRepresentable {
@@ -809,5 +759,40 @@ private struct MatrixMenuControl: NSViewRepresentable {
       guard parent.options.indices.contains(index) else { return }
       parent.onSelect(parent.options[index])
     }
+  }
+}
+
+struct SprocketWhiteningControlsView: View {
+  @ObservedObject var model: EditorModel
+  var body: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      Toggle("齿孔置白", isOn: Binding(get: { model.sprocketWhitening.enabled }, set: { enabled in
+        var settings = model.sprocketWhitening
+        settings.enabled = enabled
+        model.setSprocketWhitening(settings)
+      }))
+      .disabled(!model.canAdjustSprocketWhitening && !model.sprocketWhitening.enabled)
+      HStack {
+        Text("识别阈值")
+        Spacer()
+        Text("片基 +\(Int(model.sprocketWhitening.thresholdPercent))%")
+          .monospacedDigit().foregroundStyle(InterfaceColors.secondaryText)
+      }
+      Slider(value: Binding(get: { model.sprocketWhitening.thresholdPercent }, set: { threshold in
+        var settings = model.sprocketWhitening
+        settings.thresholdPercent = threshold.rounded()
+        model.setSprocketWhitening(settings)
+      }), in: 5...200, onEditingChanged: { editing in
+        if editing { model.beginAdjustment() } else { model.endAdjustment() }
+      })
+      .disabled(!model.sprocketWhitening.enabled || !model.canAdjustSprocketWhitening)
+      .accessibilityLabel("齿孔识别阈值")
+      if !model.canAdjustSprocketWhitening {
+        Text("请先完成片基校准，并为照片设置裁剪。")
+          .font(.caption).foregroundStyle(InterfaceColors.secondaryText)
+      }
+    }
+    .padding(18).frame(width: 290)
+    .onDisappear { model.endAdjustment() }
   }
 }

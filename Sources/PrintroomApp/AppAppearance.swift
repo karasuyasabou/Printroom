@@ -13,16 +13,59 @@ enum AppAppearance: String, CaseIterable {
   }
 }
 
-struct AppearanceCommands: Commands {
+struct AppearanceToggle: View {
   @AppStorage(AppAppearance.defaultsKey) private var appearance: AppAppearance = .dark
+  @Environment(\.colorScheme) private var colorScheme
 
-  var body: some Commands {
-    CommandMenu("外观") {
-      Picker("主题", selection: $appearance) {
-        ForEach(AppAppearance.allCases, id: \.self) { theme in
-          Text(theme.title).tag(theme)
-        }
-      }.pickerStyle(.inline)
+  var body: some View {
+    HStack(spacing: 2) {
+      segment(.light, symbol: "sun.max.fill")
+      segment(.dark, symbol: "moon.fill")
+    }
+    .padding(3)
+    .background(InterfaceColors.secondaryPanel, in: Capsule())
+    .overlay(Capsule().strokeBorder(InterfaceColors.separator, lineWidth: 0.5))
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel("外观")
+    .accessibilityIdentifier("appearance-toggle")
+  }
+
+  private func segment(_ theme: AppAppearance, symbol: String) -> some View {
+    let selected = (colorScheme == .dark) == (theme == .dark)
+    return Button {
+      appearance = theme
+      theme.apply()
+    } label: {
+      Image(systemName: symbol)
+        .font(.system(size: 12, weight: .medium))
+        .foregroundStyle(selected ? InterfaceColors.accent : InterfaceColors.secondaryText)
+        .frame(width: 28, height: 24)
+        .background(selected ? InterfaceColors.control : .clear, in: Capsule())
+        .overlay(Capsule().strokeBorder(selected ? InterfaceColors.separator : .clear, lineWidth: 0.5))
+        .contentShape(Capsule())
+    }
+    .buttonStyle(AppearanceButtonStyle())
+    .help("\(theme.title)外观")
+    .accessibilityLabel("\(theme.title)外观")
+    .accessibilityAddTraits(selected ? .isSelected : [])
+  }
+}
+
+private struct AppearanceButtonStyle: ButtonStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    Surface(label: configuration.label, pressed: configuration.isPressed)
+  }
+
+  private struct Surface: View {
+    let label: ButtonStyleConfiguration.Label
+    let pressed: Bool
+    @State private var hovering = false
+
+    var body: some View {
+      label
+        .background(hovering || pressed ? InterfaceColors.hover : .clear, in: Capsule())
+        .opacity(pressed ? 0.7 : 1)
+        .onHover { hovering = $0 }
     }
   }
 }

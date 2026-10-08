@@ -16,6 +16,8 @@ struct AdjustmentSchedulingTests {
     let folder = try fixture(profile: assets.profile)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     try await settled(model, thumbnails: 1)
     let probe = SchedulingPublicationProbe()
     let subscription = model.$previewImage.dropFirst().sink { image in
@@ -49,6 +51,8 @@ struct AdjustmentSchedulingTests {
     let folder = try fixture(profile: assets.profile, count: 2)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     try await settled(model, thumbnails: 2)
     let frames = try #require(model.project?.frames)
     for step in 0..<18 {
@@ -83,6 +87,8 @@ struct AdjustmentSchedulingTests {
     let folder = try fixture(profile: assets.profile, count: 2)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     try await settled(model, thumbnails: 2)
     let frames = try #require(model.project?.frames)
     let first = try #require(model.thumbnails[frames[0].id])
@@ -112,6 +118,8 @@ struct AdjustmentSchedulingTests {
     let folder = try fixture(profile: assets.profile, count: 3)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     try await settled(model, thumbnails: 3)
     let frames = try #require(model.project?.frames)
     let initialA = try #require(model.thumbnails[frames[0].id])
@@ -167,9 +175,11 @@ struct AdjustmentSchedulingTests {
     let folder = try fixture(profile: assets.profile, count: 16)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     let frames = try #require(model.project?.frames)
-    #expect(model.thumbnails.isEmpty)
-    // These refreshes cancel the initial worker before it gets its first turn.
+    #expect(model.thumbnails.count < frames.count)
+    // These refreshes cancel initial thumbnail work while frames remain pending.
     // Its remaining frame IDs must survive every replacement generation.
     for step in 1...4 { model.edit { $0.timing.red = step * 9 } }
     for step in 5...24 {
@@ -185,6 +195,45 @@ struct AdjustmentSchedulingTests {
     }
     try await verifyFinalPreview(model, folder: folder, assets: assets)
     #expect(model.flushSave())
+  }
+
+  @Test func revisitingEvictedTIFFAndEditingDuringLoadNeverPublishesThumbnailResolution() async throws {
+    let model = EditorModel()
+    let assets = try #require(model.assets)
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("PrintroomProxySwitch-\(UUID())")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { model.returnHome(); try? FileManager.default.removeItem(at: folder) }
+    let width = 2403, height = 1603, original = folder.appendingPathComponent("0.tiff")
+    try TIFFCodec.write(url: original, width: width, height: height, profile: assets.profile, compression: .deflate) { rows in
+      (rows.lowerBound * width * 3..<rows.upperBound * width * 3).map { UInt16(truncatingIfNeeded: $0 * 97) }
+    }
+    let frameCount = 13
+    for index in 1..<frameCount { try FileManager.default.copyItem(at: original, to: folder.appendingPathComponent("\(index).tiff")) }
+    model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
+    try await settled(model, thumbnails: frameCount)
+    let frames = try #require(model.project?.frames)
+    var widths: [Int] = []
+    let subscription = model.$previewImage.sink { image in
+      if let image { widths.append(image.width) }
+    }
+    defer { subscription.cancel() }
+    // Thirteen frames exceed both twelve-entry caches regardless of aspect ratio.
+    for frame in frames.dropFirst() {
+      model.select(frame.id)
+      try await settled(model, thumbnails: frameCount)
+    }
+    model.select(frames[0].id)
+    #expect(model.isLoading && model.previewImage == nil)
+    model.beginAdjustment()
+    model.edit { $0.timing.red = 73 }
+    model.endAdjustment()
+    try await settled(model, thumbnails: frameCount)
+    #expect(model.adjustments.timing.red == 73)
+    #expect(!widths.isEmpty && widths.allSatisfy { $0 == 1600 })
+    try await verifyFinalPreview(model, folder: folder, assets: assets)
+    #expect(model.errorMessage == nil)
   }
 
   private func fixture(profile: Data, count: Int = 1) throws -> URL {

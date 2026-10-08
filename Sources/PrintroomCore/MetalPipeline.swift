@@ -6,6 +6,7 @@ public final class MetalPipeline: @unchecked Sendable {
   private let device: MTLDevice
   private let queue: MTLCommandQueue
   private let state: MTLComputePipelineState
+  private let whiteningState: MTLComputePipelineState
   private let defaultSession: Session
   public var deviceName: String { device.name }
 
@@ -24,34 +25,41 @@ public final class MetalPipeline: @unchecked Sendable {
       throw PrintroomError.invalid("Metal 管线函数缺失")
     }
     let state = try device.makeComputePipelineState(function: function)
+    guard let whitening = library.makeFunction(name: "printroomSprocketWhitening") else {
+      throw PrintroomError.invalid("Metal 齿孔合成函数缺失")
+    }
+    let whiteningState = try device.makeComputePipelineState(function: whitening)
     self.device = device
     self.queue = queue
     self.state = state
-    self.defaultSession = Session(device: device, queue: queue, state: state)
+    self.whiteningState = whiteningState
+    self.defaultSession = Session(device: device, queue: queue, state: state, whiteningState: whiteningState)
   }
 
   /// A lane owns its buffers, so main preview, thumbnails and ROI do not evict
   /// each other's cached source or wait for each other's CPU-side render lock.
   public func makeSession() -> Session {
-    Session(device: device, queue: queue, state: state)
+    Session(device: device, queue: queue, state: state, whiteningState: whiteningState)
   }
 
   /// Existing export callers keep the full pipeline and reuse bounded buffers.
   public func render(
     _ input: PixelBuffer, calibration: FilmCalibration, adjustments: FrameAdjustments, lut: CubeLUT,
-    stage: PipelineStage = .final
+    stage: PipelineStage = .final, sprocketWhitening: SprocketWhiteningContext? = nil
   ) throws -> PixelBuffer {
     try defaultSession.render(
-      input, calibration: calibration, adjustments: adjustments, lut: lut, stage: stage)
+      input, calibration: calibration, adjustments: adjustments, lut: lut, stage: stage,
+      sprocketWhitening: sprocketWhitening)
   }
 
   public final class Session: @unchecked Sendable {
     private let device: MTLDevice
     private let queue: MTLCommandQueue
     private let state: MTLComputePipelineState
+    private let whiteningState: MTLComputePipelineState
     private let lock = NSLock()
     // At most one source, result and D1 per lane, each capped at 40 MiB retained.
-    // Larger 1:1 requests are supported but their buffers are released after use.
+    // Larger pixel buffers are supported but their buffers are released after use.
     private static let retainedPixelByteLimit = 1600 * 1600 * MemoryLayout<SIMD4<Float>>.stride
     private var source, destination, density, table: MTLBuffer?
     private var cachedSource: SourceKey?
@@ -75,10 +83,12 @@ public final class MetalPipeline: @unchecked Sendable {
       }
     }
 
-    fileprivate init(device: MTLDevice, queue: MTLCommandQueue, state: MTLComputePipelineState) {
+    fileprivate init(device: MTLDevice, queue: MTLCommandQueue, state: MTLComputePipelineState,
+      whiteningState: MTLComputePipelineState) {
       self.device = device
       self.queue = queue
       self.state = state
+      self.whiteningState = whiteningState
     }
 
     private struct SourceKey: Equatable {
@@ -97,10 +107,12 @@ public final class MetalPipeline: @unchecked Sendable {
     /// validation/upload runs every time and no source/D1 result is reused.
     public func render(
       _ input: PixelBuffer, calibration: FilmCalibration, adjustments: FrameAdjustments, lut: CubeLUT,
-      stage: PipelineStage = .final, inputIdentity: UUID? = nil
+      stage: PipelineStage = .final, inputIdentity: UUID? = nil,
+      sprocketWhitening: SprocketWhiteningContext? = nil
     ) throws -> PixelBuffer {
       try lock.withLock {
         try Pipeline.validate(adjustments)
+        if stage == .final { try sprocketWhitening?.validate(input) }
         let (count, overflow) = input.width.multipliedReportingOverflow(by: input.height)
         guard input.width > 0, input.height > 0, !overflow,
           count == input.pixels.count, count <= Int(UInt32.max)
@@ -203,6 +215,19 @@ public final class MetalPipeline: @unchecked Sendable {
         } else {
           encode(source: src, destination: dst, parameters: &params)
         }
+        if stage == .final, calibration.isCalibrated, let whitening = sprocketWhitening, whitening.enabled {
+          encoder.memoryBarrier(resources: [dst])
+          encoder.setComputePipelineState(whiteningState)
+          encoder.setBuffer(src, offset: 0, index: 0)
+          encoder.setBuffer(dst, offset: 0, index: 1)
+          var mask = WhiteningParameters(mapX: whitening.mapX, mapY: whitening.mapY,
+            limits: SIMD4(whitening.threshold, SprocketWhiteningContext.transition,
+              SprocketWhiteningContext.protectionMargin, 0), width: UInt32(input.width))
+          encoder.setBytes(&params, length: MemoryLayout<Parameters>.stride, index: 3)
+          encoder.setBytes(&mask, length: MemoryLayout<WhiteningParameters>.stride, index: 4)
+          encoder.dispatchThreads(MTLSize(width: count, height: 1, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: min(whiteningState.maxTotalThreadsPerThreadgroup, 256), height: 1, depth: 1))
+        }
         encoder.endEncoding()
         command.commit()
         command.waitUntilCompleted()
@@ -231,6 +256,10 @@ public final class MetalPipeline: @unchecked Sendable {
     }
   }
 
+  private struct WhiteningParameters {
+    var mapX, mapY, limits: SIMD4<Float>
+    var width: UInt32
+  }
   private struct Parameters {
     var cmosR, cmosG, cmosB, densityR, densityG, densityB: SIMD4<Float>
     var gain, offset, contrast: SIMD4<Float>
@@ -240,6 +269,25 @@ public final class MetalPipeline: @unchecked Sendable {
     #include <metal_stdlib>
     using namespace metal;
     struct Params { float4 cmosR; float4 cmosG; float4 cmosB; float4 densityR; float4 densityG; float4 densityB; float4 gain; float4 offset; float4 contrast; uint count; uint stage; uint lutSize; uint matrix; uint cmos; uint sourceStage; };
+    struct WhiteningParams { float4 mapX; float4 mapY; float4 limits; uint width; };
+    kernel void printroomSprocketWhitening(device const float4 *src [[buffer(0)]],
+        device float4 *dst [[buffer(1)]], constant Params& p [[buffer(3)]],
+        constant WhiteningParams& m [[buffer(4)]], uint i [[thread_position_in_grid]]) {
+        if (i>=p.count) return;
+        float x=float(i % m.width), y=float(i / m.width);
+        float cx=m.mapX.x*x+m.mapX.y*y+m.mapX.z;
+        float cy=m.mapY.x*x+m.mapY.y*y+m.mapY.z;
+        float margin=m.limits.z;
+        if (cx>=-margin && cx<=1.0f+margin && cy>=-margin && cy<=1.0f+margin) return;
+        float3 raw=src[i].xyz;
+        float3 linear=p.cmos==1 ? float3(dot(p.cmosR.xyz,raw),dot(p.cmosG.xyz,raw),dot(p.cmosB.xyz,raw)) : raw;
+        float3 relative=linear*p.gain.xyz/0.75f;
+        float brightness=min(relative.x,min(relative.y,relative.z));
+        float t=clamp((brightness-m.limits.x)/m.limits.y,0.0f,1.0f);
+        float amount=t*t*(3.0f-2.0f*t);
+        if (amount==0.0f) return;
+        dst[i]=amount==1.0f ? float4(1.0f) : float4(dst[i].xyz+(1.0f-dst[i].xyz)*amount,1.0f);
+    }
     float3 lookup(device const float4 *table, uint n, float3 p) {
         float3 q = clamp(p,0.0f,1.0f)*float(n-1);
         uint3 a=uint3(floor(q)); uint3 b=min(a+1,uint3(n-1)); float3 f=q-float3(a);

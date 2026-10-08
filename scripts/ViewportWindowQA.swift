@@ -153,11 +153,12 @@ import SwiftUI
     scroll(-200, at: CGPoint(x: -20, y: -20), zoom: true)
     precondition(canvas.zoom == oldZoom && canvas.pan == oldPan)
     canvas.mouseDown(with: mouse(.leftMouseDown, center, clicks: 2))
-    precondition(canvas.zoom == 1 && canvas.pan == .zero)
-    try await capture("10-doubleclick-fit")
+    precondition(canvas.zoom == oldZoom && canvas.pan == oldPan)
+    canvas.cancelGesture()
+    try await capture("10-doubleclick-no-reset")
     window.setContentSize(NSSize(width: 1060, height: 720))
     try await settle()
-    try await capture("11-resize-small-fit")
+    try await capture("11-resize-small")
     window.setContentSize(NSSize(width: 1320, height: 880))
     try await settle()
     scroll(-500, at: CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY), zoom: true)
@@ -183,10 +184,7 @@ import SwiftUI
     // Route queued mouse events through NSApplication/NSWindow hit testing to actual controls.
     canvas.zoom = 16
     canvas.pan = CGPoint(x: 300, y: -200)
-    canvas.needsDisplay = true
-    try await clickControl(CGPoint(x: canvas.bounds.maxX - 45, y: -19))
-    precondition(canvas.zoom == 1 && canvas.pan == .zero, "Actual Fit button failed")
-    canvas.zoom = 16
+    canvas.constrainPan()
     canvas.needsDisplay = true
     try await clickControl(CGPoint(x: canvas.bounds.maxX + 153, y: 20))
     precondition(model.sampling, "Actual sample button failed")
@@ -200,29 +198,18 @@ import SwiftUI
     fflush(stdout)
     precondition(model.activeFrame?.filename == "01-original.tiff", "Filmstrip click failed")
     try await capture("16-filmstrip-and-fit")
-    // V2: render real reference pixels after user direction, 1:1 and stage changes.
+    // Render real reference pixels after user direction, proxy zoom and stage changes.
     model.changeOrientation(.rotateClockwise)
     model.changeOrientation(.flipHorizontal)
     try await ready()
     try await settle()
     precondition(model.displayWidth == 4672 && model.displayHeight == 7008)
     try await capture("17-v2-direction")
-    // The physical 1:1 button is immediately left of Fit in the real SwiftUI toolbar.
-    try await clickControl(CGPoint(x: canvas.bounds.maxX - 105, y: -19))
-    for _ in 0..<300 {
-      if model.detailImage != nil { break }
-      try await Task.sleep(for: .milliseconds(100))
-    }
-    precondition(model.detailImage != nil, "Actual 1:1 control must load native pixels")
-    precondition(abs(canvas.fitScale * canvas.zoom * (window.backingScaleFactor) - 1) < 0.001)
+    canvas.zoom = 3
     let statistics = model.histogram
     drag(CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY), CGPoint(x: canvas.bounds.midX + 90, y: canvas.bounds.midY + 60))
-    for _ in 0..<300 {
-      if !model.isDetailLoading && model.detailImage != nil { break }
-      try await Task.sleep(for: .milliseconds(50))
-    }
-    precondition(model.histogram == statistics, "Native viewport must not replace whole-photo statistics")
-    try await capture("18-v2-native-region")
+    precondition(model.histogram == statistics, "Proxy zoom must not replace whole-photo statistics")
+    try await capture("18-v2-proxy-zoom")
     model.stage = .d3
     try await ready()
     for _ in 0..<200 where model.histogram == nil { try await Task.sleep(for: .milliseconds(50)) }
@@ -245,7 +232,7 @@ import SwiftUI
     print("MAIN_ACTOR_TIMER: requested=20ms median=\(delays[15] * 1000)ms p95=\(delays[28] * 1000)ms max=\(delays.last! * 1000)ms")
     try await ready()
     try await capture("20-v2-final")
-    print("PASS: window clipping, Fit, sampling, Filmstrip, direction, native 1:1, whole-photo histogram")
+    print("PASS: window clipping, bounded pan, double-click without reset, sampling, Filmstrip, direction, proxy zoom, whole-photo histogram")
     }
     model.sampleBase(PixelRect(x: 359, y: 604, width: 79, height: 494))
     for _ in 0..<200 where model.project?.calibration.isCalibrated != true { try await Task.sleep(for: .milliseconds(50)) }

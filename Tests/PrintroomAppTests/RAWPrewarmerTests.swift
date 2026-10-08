@@ -27,7 +27,7 @@ struct RAWPrewarmerTests {
     let state = State(), gate = DispatchSemaphore(value: 0)
     let urls = (0..<12).map { URL(fileURLWithPath: "/test/\($0).ARW") }
     let task = Task {
-      await RAWPrewarmer.prepare(urls, load: { url in
+      await SourcePrewarmer.prepare(urls, load: { url in
         state.enter(); defer { state.leave() }
         gate.wait()
         if url.lastPathComponent == "0.ARW" { throw CocoaError(.fileReadCorruptFile) }
@@ -45,7 +45,7 @@ struct RAWPrewarmerTests {
     let state = State()
     let urls = (0..<12).map { URL(fileURLWithPath: "/test/\($0).ARW") }
     let task = Task {
-      await RAWPrewarmer.prepare(urls, load: { _ in
+      await SourcePrewarmer.prepare(urls, load: { _ in
         state.enter()
         while !Task.isCancelled { Thread.sleep(forTimeInterval: 0.005) }
         state.leave(cancelled: true)

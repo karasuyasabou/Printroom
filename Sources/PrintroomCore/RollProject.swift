@@ -194,7 +194,7 @@ public struct ProjectExportSettings: Codable, Equatable, Sendable {
 }
 
 public struct RollProject: Codable, Sendable {
-  public static let currentSchemaVersion = 8
+  public static let currentSchemaVersion = 9
 
   public var schemaVersion = currentSchemaVersion
   public var algorithmVersion = projectAlgorithmVersion
@@ -205,6 +205,11 @@ public struct RollProject: Codable, Sendable {
   public var assets = ProjectAssetIdentity()
   public var inputInterpretation = ProjectInputInterpretation()
   public var exportSettings = ProjectExportSettings()
+  private var storedSprocketWhitening: SprocketWhiteningSettings? = .init()
+  public var sprocketWhitening: SprocketWhiteningSettings {
+    get { storedSprocketWhitening ?? .init() }
+    set { storedSprocketWhitening = newValue }
+  }
   public var calibration = FilmCalibration()
   /// Preserves the original calibration while disclosing a missing/replaced sampling source.
   public var calibrationNeedsReview = false
@@ -221,6 +226,7 @@ public struct RollProject: Codable, Sendable {
     case schemaVersion, algorithmVersion, id, createdAt, updatedAt, assets
     case inputInterpretation, exportSettings, calibration, calibrationNeedsReview
     case frames, lastActiveFrameID, name
+    case storedSprocketWhitening = "sprocketWhitening"
   }
 
   public init() {
@@ -305,16 +311,9 @@ public enum ProjectStore {
               sourceHeight: metadata.height, orientation: frame.orientation)
           }
         }
-        if let sourceID = project.calibration.sourceFrameID,
-          let frame = project.frames.first(where: { $0.id == sourceID })
-        {
-          let previous = oldFrames[frame.filename]
-          if frame.isMissing || previous?.sourceSize != frame.sourceSize
-            || previous?.sourceModified != frame.sourceModified
-          {
-            project.calibrationNeedsReview = true
-          }
-        }
+        // Saved film-base values remain valid independently of their source file.
+        // Keep decoding the legacy field for existing projects, but retire review state.
+        project.calibrationNeedsReview = false
         if let preferredFile {
           guard preferredFile.isFileURL,
             preferredFile.standardizedFileURL.deletingLastPathComponent().resolvingSymlinksInPath()
@@ -479,7 +478,7 @@ public enum ProjectStore {
     updated.frames[updated.frames.firstIndex(where: { $0.id == frameID })!] = reconnected
     updated.frames.sort { naturalLess($0.filename, $1.filename) }
     updated.sourceFolderURL = folder
-    if project.calibration.sourceFrameID == frameID { updated.calibrationNeedsReview = true }
+    updated.calibrationNeedsReview = false
     try validate(updated)
     return updated
   }
@@ -493,7 +492,7 @@ public enum ProjectStore {
     do {
       let decoder = JSONDecoder()
       let header = try decoder.decode(Header.self, from: data)
-      guard [1, 2, 3, 4, 5, 6, 7, RollProject.currentSchemaVersion].contains(header.schemaVersion) else {
+      guard [1, 2, 3, 4, 5, 6, 7, 8, RollProject.currentSchemaVersion].contains(header.schemaVersion) else {
         throw ProjectStoreError.unsupportedSchema(header.schemaVersion)
       }
       guard [legacyAlgorithmVersion, "printroom-density-v2", "printroom-density-v3", "printroom-density-v4", "printroom-density-v5", projectAlgorithmVersion].contains(header.algorithmVersion) else {
@@ -558,6 +557,9 @@ public enum ProjectStore {
     }
     if let active = project.lastActiveFrameID, !ids.contains(active) {
       throw ProjectStoreError.invalidProject("当前照片 ID 不属于项目")
+    }
+    do { try project.sprocketWhitening.validate() } catch {
+      throw ProjectStoreError.invalidProject(error.localizedDescription)
     }
     try validateCalibration(project.calibration, frameIDs: ids)
   }

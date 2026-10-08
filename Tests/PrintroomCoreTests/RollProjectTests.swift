@@ -228,7 +228,7 @@ final class RollProjectTests: XCTestCase {
     XCTAssertNotEqual(loaded.frames.first(where: { !$0.isMissing })?.id, project.frames[0].id)
   }
 
-  func testReplacedAndMissingCalibrationSourceRequiresReviewWithoutDiscardingValues() throws {
+  func testReplacedAndMissingCalibrationSourceRetainsSavedValues() throws {
     let root = try folder()
     let file = try source("base.tiff", in: root)
     let project = calibrated(try ProjectStore.open(folder: root))
@@ -238,11 +238,11 @@ final class RollProjectTests: XCTestCase {
     XCTAssertEqual(replaced.frames[0].id, project.frames[0].id)
     XCTAssertEqual(replaced.frames[0].sourceSize, 5)
     XCTAssertEqual(replaced.calibration, project.calibration)
-    XCTAssertTrue(replaced.calibrationNeedsReview)
+    XCTAssertFalse(replaced.calibrationNeedsReview)
     try FileManager.default.removeItem(at: file)
     let missing = try ProjectStore.open(folder: root)
     XCTAssertTrue(missing.frames[0].isMissing)
-    XCTAssertTrue(missing.calibrationNeedsReview)
+    XCTAssertFalse(missing.calibrationNeedsReview)
     XCTAssertEqual(missing.calibration, project.calibration)
   }
 

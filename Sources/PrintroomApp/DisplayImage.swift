@@ -4,9 +4,9 @@ import PrintroomCore
 
 struct DisplayImage {
   // Independent of the image algorithm: old thumbnail representations must not be reused.
-  static let presentationVersion = "sdr-uint16-v1"
+  static let presentationVersion = "sdr-uint16-v2-original-linear-p3"
 
-  static func make(_ buffer: PixelBuffer, profile: Data?, diagnostic: Bool = false) throws
+  static func make(_ buffer: PixelBuffer, profile: Data?, diagnostic: Bool = false, original: Bool = false) throws
     -> CGImage
   {
     let (count, countOverflow) = buffer.width.multipliedReportingOverflow(by: buffer.height)
@@ -15,7 +15,10 @@ struct DisplayImage {
       count == buffer.pixels.count
     else { throw PrintroomError.invalid("预览像素尺寸不匹配") }
     let space: CGColorSpace
-    if let profile, !diagnostic, let iccSpace = CGColorSpace(iccData: profile as CFData) {
+    if original {
+      // Source samples stay linear P3; only the display copy is color managed.
+      space = CGColorSpace(name: CGColorSpace.extendedLinearDisplayP3)!
+    } else if let profile, !diagnostic, let iccSpace = CGColorSpace(iccData: profile as CFData) {
       space = iccSpace
     } else {
       space = CGColorSpace(name: CGColorSpace.sRGB)!

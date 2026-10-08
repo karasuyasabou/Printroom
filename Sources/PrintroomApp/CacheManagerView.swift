@@ -19,7 +19,6 @@ struct CacheManagerView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 22) {
-      Text("管理缓存").font(.title2.weight(.semibold))
       Text(bytes.map { String(format: "缓存大小 %.1f/%.1f GB", Double($0) / 1_000_000_000, policy.limitGB) }
         ?? "正在统计缓存…")
         .font(.headline).monospacedDigit()
@@ -44,7 +43,7 @@ struct CacheManagerView: View {
           }.labelsHidden().frame(width: 180)
             .onChange(of: policy.retentionDays) { _, _ in
               policy.save()
-              RAWSourceService.shared.scheduleMaintenance()
+              SourceProxyService.shared.scheduleMaintenance()
             }
         }
       }
@@ -74,6 +73,6 @@ struct CacheManagerView: View {
     policy.limitGB = value
     policy.save()
     error = nil
-    RAWSourceService.shared.scheduleMaintenance()
+    SourceProxyService.shared.scheduleMaintenance()
   }
 }

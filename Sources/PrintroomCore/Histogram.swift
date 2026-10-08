@@ -28,7 +28,7 @@ public struct HistogramStatistics: Equatable, Sendable {
   }
 
   /// Whole buffer statistics before presentation color management. Caller must supply the whole
-  /// photograph (possibly a preview), never a visible viewport or 1:1 tile. In-range [0,1] samples
+  /// photograph (possibly a preview), never a visible viewport or source tile. In-range [0,1] samples
   /// use min(255, floor(value*256)); finite outliers and nonfinite values are reported separately,
   /// never folded into edge bins. Pixel values are not clipped or otherwise changed.
   public static func compute(

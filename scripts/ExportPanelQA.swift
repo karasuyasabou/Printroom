@@ -36,6 +36,7 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
   let fm = FileManager.default
   let output: URL
   var evidence: [String] = []
+  weak var hostWindow: NSWindow?
 
   init() {
     let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
@@ -87,7 +88,9 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
     let window = NSWindow(
       contentRect: NSRect(x: 100, y: 100, width: 1120, height: 760),
       styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+    hostWindow = window
     window.title = "Printroom · Export panel QA · synthetic input"
+    window.appearance = NSAppearance(named: .aqua)
     // Host the production export sheet in an isolated window; a full EditorView
     // also presents export-result sheets and would race the next test scenario.
     window.contentView = NSView(frame: window.contentLayoutRect)
@@ -133,11 +136,11 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
         { self.model.batchExportPanel(allFrames: true) }),
     ]
     for (name, choice, expectedIDs, entry) in confirms {
+      window.appearance = NSAppearance(named: name == "06-selected-adobe" ? .darkAqua : .aqua)
       var settings = choice
       settings.destinationPath = exports.path
       settings.filenamePrefix = name
-      model.showExportSummary = false
-      // Let SwiftUI dismiss the previous export summary before attaching a new sheet.
+      // Wait for the settings sheet dismissal before the next scenario.
       try await Task.sleep(for: .milliseconds(400))
       try await wait("previous sheet dismissed", until: { window.attachedSheet == nil })
       NSApp.activate(ignoringOtherApps: true)
@@ -161,7 +164,6 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
         try verifyTIFF(url, settings: settings, p3: assets.profile)
         record("READBACK \(url.lastPathComponent): \(settings.profile.label), compression=\(settings.compression.rawValue), RGB 16-bit, exact ICC bytes, 24×16")
       }
-      model.showExportSummary = false
       record("PASS \(name): native dialog confirmation → persisted settings → existing export snapshot; \(expectedIDs.count) frames")
     }
     for (url, original) in originals {
@@ -169,11 +171,41 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
     }
     try require(try fm.contentsOfDirectory(atPath: exports.path).filter { $0.hasSuffix(".tiff") }.count == 7,
       "Expected 7 distinct exports with original roll numbering")
-    record("PASS: 3 cancelled real dialogs, 4 confirmed real dialogs, 7 TIFF readbacks, sources unchanged, original roll numbering preserved")
+    model.select(frames[2].id)
+    var extra = ProjectExportSettings()
+    extra.destinationPath = exports.path
+    extra.filenamePrefix = "08-cancel-running"
+    try await exercise(name: extra.filenamePrefix!, initial: model.exportSettings, chosen: extra,
+      confirm: true, cancelRunning: true, expectedResult: "导出已取消", entry: { self.model.exportPanel() })
+    try require(model.exportSummary?.wasCancelled == true, "Running cancellation missing")
+    try require(model.exportSummary?.completedCount == 0, "Immediate cancellation wrote files")
+    let missing = roll.appendingPathComponent(frames[2].filename)
+    let original = try Data(contentsOf: missing)
+    let originalAttributes = try fm.attributesOfItem(atPath: missing.path)
+    try fm.removeItem(at: missing)
+    defer {
+      try? original.write(to: missing)
+      try? fm.setAttributes([.modificationDate: originalAttributes[.modificationDate]!], ofItemAtPath: missing.path)
+    }
+    extra.filenamePrefix = "09-failed-source"
+    try await exercise(name: extra.filenamePrefix!, initial: model.exportSettings, chosen: extra,
+      confirm: true, expectedResult: "导出失败", entry: { self.model.exportPanel() })
+    try require(model.exportSummary?.failedCount == 1, "Missing source must fail")
+    try require(model.errorMessage == nil, "Export failure must stay inline")
+    try original.write(to: missing)
+    try fm.setAttributes([.modificationDate: originalAttributes[.modificationDate]!], ofItemAtPath: missing.path)
+    extra.filenamePrefix = "10-jpeg"
+    extra.format = .jpeg
+    window.appearance = NSAppearance(named: .darkAqua)
+    try await exercise(name: extra.filenamePrefix!, initial: model.exportSettings, chosen: extra,
+      confirm: true, entry: { self.model.exportPanel() })
+    let jpeg = try requireJPEG()
+    try require(jpeg.bitsPerComponent == 8 && jpeg.width == 24 && jpeg.height == 16, "JPG readback")
+    record("PASS: same-sheet progress/result in light and dark, 3 draft cancels, 4 TIFF successes, running cancel, inline failure, JPG success; no result sheet")
   }
 
   func exercise(name: String, initial: ProjectExportSettings, chosen: ProjectExportSettings,
-    confirm: Bool, entry: () -> Void
+    confirm: Bool, cancelRunning: Bool = false, expectedResult: String = "导出成功", entry: () -> Void
   ) async throws {
     func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
     func presentedOptions() -> ExportOptionsView? {
@@ -181,6 +213,9 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
         window.contentView.flatMap { descendants($0).compactMap { $0 as? ExportOptionsView }.first }
       }.first
     }
+    NSApp.activate(ignoringOtherApps: true)
+    hostWindow?.makeKeyAndOrderFront(nil)
+    try await wait("host window key", until: { NSApp.keyWindow === self.hostWindow })
     try require(NSApp.keyWindow != nil, "Export sheet requires a key host window")
     entry()
     try await wait("\(name) settings sheet", until: { presentedOptions() != nil })
@@ -208,28 +243,68 @@ private func require(_ condition: @autoclosure () throws -> Bool, _ message: Str
     options.applyCropCheckbox.state = chosen.applyCrop ? .on : .off
     options.profilePopUp.selectItem(at: OutputColorProfile.selectable.firstIndex(of: chosen.profile)!)
     options.compressionCheckbox.state = chosen.compression == .deflate ? .on : .off
+    options.formatPopUp.selectItem(at: chosen.format == .tiff ? 0 : 1)
+    options.formatChanged()
     // Set a disposable destination directly; folder chooser interaction is separate QA.
     options.destinationURL = output.appendingPathComponent("roll/Printroom Exports")
     options.prefixField.stringValue = name
     options.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: options.prefixField))
     options.refreshValidity()
     if confirm { try require(options.settings == chosen, "\(name): draft settings mismatch") }
-    if let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
-      content.cacheDisplay(in: content.bounds, to: bitmap)
-      guard let data = bitmap.representation(using: .png, properties: [:]) else { throw QAError("PNG capture failed") }
-      try data.write(to: output.appendingPathComponent(name + ".png"))
-    } else { throw QAError("Window capture unavailable") }
+    try capture(panel, name: name)
     let title = confirm ? "导出" : "取消"
     guard let button = descendants(content).compactMap({ $0 as? NSButton }).first(where: { $0.title == title }) else {
       throw QAError("Missing sheet button: \(title)")
     }
     try require(button.isEnabled, "Sheet button disabled")
     button.performClick(nil)
-    try await wait("\(name) dismiss", until: { panel.sheetParent == nil })
     if confirm {
+      try require(panel.sheetParent != nil && model.isExporting, "Export must keep the original sheet open")
+      try require(!options.prefixField.isEnabled && !options.formatPopUp.isEnabled
+        && !options.profilePopUp.isEnabled && !options.applyCropCheckbox.isEnabled,
+        "Running export settings must be locked")
+      try require(!options.progressIndicator.isHiddenOrHasHiddenAncestor, "Inline progress must be visible")
+      content.layoutSubtreeIfNeeded()
+      try require(!options.progressIndicator.visibleRect.isEmpty && !options.statusField.visibleRect.isEmpty,
+        "Inline progress must not be clipped")
+      try capture(panel, name: name + "-running")
+      if cancelRunning {
+        guard let cancel = descendants(content).compactMap({ $0 as? NSButton }).first(where: { $0.title == "取消导出" }) else {
+          throw QAError("Missing running cancel button")
+        }
+        cancel.performClick(nil)
+        try require(!cancel.isEnabled && panel.sheetParent != nil, "Cancellation must wait in the original sheet")
+      }
+      try await wait("\(name) export complete", until: { !self.model.isExporting })
+      try require(panel.sheetParent != nil, "Result must stay in the original sheet")
+      try require(options.statusField.stringValue.hasPrefix(expectedResult), "Inline result message missing: \(options.statusField.stringValue)")
+      try require(options.progressIndicator.isHidden, "Completed export still shows progress")
+      try capture(panel, name: name + "-result")
+      guard let close = descendants(content).compactMap({ $0 as? NSButton }).first(where: { $0.title == "关闭" }) else {
+        throw QAError("Missing inline result close button")
+      }
+      close.performClick(nil)
       try await wait("\(name) settings commit", until: { self.model.exportSettings == chosen })
     }
+    try await wait("\(name) dismiss", until: { panel.sheetParent == nil && !self.model.showExportDialog })
     record("DIALOG \(name): actual settings sheet and \(title) action; destination assigned to synthetic fixture")
+  }
+
+  func capture(_ window: NSWindow, name: String) throws {
+    window.displayIfNeeded()
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+    process.arguments = ["-x", "-o", "-l", String(window.windowNumber), output.appendingPathComponent(name + ".png").path]
+    try process.run()
+    process.waitUntilExit()
+    try require(process.terminationStatus == 0, "Native sheet screenshot failed")
+  }
+
+  func requireJPEG() throws -> CGImage {
+    guard let url = model.exportSummary?.results.first?.destination,
+      let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+      let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { throw QAError("JPG readback failed") }
+    return image
   }
 
   func wait(_ message: String, until ready: () -> Bool) async throws {

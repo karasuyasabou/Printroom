@@ -30,6 +30,7 @@ struct MatrixEditingTests {
     fixture.calibration = FilmCalibration()
     try ProjectStore.save(fixture, folder: root, expectedModification: nil)
     model.open(root)
+    try await waitForProxyImport(model)
     try await wait { model.hasImage && !model.isRendering }
     model.sampleBase(.init(x: 0,y: 0,width: 4,height: 4))
     try await wait { model.project?.calibration.isCalibrated == true && !model.isRendering }
@@ -81,6 +82,7 @@ struct MatrixEditingTests {
     fixture.calibration = FilmCalibration()
     try ProjectStore.save(fixture, folder: root, expectedModification: nil)
     model.open(root)
+    try await waitForProxyImport(model)
     try await wait { model.hasImage && !model.isRendering }
     model.sampleBase(.init(x: 0, y: 0, width: 4, height: 4))
     try await wait { model.project?.calibration.isCalibrated == true && !model.isRendering }
@@ -116,15 +118,16 @@ struct MatrixEditingTests {
 
     try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1)], ofItemAtPath: url.path)
     model.setMatrixPreset(.ledLightSource, kind: .density)
-    #expect(model.errorMessage != nil)
-    #expect(model.project?.calibration == original)
-    #expect(model.undoRevision == undoCount)
-    model.errorMessage = nil
+    #expect(model.errorMessage == nil)
+    #expect(model.matrix == .ledLightSource)
+    #expect(model.project?.calibration.baseRGB == original.baseRGB)
+    #expect(model.undoRevision == undoCount + 1)
+    let densityChanged = model.project?.calibration
     try FileManager.default.removeItem(at: url)
     model.setMatrixPreset(.sonyA7CII, kind: .cmos)
     #expect(model.errorMessage != nil)
-    #expect(model.project?.calibration == original)
-    #expect(model.undoRevision == undoCount)
+    #expect(model.project?.calibration == densityChanged)
+    #expect(model.undoRevision == undoCount + 1)
   }
   @Test func computerLibraryEditingAndDeletionLeaveRollsAndUndoSnapshotsIndependent() throws {
     let root = try folder()

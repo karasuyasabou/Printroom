@@ -104,6 +104,7 @@ struct ThumbnailMigrationTests {
     let key = String(repeating: "a", count: 64)
     try await legacy.store(makeImage(), for: key)
     model.open(roll)
+    try await waitForProxyImport(model)
     let projectID = try #require(model.project?.id)
     let destination = DiskThumbnailCache.forRoll(folder: roll, projectID: projectID)
     let deadline = Date().addingTimeInterval(8)
@@ -116,6 +117,7 @@ struct ThumbnailMigrationTests {
     #expect(model.flushSave())
     _ = try await destination.clear()
     model.open(roll)
+    try await waitForProxyImport(model)
     let clearDeadline = Date().addingTimeInterval(8)
     while model.thumbnails.isEmpty, Date() < clearDeadline { try await Task.sleep(for: .milliseconds(20)) }
     #expect(!model.thumbnails.isEmpty)

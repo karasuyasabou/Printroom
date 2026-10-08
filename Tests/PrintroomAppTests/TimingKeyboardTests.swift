@@ -11,6 +11,10 @@ struct TimingKeyboardTests {
     let model = EditorModel(timingDefaults: defaults)
     var roll = RollProject()
     roll.frames = [FrameRecord(filename: "one.tiff"), FrameRecord(filename: "two.tiff")]
+    roll.calibration = try! Pipeline.calibrate(
+      image: LinearImage(width: 4, height: 4, samples: [UInt16](repeating: 32768, count: 48)),
+      rect: .init(x: 0, y: 0, width: 4, height: 4), matrix: roll.calibration.matrix,
+      sourceFrameID: roll.frames[0].id, cmosMatrix: roll.calibration.cmosMatrix)
     model.project = roll
     model.selection.click(roll.frames[0].id, ordered: roll.frames.map(\.id))
     model.errorMessage = nil // These model-only checks do not require a Metal device.

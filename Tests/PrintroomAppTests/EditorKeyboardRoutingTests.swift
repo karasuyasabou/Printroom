@@ -21,6 +21,10 @@ struct EditorKeyboardRoutingTests {
     let model = EditorModel()
     var project = RollProject()
     project.frames = [FrameRecord(filename: "one.tif"), FrameRecord(filename: "two.tif")]
+    project.calibration = try! Pipeline.calibrate(
+      image: LinearImage(width: 4, height: 4, samples: [UInt16](repeating: 32768, count: 48)),
+      rect: .init(x: 0, y: 0, width: 4, height: 4), matrix: project.calibration.matrix,
+      sourceFrameID: project.frames[0].id, cmosMatrix: project.calibration.cmosMatrix)
     model.project = project
     model.selection.click(project.frames[0].id, ordered: project.frames.map(\.id))
     model.errorMessage = nil
@@ -210,7 +214,7 @@ struct EditorKeyboardRoutingTests {
     model.errorMessage = "Test dialog"
     #expect(!router.handle(try key(13, "w", window: window), from: window))
     model.errorMessage = nil
-    model.showExportSummary = true
+    model.showExportDialog = true
     #expect(!router.handle(try key(13, "w", window: window), from: window))
   }
 

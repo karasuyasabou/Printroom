@@ -3,6 +3,95 @@ import XCTest
 @testable import PrintroomCore
 
 final class AutoCropTests: XCTestCase {
+  func testMixedScanBordersKeepOneSourcePixelAperture() throws {
+    // Identical 690x460 exposures, with different scanner margins and offsets.
+    // Metadata is 6x the proxy to ensure inference uses source, not proxy pixels.
+    let scans = [(800, 533, 55, 36, 0.0), (840, 570, 85, 50, 1.2), (780, 550, 35, 44, -0.8)]
+    var analyses = [AutoCropAnalysis]()
+    var images = [LinearImage]()
+    for (w, h, left, top, degrees) in scans {
+      let angle = degrees * .pi / 180
+      let cx = Double(left) + 345, cy = Double(top) + 230
+      var samples = [UInt16](repeating: 44000, count: w * h * 3)
+      for y in 0..<h { for x in 0..<w {
+        let dx = Double(x) + 0.5 - cx, dy = Double(y) + 0.5 - cy
+        let u = cos(angle) * dx + sin(angle) * dy
+        let v = -sin(angle) * dx + cos(angle) * dy
+        if abs(u) < 345 && abs(v) < 230 {
+          for channel in 0..<3 { samples[(y * w + x) * 3 + channel] = 6500 }
+        }
+      } }
+      let image = LinearImage(width: w, height: h, samples: samples)
+      images.append(image)
+      analyses.append(try AutoCropAnalyzer.prepare(image, sourceWidth: w * 6, sourceHeight: h * 6))
+    }
+    for ratio: Double? in [nil, 1.5] {
+      let template = try AutoCropAnalyzer.template(fromSeeds: analyses.map(\.seed), aspectRatio: ratio)
+      let reverse = try AutoCropAnalyzer.template(fromSeeds: analyses.reversed().map(\.seed), aspectRatio: ratio)
+      XCTAssertEqual(template.width, reverse.width, accuracy: 0.000001)
+      XCTAssertEqual(template.height, reverse.height, accuracy: 0.000001)
+      for (index, analysis) in analyses.enumerated() {
+        let (w, h, left, top, degrees) = scans[index]
+        let fit = try AutoCropAnalyzer.fit(analysis, template: template,
+          sourceWidth: w * 6, sourceHeight: h * 6, requiresAllEdges: true)
+        let geometry = try CropGeometry(crop: fit.crop, sourceWidth: w * 6, sourceHeight: h * 6)
+        XCTAssertEqual(Double(geometry.outputWidth), 4140, accuracy: 16)
+        XCTAssertEqual(Double(geometry.outputHeight), 2760, accuracy: 16)
+        XCTAssertEqual(fit.crop.centerX * Double(w), Double(left) + 345, accuracy: 2)
+        XCTAssertEqual(fit.crop.centerY * Double(h), Double(top) + 230, accuracy: 2)
+        XCTAssertEqual(fit.crop.angleDegrees, -degrees, accuracy: 0.15)
+        XCTAssertFalse(fit.needsReview)
+        let reloaded = try AutoCropAnalyzer.prepare(images[index], seed: analysis.seed,
+          sourceWidth: w * 6, sourceHeight: h * 6)
+        XCTAssertEqual(fit.crop, try AutoCropAnalyzer.fit(reloaded, template: template,
+          sourceWidth: w * 6, sourceHeight: h * 6).crop)
+      }
+    }
+    XCTAssertThrowsError(try AutoCropAnalyzer.prepare(images[0], seed: analyses[0].seed,
+      sourceWidth: 4801, sourceHeight: 3198))
+  }
+
+  func testEqualScanMetadataPreservesExistingCrop() throws {
+    let image = LinearImage(width: 800, height: 533,
+      samples: [UInt16](repeating: 30000, count: 800 * 533 * 3))
+    let legacy = try AutoCropAnalyzer.prepare(image)
+    let explicit = try AutoCropAnalyzer.prepare(image, sourceWidth: 8000, sourceHeight: 5330)
+    for ratio: Double? in [nil, 1.5] {
+      let a = try AutoCropAnalyzer.template(fromSeeds: [legacy.seed], aspectRatio: ratio)
+      let b = try AutoCropAnalyzer.template(fromSeeds: [explicit.seed], aspectRatio: ratio)
+      XCTAssertEqual(a.width, b.width)
+      XCTAssertEqual(a.height, b.height)
+      XCTAssertEqual(try AutoCropAnalyzer.fit(legacy, template: a, sourceWidth: 8000, sourceHeight: 5330).crop,
+        try AutoCropAnalyzer.fit(explicit, template: b, sourceWidth: 8000, sourceHeight: 5330).crop)
+    }
+  }
+
+  func testTemplateTooLargeForScanRequiresReview() throws {
+    // Strong visible edges can support an inset suggestion even when the roll's
+    // aperture extends beyond this scan. That frame must still require review.
+    var samples = [UInt16](repeating: 44000, count: 800 * 533 * 3)
+    for y in 17..<517 { for x in 1..<799 {
+      for channel in 0..<3 { samples[(y * 800 + x) * 3 + channel] = 1000 }
+    } }
+    let seed = AutoCropSeed(width: 800, height: 533, angle: 0,
+      edges: [0, 800, 17, 517], evidence: [1, 1, 1, 1],
+      baseDensity: -log(44000.0 / 65535), sourceWidth: 800, sourceHeight: 533)
+    let analysis = try AutoCropAnalyzer.prepare(LinearImage(width: 800, height: 533, samples: samples),
+      seed: seed, sourceWidth: 800, sourceHeight: 533)
+    let contained = AutoCropTemplate(width: 800, height: 500, analysisWidth: 800, analysisHeight: 533,
+      seedCount: 1, requestedRatio: 1.6, sourceWidth: 800, sourceHeight: 533)
+    let supported = try AutoCropAnalyzer.fit(analysis, template: contained, sourceWidth: 800, sourceHeight: 533)
+    XCTAssertFalse(supported.needsReview)
+    let oversized = AutoCropTemplate(width: 900, height: 562.5, analysisWidth: 800, analysisHeight: 533,
+      seedCount: 1, requestedRatio: 1.6, sourceWidth: 800, sourceHeight: 533)
+    let result = try AutoCropAnalyzer.fit(analysis, template: oversized, sourceWidth: 800, sourceHeight: 533)
+    XCTAssertTrue(result.needsReview)
+    XCTAssertEqual(result.crop, supported.crop)
+    let geometry = try CropGeometry(crop: result.crop, sourceWidth: 800, sourceHeight: 533)
+    XCTAssertLessThanOrEqual(geometry.outputWidth, 800)
+    XCTAssertLessThanOrEqual(geometry.outputHeight, 533)
+  }
+
   func testSpecifiedRatioRejectsWrongWidthWithOnlyOneFrame() throws {
     // Independent width picks 740; known 3:2 plus the supported 460 height
     // must instead select the weaker, correct 690 width.

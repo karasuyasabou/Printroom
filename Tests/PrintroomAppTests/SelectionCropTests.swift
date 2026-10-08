@@ -54,6 +54,8 @@ struct SelectionCropTests {
     }
     try ProjectStore.save(roll, folder: folder, expectedModification: roll.loadedModificationDate)
     model.open(folder.appendingPathComponent(roll.frames[0].filename))
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     try await until("cropped preview ready", { !model.isLoading && !model.isRendering && model.histogram != nil })
     let frames = model.project?.frames
     let calibration = model.project?.calibration
@@ -71,9 +73,6 @@ struct SelectionCropTests {
       #expect(model.previewImage?.width != croppedWidth)
       #expect(model.histogram == histogram)
       #expect(model.displayedCrop == nil)
-      model.requestDetail(PixelRect(x: 2, y: 3, width: 12, height: 10))
-      try await until("uncropped detail ready", { !model.isDetailLoading })
-      #expect(model.detailImage?.width == 12 && model.detailImage?.height == 10)
       model.cropPreviewEnabled = true
       try await until("crop restored", { !model.isRendering })
       #expect(model.previewImage?.width == croppedWidth && model.histogram == histogram)
@@ -143,6 +142,8 @@ struct SelectionCropTests {
     for index in roll.frames.indices { roll.frames[index].crop = crop }
     try ProjectStore.save(roll, folder: folder, expectedModification: roll.loadedModificationDate)
     model.open(folder.appendingPathComponent(roll.frames[0].filename))
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     model.stage = .l0
     try await until("initial frame ready", { model.histogram != nil })
     let calibration = model.project?.calibration
@@ -185,6 +186,8 @@ struct SelectionCropTests {
     try ProjectStore.save(roll, folder: folder, expectedModification: roll.loadedModificationDate)
     let sourceIndex = try #require(directions.firstIndex(of: activeOrientation))
     model.open(folder.appendingPathComponent(roll.frames[sourceIndex].filename))
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     model.stage = .l0
     try await until("rotated sync source loaded", { model.histogram != nil })
     model.beginCrop()
@@ -242,6 +245,8 @@ struct SelectionCropTests {
     let folder = try fixture(count: 5, profile: assets.profile)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     let ids = try #require(model.project?.frames.map(\.id))
     model.select(ids[1])
     try await until("ordinary-click crop source loaded", { model.histogram != nil })
@@ -311,6 +316,8 @@ struct SelectionCropTests {
     let folder = try fixture(count: 3, profile: assets.profile)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     let ids = try #require(model.project?.frames.map(\.id))
     model.select(ids[1])
     try await until("B ready", { model.histogram != nil })
@@ -346,6 +353,8 @@ struct SelectionCropTests {
     let folder = try fixture(count: 3, profile: assets.profile)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     let ids = try #require(model.project?.frames.map(\.id))
     try await until("source ready", { model.histogram != nil })
     model.changeOrientation(.rotateClockwise)
@@ -390,6 +399,8 @@ struct SelectionCropTests {
     let folder = try fixture(count: 1, profile: assets.profile)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     try await until("angle basis source loaded", { model.histogram != nil })
     model.beginCrop()
     model.updateCropDraft(FrameCrop(aspect: .sevenSix, width: 0.5, angleDegrees: 3.25))
@@ -459,6 +470,8 @@ struct SelectionCropTests {
     try FileManager.default.moveItem(at: newURL, to: oldURL)
 
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     try await until("legacy restoration source loaded", { model.histogram != nil })
     model.beginCrop()
     model.resetCropDraft()
@@ -467,7 +480,11 @@ struct SelectionCropTests {
     try model.restoreBackup(data: backup)
     #expect(model.project?.frames.allSatisfy { $0.crop == expected } == true)
     #expect(try ProjectStore.open(folder: folder).frames.allSatisfy { $0.crop == expected })
-    try await until("restored legacy preview", { model.histogram?.pixelCount == 42 * 36 })
+    try await until("restored legacy original preview", {
+      model.hasImage && !model.isRendering
+        && (model.previewImage?.width ?? 0) * (model.previewImage?.height ?? 0) == 42 * 36
+    })
+    #expect(!model.hasFilmBase && model.histogram == nil)
     #expect(model.errorMessage == nil)
   }
 

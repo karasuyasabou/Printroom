@@ -148,7 +148,7 @@ actor DiskThumbnailCache {
       removed += 1
       evicted += 1
     }
-    if usesManagedPolicy { RAWSourceService.shared.scheduleMaintenance() }
+    if usesManagedPolicy { SourceProxyService.shared.scheduleMaintenance() }
     return MaintenanceResult(
       removedFiles: removed, remainingFiles: retained.count - evicted, remainingBytes: bytes)
   }

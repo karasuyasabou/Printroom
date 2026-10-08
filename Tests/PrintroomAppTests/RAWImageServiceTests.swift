@@ -36,16 +36,5 @@ struct RAWImageServiceTests {
     #expect(sampled.gainRGB == expectedCalibration.gainRGB)
     #expect(sampled.filmBaseOffsetCV == expectedCalibration.filmBaseOffsetCV)
     #expect(sampled.sourceWidth == 7008 && sampled.sourceHeight == 4672)
-    for value in 1...8 {
-      let orientation = try #require(FrameOrientation(rawValue: value))
-      let geometry = try CropGeometry(crop: nil, sourceWidth: 7008, sourceHeight: 4672, orientation: orientation)
-      let tile = PixelRect(x: 1300, y: 900, width: 21, height: 13)
-      let rawTile = try await service.transformedRegion(source, geometry: geometry, rect: tile)
-      let sourceRect = try geometry.sourceRegion(for: tile)
-      let input = proxyRegion(sourceRect).preview(maxDimension: max(sourceRect.width, sourceRect.height))
-      let tiffTile = try geometry.render(input, sourceRegion: sourceRect, outputRegion: tile,
-        maxDimension: max(tile.width, tile.height))
-      #expect(rawTile.pixels == tiffTile.pixels)
-    }
   }
 }

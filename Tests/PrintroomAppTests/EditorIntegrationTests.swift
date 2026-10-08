@@ -67,6 +67,7 @@ struct EditorIntegrationTests {
       url: folder.appendingPathComponent("Frame.tiff"), width: 4, height: 4, profile: assets.profile
     ) { r in Array(repeating: UInt16(32768), count: r.count * 12) }
     model.open(folder)
+    try await waitForProxyImport(model)
     model.edit { $0.timing.master = 41 }
     let backup = try JSONEncoder().encode(try unwrap(model.project))
     var external = try ProjectStore.open(folder: folder, preferredFile: nil)
@@ -83,6 +84,7 @@ struct EditorIntegrationTests {
     #expect(!model.dirty && !model.saveFailure)
     model.edit { $0.timing.master = 52 }
     model.reloadDiscardingUnsaved()
+    try await waitForProxyImport(model)
     #expect(model.adjustments.timing.master == 41)
     #expect(!model.dirty)
     try await Task.sleep(for: .milliseconds(300))
@@ -120,6 +122,7 @@ struct EditorIntegrationTests {
       ) { r in Array(repeating: UInt16(32768), count: r.count * 4 * 3) }
     }
     model.open(folder)
+    try await waitForProxyImport(model)
     #expect((model.errorMessage) == nil)
     let frames = try unwrap(model.project?.frames)
     model.edit {

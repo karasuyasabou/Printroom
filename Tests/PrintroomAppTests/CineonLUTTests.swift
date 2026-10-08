@@ -20,6 +20,7 @@ struct CineonLUTTests {
       }
     }
     model.open(folder)
+    try await waitForProxyImport(model)
     let deadline = ContinuousClock.now.advanced(by: .seconds(10))
     while model.histogram == nil && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
     #expect(model.histogram != nil)

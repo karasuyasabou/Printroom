@@ -230,7 +230,7 @@ final class ProjectMigrationRelocationTests: XCTestCase {
     try FileManager.default.moveItem(at: original, to: renamed)
     let relocated = try ProjectStore.relocate(project, frameID: project.frames[0].id, to: renamed, folder: root)
     XCTAssertEqual(relocated.calibration, calibration)
-    XCTAssertTrue(relocated.calibrationNeedsReview)
+    XCTAssertFalse(relocated.calibrationNeedsReview)
     XCTAssertFalse(project.calibrationNeedsReview)
   }
 

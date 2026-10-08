@@ -117,7 +117,7 @@ struct MatrixManagerView: View {
           HStack {
             if readOnly {
               Button("应用到本卷") {
-                if let selected { model.setMatrixPreset(selected, kind: kind); message = "已应用到本卷，片基校准保持。" }
+                if let selected { model.setMatrixPreset(selected, kind: kind); message = "已应用" }
               }.disabled(model.project == nil)
             } else {
               Button("保存到电脑") { save(apply: false) }.disabled(validDraft == nil)
@@ -168,13 +168,13 @@ struct MatrixManagerView: View {
     do {
       try model.saveMatrix(preset, kind: kind, apply: apply)
       selected = preset; failure = nil
-      message = apply ? "已保存并应用到本卷，片基校准保持。" : "已保存到电脑；胶卷使用的矩阵保持。"
+      message = apply ? "已应用" : "已保存"
     } catch { failure = error.localizedDescription }
   }
   private func remove() {
     guard let selected else { return }
     do {
-      try model.deleteMatrix(selected); newDraft(); message = "已从本机矩阵库删除，已有胶卷快照保留。"
+      try model.deleteMatrix(selected); newDraft(); message = "已删除"
     } catch { failure = error.localizedDescription }
   }
   private func selectSources() {
@@ -197,7 +197,7 @@ struct MatrixManagerView: View {
           "\(["R", "G", "B"][channel]) 光源：\(urls[index].lastPathComponent)"
         }
         if name.isEmpty { name = "CMOS \(Date().formatted(date: .numeric, time: .shortened))" }
-        message = "已计算，请命名后保存。"
+        message = "已计算"
       } catch {
         if !Task.isCancelled { failure = error.localizedDescription }
       }

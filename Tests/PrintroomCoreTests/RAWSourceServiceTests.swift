@@ -20,8 +20,8 @@ private final class RAWFixture: @unchecked Sendable {
     samples: (0..<(3202 * 11 * 3)).map { UInt16($0 % 65536) })
   func update(_ action: (RAWFixture) -> Void) { lock.lock(); defer { lock.unlock() }; action(self) }
   func count() -> Int { lock.lock(); defer { lock.unlock() }; return conversions }
-  func dependencies() -> RAWSourceDependencies {
-    RAWSourceDependencies(installation: { [self] in
+  func dependencies() -> SourceProxyDependencies {
+    SourceProxyDependencies(installation: { [self] in
       lock.lock(); defer { lock.unlock() }
       if failure == "missing" { throw PrintroomError.invalid("Adobe missing") }
       return AdobeRAWInstallation(executable: URL(fileURLWithPath: "/unused"), version: adobeVersion)
@@ -36,7 +36,13 @@ private final class RAWFixture: @unchecked Sendable {
         }
         if !waiting {
           if fail == "convert" { throw PrintroomError.invalid("Adobe conversion failed") }
-          if fail == "mutate" { try Data("changed raw".utf8).write(to: source) }
+          if fail == "mutate" || fail == "mutate-once" {
+            try Data(repeating: 42, count: 20 + count()).write(to: source)
+            if fail == "mutate-once" { update { $0.failure = nil } }
+          }
+          if fail == "attributes" {
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: source.path)
+          }
           try Data((fail == "cfa" ? "CFA" : "LINEAR").utf8).write(to: destination)
           return
         }
@@ -58,14 +64,14 @@ private final class RAWFixture: @unchecked Sendable {
 }
 
 final class RAWSourceServiceTests: XCTestCase, @unchecked Sendable {
-  private func fixture() throws -> (URL, URL, RAWFixture, RAWSourceService) {
+  private func fixture() throws -> (URL, URL, RAWFixture, SourceProxyService) {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("raw-service-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
     let source = directory.appendingPathComponent("negative.ARW")
     try Data("original RAW".utf8).write(to: source)
     let backend = RAWFixture()
-    let service = RAWSourceService(cacheRoot: directory.appendingPathComponent("cache"),
+    let service = SourceProxyService(cacheRoot: directory.appendingPathComponent("cache"),
                                   byteLimit: 1_000_000_000, dependencies: backend.dependencies())
     addTeardownBlock { service.waitForMaintenance() }
     return (directory, source, backend, service)
@@ -77,6 +83,24 @@ final class RAWSourceServiceTests: XCTestCase, @unchecked Sendable {
     }
     XCTFail("Producer never started")
   }
+  func testOptionalNetworkSourcePreparation() throws {
+    guard let path = ProcessInfo.processInfo.environment["PRINTROOM_RAW_SOURCE_CHECK"] else {
+      throw XCTSkip("Set PRINTROOM_RAW_SOURCE_CHECK to validate a real source read-only")
+    }
+    let source = URL(fileURLWithPath: path)
+    let cache = FileManager.default.temporaryDirectory.appendingPathComponent("raw-network-check-\(UUID())")
+    let service = SourceProxyService(cacheRoot: cache)
+    defer { service.waitForMaintenance(); try? FileManager.default.removeItem(at: cache) }
+    let before = try service.identity(url: source)
+    let metadata = try service.metadata(url: source)
+    let prepared = try service.identity(url: source)
+    let preview = try service.preview(url: source, expectedIdentity: prepared)
+    XCTAssertGreaterThan(metadata.width, 0)
+    XCTAssertGreaterThan(metadata.height, 0)
+    XCTAssertGreaterThan(preview.width, 0)
+    print("Network RAW prepared: \(metadata.width)x\(metadata.height), preview \(preview.width)x\(preview.height), size/mtime stable: \(before == prepared)")
+  }
+
   func testFreshServiceUsesDiskProxyWithoutReadingRAWContent() throws {
     let (directory, source, backend, service) = try fixture()
     try Data(repeating: 123, count: 64 * 1024 * 1024).write(to: source)
@@ -84,7 +108,7 @@ final class RAWSourceServiceTests: XCTestCase, @unchecked Sendable {
     service.waitForMaintenance()
     XCTAssertEqual(backend.lock.withLock { backend.digestBytes[source.path] }, 64 * 1024 * 1024)
     backend.update { $0.digestBytes.removeAll() }
-    let restarted = RAWSourceService(cacheRoot: directory.appendingPathComponent("cache"),
+    let restarted = SourceProxyService(cacheRoot: directory.appendingPathComponent("cache"),
       byteLimit: 1_000_000_000, dependencies: backend.dependencies())
     defer { restarted.waitForMaintenance() }
     let start = Date()
@@ -96,7 +120,7 @@ final class RAWSourceServiceTests: XCTestCase, @unchecked Sendable {
     XCTAssertEqual(backend.count(), 1)
   }
 
-  func testLegacyContentKeyMigratesWithoutReadingRAWOrConverting() throws {
+  func testOldCacheKeyRebuildsOnceThenReusesPathIsolatedCache() throws {
     let (directory, source, backend, service) = try fixture()
     let expected = try service.preview(url: source)
     service.waitForMaintenance()
@@ -114,31 +138,127 @@ final class RAWSourceServiceTests: XCTestCase, @unchecked Sendable {
     try FileManager.default.moveItem(at: manifestURL.deletingLastPathComponent(), to: legacy)
     backend.update { $0.digestBytes.removeAll() }
     for _ in 0..<2 {
-      let restarted = RAWSourceService(cacheRoot: cache, byteLimit: 1_000_000_000,
+      let restarted = SourceProxyService(cacheRoot: cache, byteLimit: 1_000_000_000,
         dependencies: backend.dependencies())
       XCTAssertEqual(try restarted.preview(url: source).samples, expected.samples)
       restarted.waitForMaintenance()
-      XCTAssertEqual(backend.lock.withLock { backend.digestBytes[source.path, default: 0] }, 0)
+      XCTAssertGreaterThan(backend.lock.withLock { backend.digestBytes[source.path, default: 0] }, 0)
     }
-    XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path))
-    XCTAssertEqual(backend.count(), 1)
+    XCTAssertTrue(FileManager.default.fileExists(atPath: legacy.path))
+    XCTAssertEqual(backend.count(), 2)
   }
 
-  func testSameSizeMutationWithRestoredMtimeInvalidatesAfterRestart() throws {
+  func testSameSizeMutationWithRestoredMtimeIsAcceptedAfterRestart() throws {
     let (directory, source, backend, service) = try fixture()
+    try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1700000000)], ofItemAtPath: source.path)
     let originalIdentity = try service.identity(url: source)
     let modified = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: source.path)[.modificationDate] as? Date)
     _ = try service.preview(url: source)
     service.waitForMaintenance()
     try Data("modified RAW".utf8).write(to: source)
     try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: source.path)
-    let restarted = RAWSourceService(cacheRoot: directory.appendingPathComponent("cache"),
+    let restarted = SourceProxyService(cacheRoot: directory.appendingPathComponent("cache"),
       byteLimit: 1_000_000_000, dependencies: backend.dependencies())
     defer { restarted.waitForMaintenance() }
-    XCTAssertNotEqual(try restarted.identity(url: source), originalIdentity)
-    XCTAssertThrowsError(try restarted.preview(url: source, expectedIdentity: originalIdentity))
-    _ = try restarted.preview(url: source)
+    XCTAssertEqual(try restarted.identity(url: source), originalIdentity)
+    _ = try restarted.preview(url: source, expectedIdentity: originalIdentity)
+    XCTAssertEqual(backend.count(), 1)
+  }
+
+  func testConversionSourceChangeRetriesOnceAndCachesLatestRevision() throws {
+    let (directory, source, backend, service) = try fixture()
+    backend.update { $0.failure = "mutate-once" }
+    _ = try service.metadata(url: source)
     XCTAssertEqual(backend.count(), 2)
+    _ = try service.preview(url: source, expectedIdentity: service.identity(url: source))
+    XCTAssertEqual(backend.count(), 2)
+    XCTAssertFalse(try FileManager.default.subpathsOfDirectory(atPath: directory.path)
+      .contains { $0.contains(".preparing-") })
+  }
+
+  func testSourceChangeDuringDigestRetriesBeforeConversion() throws {
+    let (directory, source, backend, _) = try fixture()
+    var dependencies = backend.dependencies()
+    dependencies.didReadDigest = { url, _ in
+      guard url == source else { return }
+      let first = backend.lock.withLock {
+        backend.digestBytes[url.path, default: 0] += 1
+        return backend.digestBytes[url.path] == 1
+      }
+      if first { try? Data("download completed RAW".utf8).write(to: url) }
+    }
+    let service = SourceProxyService(cacheRoot: directory.appendingPathComponent("digest-cache"),
+      byteLimit: 1_000_000_000, dependencies: dependencies)
+    defer { service.waitForMaintenance() }
+    _ = try service.metadata(url: source)
+    XCTAssertEqual(backend.count(), 1)
+    XCTAssertGreaterThan(backend.lock.withLock { backend.digestBytes[source.path, default: 0] }, 1)
+  }
+
+  func testSamePathReplacementWithUnchangedSizeAndMtimeReusesCache() throws {
+    let (_, source, backend, service) = try fixture()
+    let modified = Date(timeIntervalSince1970: 1700000000)
+    try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: source.path)
+    let before = try service.identity(url: source)
+    _ = try service.metadata(url: source)
+    try Data("original RAW".utf8).write(to: source, options: .atomic)
+    try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: source.path)
+    XCTAssertEqual(try service.identity(url: source), before)
+    _ = try service.metadata(url: source)
+    XCTAssertEqual(backend.count(), 1)
+  }
+
+  func testRepeatedSourceChangesStopAfterSecondAttempt() throws {
+    let (_, source, backend, service) = try fixture()
+    backend.update { $0.failure = "mutate" }
+    XCTAssertThrowsError(try service.metadata(url: source))
+    XCTAssertEqual(backend.count(), 2)
+  }
+
+  func testFrozenExportDoesNotRetryWithChangedSource() throws {
+    let (_, source, backend, service) = try fixture()
+    let identity = try service.identity(url: source)
+    backend.update { $0.failure = "mutate-once" }
+    XCTAssertThrowsError(try service.read(url: source, expectedIdentity: identity))
+    XCTAssertEqual(backend.count(), 1)
+  }
+
+  func testAttributeOnlyChangeDuringConversionIsAccepted() throws {
+    let (_, source, backend, service) = try fixture()
+    let identity = try service.identity(url: source)
+    backend.update { $0.failure = "attributes" }
+    _ = try service.metadata(url: source)
+    XCTAssertEqual(backend.count(), 1)
+    XCTAssertEqual(try service.identity(url: source), identity)
+  }
+
+  func testSameSizeAndMtimeFilesHaveSeparateCaches() throws {
+    let (directory, source, backend, service) = try fixture()
+    let other = directory.appendingPathComponent("other.ARW")
+    try Data("another RAW!".utf8).write(to: other)
+    for url in [source, other] {
+      try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1700000000)], ofItemAtPath: url.path)
+    }
+    XCTAssertEqual(try service.identity(url: source), try service.identity(url: other))
+    _ = try service.metadata(url: source)
+    _ = try service.metadata(url: other)
+    XCTAssertEqual(backend.count(), 2)
+    _ = try service.metadata(url: source)
+    _ = try service.metadata(url: other)
+    XCTAssertEqual(backend.count(), 2)
+  }
+
+  func testOldProjectIdentityUsesSizeAndMtimeComparison() {
+    func identity(_ revision: String) -> RAWProcessingIdentity {
+      RAWProcessingIdentity(sourceRevision: revision, adobeVersion: "a", libRawVersion: "l",
+        strategyVersion: "s", proxySamplingVersion: "p")
+    }
+    let old = identity("12:456:789:1700000000:123:1700000001:456")
+    let current = identity("12:1700000000:123")
+    XCTAssertEqual(old, current)
+    XCTAssertEqual(Set([old, current]).count, 1)
+    XCTAssertNotEqual(old, identity("13:1700000000:123"))
+    XCTAssertNotEqual(old, identity("12:1700000000:124"))
   }
 
   func testCacheHitsDoNotScheduleGlobalMaintenance() throws {
@@ -245,7 +365,7 @@ final class RAWSourceServiceTests: XCTestCase, @unchecked Sendable {
     try Data("bad proxy".utf8).write(to: directory.appendingPathComponent(path))
     _ = try service.preview(url: source)
     XCTAssertEqual(backend.count(), 2)
-    let bounded = RAWSourceService(cacheRoot: directory.appendingPathComponent("cache"), byteLimit: 0,
+    let bounded = SourceProxyService(cacheRoot: directory.appendingPathComponent("cache"), byteLimit: 0,
                                    dependencies: backend.dependencies())
     _ = try bounded.preview(url: source)
     bounded.scheduleMaintenance() // A changed capacity policy explicitly requests maintenance.
@@ -296,17 +416,17 @@ final class RAWSourceServiceTests: XCTestCase, @unchecked Sendable {
     try FileManager.default.createDirectory(at: target, withIntermediateDirectories: false)
     let link = directory.appendingPathComponent("link")
     try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
-    let unsafe = RAWSourceService(cacheRoot: link, byteLimit: 100, dependencies: backend.dependencies())
+    let unsafe = SourceProxyService(cacheRoot: link, byteLimit: 100, dependencies: backend.dependencies())
     XCTAssertThrowsError(try unsafe.preview(url: source))
     XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: target.path), [])
-    let invalid = RAWSourceService(cacheRoot: source.appendingPathComponent("cache"), byteLimit: 100, dependencies: backend.dependencies())
+    let invalid = SourceProxyService(cacheRoot: source.appendingPathComponent("cache"), byteLimit: 100, dependencies: backend.dependencies())
     XCTAssertThrowsError(try invalid.preview(url: source))
     XCTAssertEqual(backend.count(), 0)
   }
   func testIndependentServicesSerializeAndReusePublishedCache() async throws {
     let (directory, source, backend, service) = try fixture()
     backend.update { $0.blocked = true }
-    let another = RAWSourceService(cacheRoot: directory.appendingPathComponent("cache"), byteLimit: 1_000_000_000,
+    let another = SourceProxyService(cacheRoot: directory.appendingPathComponent("cache"), byteLimit: 1_000_000_000,
                                    dependencies: backend.dependencies())
     let first = Task.detached { try service.preview(url: source) }
     try await waitForStart(backend)
@@ -342,12 +462,12 @@ final class RAWSourceServiceTests: XCTestCase, @unchecked Sendable {
     for text in ["#!/bin/sh\nexit 7\n", "#!/bin/sh\nexit 0\n"] {
       try Data(text.utf8).write(to: script)
       try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
-      XCTAssertThrowsError(try RAWSourceService.convert(install, source: source, destination: destination, cancelled: { false }))
+      XCTAssertThrowsError(try SourceProxyService.convert(install, source: source, destination: destination, cancelled: { false }))
     }
     try Data("#!/bin/sh\nwhile :; do :; done\n".utf8).write(to: script)
     let cancellation = RAWFixture()
     let running = Task.detached {
-      try RAWSourceService.convert(install, source: source, destination: destination,
+      try SourceProxyService.convert(install, source: source, destination: destination,
                                  cancelled: { cancellation.lock.withLock { cancellation.blocked } })
     }
     try await Task.sleep(for: .milliseconds(50))
@@ -402,7 +522,7 @@ final class RAWSourceServiceTests: XCTestCase, @unchecked Sendable {
 
   func testEightSourcesUseExactlyFourSlotsAndTinyCacheDrains() async throws {
     let (directory, _, backend, _) = try fixture()
-    let service = RAWSourceService(cacheRoot: directory.appendingPathComponent("cache"), byteLimit: 1,
+    let service = SourceProxyService(cacheRoot: directory.appendingPathComponent("cache"), byteLimit: 1,
                                    dependencies: backend.dependencies())
     let inputs = try sources(in: directory, count: 8)
     backend.update { $0.blocked = true }
@@ -477,7 +597,7 @@ final class RAWSourceServiceTests: XCTestCase, @unchecked Sendable {
 
   func testSlotLimitIsSharedAcrossIndependentServiceInstances() async throws {
     let (directory, _, backend, first) = try fixture()
-    let second = RAWSourceService(cacheRoot: directory.appendingPathComponent("cache"), byteLimit: 1_000_000_000,
+    let second = SourceProxyService(cacheRoot: directory.appendingPathComponent("cache"), byteLimit: 1_000_000_000,
                                  dependencies: backend.dependencies())
     let inputs = try sources(in: directory, count: 8)
     backend.update { $0.blocked = true }
@@ -495,7 +615,7 @@ final class RAWSourceServiceTests: XCTestCase, @unchecked Sendable {
 
   func testCompletedSourcesReturnAndReuseSlotsWhileAnotherServiceIsStillConverting() async throws {
     let (directory, slowSource, backend, slowService) = try fixture()
-    let fastService = RAWSourceService(cacheRoot: directory.appendingPathComponent("cache"),
+    let fastService = SourceProxyService(cacheRoot: directory.appendingPathComponent("cache"),
       byteLimit: 1, dependencies: backend.dependencies())
     backend.update { $0.blockedSources.insert(slowSource.lastPathComponent) }
     let slow = Task.detached { try slowService.preview(url: slowSource) }

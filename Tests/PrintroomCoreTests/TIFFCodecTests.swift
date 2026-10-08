@@ -39,7 +39,7 @@ final class TIFFCodecTests: XCTestCase {
     }
   }
 
-  func testEndianDeflatePredictorAndAllOrientations() throws {
+  func testEndianCompressionPredictorAndAllOrientations() throws {
     let expectedPixels = [
       [0, 1, 2, 3, 4, 5], [2, 1, 0, 5, 4, 3],
       [5, 4, 3, 2, 1, 0], [3, 4, 5, 0, 1, 2],
@@ -49,7 +49,7 @@ final class TIFFCodecTests: XCTestCase {
     try inTemporaryDirectory { directory in
       let url = directory.appendingPathComponent("orientation.tiff")
       for little in [true, false] {
-        for compression: UInt32 in [1, 8, 32946] {
+        for compression: UInt32 in [1, 5, 8, 32946] {
           for predictor: UInt32 in [1, 2] {
             for orientation: UInt32 in 1...8 {
               try fixture(
@@ -78,7 +78,7 @@ final class TIFFCodecTests: XCTestCase {
       let classic = directory.appendingPathComponent("classic.tif")
       let big = directory.appendingPathComponent("big.tif")
       for little in [true, false] {
-        for compression: UInt32 in [1, 8, 32946] {
+        for compression: UInt32 in [1, 5, 8, 32946] {
           for predictor: UInt32 in [1, 2] {
             for orientation: UInt32 in 1...8 {
               let profile = descriptionProfile("Unrelated linear RGB")
@@ -101,6 +101,94 @@ final class TIFFCodecTests: XCTestCase {
           }
         }
       }
+    }
+  }
+
+  func testLZWDictionaryReferencesRepeatedCodesAndClear() throws {
+    try inTemporaryDirectory { directory in
+      let url = directory.appendingPathComponent("dictionary.tif")
+      // A + AA + AAA exercises next-code references; a mid-strip Clear
+      // must discard the previous entry. Each row decodes to 18 bytes.
+      let codes = [256, 65, 258, 259, 256, 66, 258, 259, 256, 67, 258, 259, 257]
+      let strips = [packLZW(codes), packLZW(codes)]
+      try fixture(compression: 5, lzwStrips: strips).write(to: url)
+      XCTAssertEqual(try TIFFCodec.read(url: url).samples,
+        Array(repeating: [UInt16](repeating: 0x4141, count: 3)
+          + [UInt16](repeating: 0x4242, count: 3)
+          + [UInt16](repeating: 0x4343, count: 3), count: 2).flatMap { $0 })
+    }
+  }
+
+  func testLZWRejectsInvalidTruncatedAndWrongLengthStreams() throws {
+    try inTemporaryDirectory { directory in
+      let url = directory.appendingPathComponent("broken-lzw.tif")
+      let validCodes = [256] + Array(repeating: 65, count: 18) + [257]
+      let invalidStrips = [
+        packLZW([65, 257]), // Missing initial Clear.
+        packLZW([256, 258, 257]), // Dictionary reference without previous code.
+        packLZW([256, 65, 300, 257]), // Undefined entry.
+        packLZW([256, 65, 256, 258, 257]), // Stale entry after Clear.
+        packLZW([256, 65, 257]), // Too few decoded bytes.
+        packLZW([256] + Array(repeating: 65, count: 19) + [257]),
+        packLZW(Array(validCodes.dropLast())), // Missing EOI.
+        Data(packLZW(validCodes).dropLast()), // Truncated bitstream.
+      ]
+      for strip in invalidStrips {
+        try fixture(compression: 5, lzwStrips: [strip, strip]).write(to: url)
+        XCTAssertThrowsError(try TIFFCodec.read(url: url))
+      }
+      // A local read does not decode unrelated corrupt strips.
+      let valid = packLZW(validCodes)
+      try fixture(compression: 5, lzwStrips: [valid, invalidStrips[2]]).write(to: url)
+      XCTAssertEqual(try TIFFCodec.readRegion(url: url,
+        rect: PixelRect(x: 0, y: 0, width: 3, height: 1)).samples,
+        [UInt16](repeating: 0x4141, count: 9))
+      XCTAssertThrowsError(try TIFFCodec.read(url: url))
+    }
+  }
+
+  func testLZWFromIndependentSystemEncoder() throws {
+    try inTemporaryDirectory { directory in
+      let width = 257, height = 73
+      // Noise fills and resets the dictionary; repeated runs exercise entries.
+      var seed: UInt32 = 0x12345678
+      let samples: [UInt16] = (0..<(width * height * 3)).map { i in
+        seed = seed &* 1664525 &+ 1013904223
+        return i < width * 12 ? 0x4141 : UInt16(truncatingIfNeeded: seed >> 8)
+      }
+      let bytes = samples.withUnsafeBytes { Data($0) }
+      let provider = try XCTUnwrap(CGDataProvider(data: bytes as CFData))
+      let image = try XCTUnwrap(CGImage(width: width, height: height,
+        bitsPerComponent: 16, bitsPerPixel: 48, bytesPerRow: width * 6,
+        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: .byteOrder16Little,
+        provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+      let url = directory.appendingPathComponent("system-lzw.tif")
+      let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(url as CFURL,
+        "public.tiff" as CFString, 1, nil))
+      CGImageDestinationAddImage(destination, image, [kCGImagePropertyTIFFDictionary:
+        [kCGImagePropertyTIFFCompression: 5]] as CFDictionary)
+      XCTAssertTrue(CGImageDestinationFinalize(destination))
+      let file = try Data(contentsOf: url)
+      XCTAssertEqual(inspect(file)[259]?.values, [5])
+      let decoded = try TIFFCodec.read(url: url)
+      XCTAssertEqual(decoded.samples, samples)
+      let reference = directory.appendingPathComponent("reference.tif")
+      try TIFFCodec.write(url: reference, width: width, height: height, profile: nil) { rows in
+        Array(samples[(rows.lowerBound * width * 3)..<(rows.upperBound * width * 3)])
+      }
+      XCTAssertEqual(try TIFFCodec.readPreview(url: url, maxDimension: 31).samples,
+        try TIFFCodec.readPreview(url: reference, maxDimension: 31).samples)
+      let rect = PixelRect(x: 13, y: 7, width: 19, height: 11)
+      let expected = (rect.y..<(rect.y + rect.height)).flatMap { y in
+        Array(samples[((y * width + rect.x) * 3)..<((y * width + rect.x + rect.width) * 3)])
+      }
+      XCTAssertEqual(try TIFFCodec.readRegion(url: url, rect: rect).samples, expected)
+      let proxies = SourceProxyService(cacheRoot: directory.appendingPathComponent("proxy-cache"))
+      for dimension in [1600, 240] {
+        XCTAssertEqual(try proxies.preview(url: url, maxDimension: dimension).samples,
+          try TIFFCodec.readPreview(url: reference, maxDimension: dimension).samples)
+      }
+      proxies.waitForMaintenance()
     }
   }
 
@@ -194,7 +282,7 @@ final class TIFFCodecTests: XCTestCase {
       let overrides: [[UInt16: [UInt32]]] = [
         [258: [8, 8, 8]], [339: [3, 3, 3]], [339: [2, 2, 2]],
         [262: [1]], [277: [4]], [277: [1]], [284: [2]], [338: [2]],
-        [259: [5]], [317: [3]], [274: [0]], [274: [9]], [266: [2]],
+        [259: [7]], [317: [3]], [274: [0]], [274: [9]], [266: [2]],
         [278: [0]], [256: [0]], [257: [UInt32.max]], [324: [8]],
         [273: [UInt32.max, UInt32.max]], [279: [0, 0]], [279: [1, 1]],
       ]
@@ -487,7 +575,7 @@ final class TIFFCodecTests: XCTestCase {
   private func fixture(
     big: Bool = false, addressShift: UInt64 = 0, little: Bool = true, compression: UInt32 = 1, predictor: UInt32 = 1,
     orientation: UInt32? = nil, profile: Data? = nil,
-    overrides: [UInt16: [UInt32]] = [:]
+    overrides: [UInt16: [UInt32]] = [:], lzwStrips: [Data]? = nil
   ) throws -> Data {
     var file = Data(repeating: 0, count: big ? 16 : 8)
     var offsets: [UInt64] = []
@@ -501,7 +589,9 @@ final class TIFFCodecTests: XCTestCase {
           raw.append(contentsOf: encoded(UInt32(value), size: 2, little: little))
         }
       }
-      if compression != 1 {
+      if compression == 5 {
+        raw = lzwStrips?[y] ?? packLZW([256] + raw.map(Int.init) + [257])
+      } else if compression != 1 {
         var length = compressBound(uLong(raw.count))
         var packed = Data(count: Int(length))
         let code = packed.withUnsafeMutableBytes { destination in
@@ -564,6 +654,20 @@ final class TIFFCodecTests: XCTestCase {
         + (big ? encoded(8, size: 2, little: little) + encoded(0, size: 2, little: little) : [])
         + encoded(ifd, size: big ? 8 : 4, little: little))
     return file
+  }
+
+  /// Explicit MSB-first code packing for small hand-authored LZW fixtures.
+  private func packLZW(_ codes: [Int], width: Int = 9) -> Data {
+    var output = Data(), byte: UInt8 = 0, used = 0
+    for code in codes {
+      for bit in stride(from: width - 1, through: 0, by: -1) {
+        byte = (byte << 1) | UInt8((code >> bit) & 1)
+        used += 1
+        if used == 8 { output.append(byte); byte = 0; used = 0 }
+      }
+    }
+    if used > 0 { output.append(byte << (8 - used)) }
+    return output
   }
 
   private func encoded<T: BinaryInteger>(_ value: T, size: Int, little: Bool) -> [UInt8] {

@@ -22,17 +22,87 @@ struct RollTimingEditingTests {
     p.calibration = FilmCalibration()
     try ProjectStore.save(p, folder: folder, expectedModification: nil)
     model.open(folder)
+    try await waitForProxyImport(model)
     try await wait { model.hasImage && !model.isRendering }
     #expect(!model.canStartRollTiming)
     model.sampleBase(.init(x: 0,y: 0,width: 4,height: 4))
     try await wait { model.project?.calibration.isCalibrated == true && !model.isRendering }
-    model.rollTimingRunner = { p, folder, _, progress in
+    model.rollTimingRunner = { p, folder, _, _, progress in
       await progress("分析完成")
       return RollTimingResult(timing: .init(red: 35,green: 25,blue: 15),
         sources: try p.frames.filter { !$0.isMissing }.map { try SourceStamp(url: folder.appendingPathComponent($0.filename)) })
     }
     return (model, folder)
   }
+  @Test func perFrameExposurePersistsAndUndoesTogether() async throws {
+    let (model, folder) = try await fixture()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    model.rollTimingRunner = { p, folder, _, autoExposure, _ in
+      #expect(autoExposure)
+      return RollTimingResult(timing: .init(red: 35, green: 25, blue: 15),
+        sources: try p.frames.map { try SourceStamp(url: folder.appendingPathComponent($0.filename)) },
+        masters: Dictionary(uniqueKeysWithValues: p.frames.enumerated().map { ($0.element.id, $0.offset * 100) }))
+    }
+    let old = try #require(model.project)
+    model.startRollTiming(autoExposure: true)
+    try await wait { !model.isAnalyzingRollTiming }
+    #expect(model.project?.frames == old.frames)
+    model.applyRollTiming(preserveEdited: false)
+    let next = try #require(model.project)
+    #expect(next.frames.map { $0.adjustments.timing.master } == [0, 100, 200])
+    #expect(next.frames.allSatisfy { $0.adjustments.timing.red == 35 })
+    #expect(model.flushSave())
+    #expect(try ProjectStore.open(folder: folder).frames == next.frames)
+    model.undo(); #expect(model.project?.frames == old.frames)
+    model.redo(); #expect(model.project?.frames == next.frames)
+    // A second run with preservation must protect every edited frame including Master.
+    model.startRollTiming(autoExposure: true)
+    try await wait { !model.isAnalyzingRollTiming }
+    model.applyRollTiming(preserveEdited: true)
+    #expect(model.project?.frames == next.frames)
+
+  }
+
+  @Test func serviceMatchesExposureToFrameIDsAndSkipsMissingFrames() async throws {
+    let (model, folder) = try await fixture()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let assets = try #require(model.assets)
+    var p = try #require(model.project)
+    let levels: [UInt16] = [22000, 11000, 5500]
+    for (i, frame) in p.frames.enumerated() {
+      let url = folder.appendingPathComponent(frame.filename)
+      try FileManager.default.removeItem(at: url)
+      try TIFFCodec.write(url: url, width: 32, height: 32, profile: assets.profile) {
+        [UInt16](repeating: levels[i], count: $0.count * 32 * 3)
+      }
+    }
+    // A missing middle frame must not shift the last frame's result to its ID.
+    p.frames[1].isMissing = true
+    let result = try await RollTimingService.run(project: p, folder: folder, assets: assets, autoExposure: true) { _ in }
+    let plain = try await RollTimingService.run(project: p, folder: folder, assets: assets) { _ in }
+    #expect(result.timing == plain.timing)
+    #expect(result.masters.count == 2)
+    #expect(result.masters[p.frames[1].id] == nil)
+    let t = result.timing
+    let shift = Double(t.red + t.green + t.blue) / 3
+    for i in [0, 2] {
+      let cv = 95 - 500 * log10(Double(levels[i]) / 22000)
+      let expected = Int(min(512, max(0, (685 - cv - shift).rounded())))
+      #expect(result.masters[p.frames[i].id] == expected)
+    }
+  }
+
+  @Test func incompleteExposureCannotPartiallyApply() async throws {
+    let (model, folder) = try await fixture()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let old = model.project?.frames
+    model.startRollTiming(autoExposure: true)
+    try await wait { !model.isAnalyzingRollTiming }
+    model.applyRollTiming(preserveEdited: false)
+    #expect(model.rollTimingError != nil)
+    #expect(model.project?.frames == old)
+  }
+
   @Test func applyAllIsOneUndoAndPersists() async throws {
     let (model, folder) = try await fixture()
     defer { try? FileManager.default.removeItem(at: folder) }
@@ -83,12 +153,12 @@ struct RollTimingEditingTests {
     #expect(model.rollTimingError != nil)
     #expect(model.project?.frames == changed)
   }
-  @Test func calibrationReviewAndMatrixMismatchDisableEntry() async throws {
+  @Test func savedCalibrationIgnoresLegacyReviewButMatrixMismatchDisablesEntry() async throws {
     let (model, folder) = try await fixture()
     defer { try? FileManager.default.removeItem(at: folder) }
     #expect(model.canStartRollTiming)
     model.project?.calibrationNeedsReview = true
-    #expect(!model.canStartRollTiming)
+    #expect(model.canStartRollTiming)
     model.project?.calibrationNeedsReview = false
     model.project?.calibration.matrix = .ledLightSource
     #expect(!model.canStartRollTiming)
@@ -131,6 +201,10 @@ struct RollTimingEditingTests {
     p.frames[0].adjustments.contrast.red = 1.5
     let again = try await RollTimingService.run(project: p, folder: folder, assets: assets) { _ in }
     #expect(again.timing == t)
+    let exposed = try await RollTimingService.run(project: p, folder: folder, assets: assets, autoExposure: true) { _ in }
+    #expect(exposed.timing == t)
+    #expect(exposed.masters[p.frames[0].id] == 0)
+    #expect(result.masters.isEmpty)
     #expect(result.sources.count == 1)
   }
 

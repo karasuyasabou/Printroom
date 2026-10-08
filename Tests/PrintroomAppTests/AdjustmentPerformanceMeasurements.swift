@@ -114,6 +114,7 @@ struct AdjustmentPerformanceMeasurements {
       to: temporary.appendingPathComponent(source.lastPathComponent))
     let model = EditorModel()
     model.open(temporary)
+    try await waitForProxyImport(model)
     try await waitUntil { !model.isLoading && !model.isRendering && model.previewImage != nil
       && model.histogram != nil && model.thumbnails.count == 1 }
     var rollCalibration = calibration

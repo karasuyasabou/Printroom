@@ -4,10 +4,11 @@ import PrintroomCore
 struct RollTimingResult: Sendable {
   let timing: TimingParameters
   let sources: [SourceStamp]
+  var masters: [UUID: Int] = [:]
 }
 
 enum RollTimingService {
-  static func run(project: RollProject, folder: URL, assets: AppAssets,
+  static func run(project: RollProject, folder: URL, assets: AppAssets, autoExposure: Bool = false,
                   progress: @escaping @Sendable (String) async -> Void) async throws -> RollTimingResult {
     let worker = Task.detached(priority: .userInitiated) {
       guard let firstFrame = project.frames.first else {
@@ -36,10 +37,17 @@ enum RollTimingService {
       }
       await progress("正在计算…")
       let timing = try RollTiming.solve(samples, profile: assets.profile)
+      var masters: [UUID: Int] = [:]
+      if autoExposure {
+        await progress("正在计算自动曝光…")
+        for (frame, sample) in zip(frames, samples) {
+          masters[frame.id] = try RollTiming.automaticMaster(densityCV: sample.densityCV, timing: timing)
+        }
+      }
       for stamp in sources where try SourceStamp(url: stamp.url) != stamp {
         throw PrintroomError.invalid("分析期间照片已改变，请重新分析。")
       }
-      return RollTimingResult(timing: timing, sources: sources)
+      return RollTimingResult(timing: timing, sources: sources, masters: masters)
     }
     return try await withTaskCancellationHandler(operation: { try await worker.value },
       onCancel: { worker.cancel() })

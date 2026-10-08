@@ -17,7 +17,7 @@ public enum TIFFWriteError: LocalizedError, Equatable {
 }
 
 /// Raw sample I/O: ICC metadata never participates in decoding or encoding.
-/// Reads classic and BigTIFF stripped RGB UInt16 TIFF (uncompressed or Deflate).
+/// Reads classic and BigTIFF stripped RGB UInt16 TIFF (uncompressed, LZW or Deflate).
 public enum TIFFCodec {
   public static func read(url: URL) throws -> LinearImage {
     guard url.isFileURL else { throw invalid("TIFF 必须是本地文件。") }
@@ -34,11 +34,12 @@ public enum TIFFCodec {
 
   /// Nearest original samples using the same positions as LinearImage.preview,
   /// decoded a strip at a time without retaining full-resolution UInt16 arrays.
-  public static func readPreview(url: URL, maxDimension: Int) throws -> LinearImage {
+  public static func readPreview(url: URL, maxDimension: Int,
+    cancelled: @escaping @Sendable () -> Bool = { false }) throws -> LinearImage {
     guard maxDimension > 0 else { throw invalid("预览尺寸必须大于零。") }
     let reader = try TIFFReader(url: url)
     defer { try? reader.handle.close() }
-    return try reader.readImage(maxDimension: maxDimension)
+    return try reader.readImage(maxDimension: maxDimension, cancelled: cancelled)
   }
 
   /// The rectangle uses TIFF-orientation-corrected coordinates; user direction
@@ -341,8 +342,8 @@ private final class TIFFReader {
     let compression = try scalar(259, defaultValue: 1)
     let predictor = try scalar(317, defaultValue: 1)
     let orientation = try scalar(274, defaultValue: 1)
-    guard [1, 8, 32946].contains(compression) else {
-      throw invalid("暂不支持 TIFF 压缩 \(compression)，可读取无压缩和 Deflate。")
+    guard [1, 5, 8, 32946].contains(compression) else {
+      throw invalid("暂不支持 TIFF 压缩 \(compression)，可读取无压缩、LZW 和 Deflate。")
     }
     guard (1...2).contains(predictor), (1...8).contains(orientation),
       try scalar(266, defaultValue: 1) == 1
@@ -398,8 +399,10 @@ private final class TIFFReader {
       embeddedProfileName: try embeddedProfileName())
   }
 
-  func readImage(region: PixelRect? = nil, maxDimension: Int? = nil) throws -> LinearImage {
+  func readImage(region: PixelRect? = nil, maxDimension: Int? = nil,
+    cancelled: @escaping @Sendable () -> Bool = { false }) throws -> LinearImage {
     try Task.checkCancellation()
+    if cancelled() { throw CancellationError() }
     let info = try layout()
     let region = region ?? PixelRect(x: 0, y: 0, width: info.outputWidth, height: info.outputHeight)
     guard region.x >= 0, region.y >= 0, region.width > 0, region.height > 0,
@@ -414,7 +417,7 @@ private final class TIFFReader {
     let outputHeight = max(1, Int(Double(region.height) * scale))
     let profileName = try embeddedProfileName()
     // A strip intersects either output rows (orientations 1–4) or columns (5–8).
-    // Index it before decoding so a small 1:1 viewport never decodes unrelated strips.
+    // Index it before decoding so a small source region never decodes unrelated strips.
     let transposed = info.orientation >= 5
     var stripIndices = [[Int]](repeating: [], count: info.offsets.count)
     for index in 0..<(transposed ? outputWidth : outputHeight) {
@@ -428,11 +431,16 @@ private final class TIFFReader {
       for strip in info.offsets.indices where !stripIndices[strip].isEmpty {
         try autoreleasepool {
           try Task.checkCancellation()
+          if cancelled() { throw CancellationError() }
           let firstRow = strip * info.rowsPerStrip
           let rowCount = min(info.rowsPerStrip, info.height - firstRow)
           let expected = rowCount * info.width * 6
           var bytes = try readBytes(at: UInt64(info.offsets[strip]), count: info.counts[strip])
-          if info.compression != 1 { bytes = try inflateStrip(bytes, expected: expected) }
+          switch info.compression {
+          case 5: bytes = try decodeLZWStrip(bytes, expected: expected, cancelled: cancelled)
+          case 8, 32946: bytes = try inflateStrip(bytes, expected: expected)
+          default: break
+          }
           if info.orientation == 1, info.predictor == 1, little,
             region.x == 0, region.y == 0, outputWidth == info.width,
             outputHeight == info.height
@@ -556,6 +564,89 @@ private final class TIFFReader {
 
   private func scalar(_ tag: UInt16, defaultValue: Int? = nil) throws -> Int {
     try integers(tag, expectedCount: 1, defaultValue: defaultValue.map { [$0] })[0]
+  }
+
+  /// TIFF 6.0 LZW: MSB-first codes, 9–12 bits, early width changes and a
+  /// fresh dictionary per strip. Prefix chains keep dictionary storage bounded;
+  /// decoded bytes can never exceed the strip's declared RGB sample count.
+  private func decodeLZWStrip(_ source: Data, expected: Int,
+    cancelled: @escaping @Sendable () -> Bool) throws -> Data {
+    var result = Data(count: expected)
+    var prefixes = [Int](repeating: 0, count: 4096)
+    var suffixes = [UInt8](repeating: 0, count: 4096)
+    var stack = [UInt8](repeating: 0, count: 4096)
+    try result.withUnsafeMutableBytes { output in
+      try source.withUnsafeBytes { input in
+        let bytes = input.bindMemory(to: UInt8.self)
+        let target = output.bindMemory(to: UInt8.self)
+        var offset = 0, bufferedBits = 0, bits: UInt32 = 0
+        var width = 9, next = 258, previous: Int?
+        var started = false, written = 0, codeCount = 0
+        while true {
+          if codeCount % 4096 == 0 {
+            try Task.checkCancellation()
+            if cancelled() { throw CancellationError() }
+          }
+          codeCount += 1
+          while bufferedBits < width {
+            guard offset < bytes.count else { throw invalid("TIFF LZW 数据截断或缺少结束码。") }
+            bits = (bits << 8) | UInt32(bytes[offset])
+            offset += 1
+            bufferedBits += 8
+          }
+          bufferedBits -= width
+          let code = Int((bits >> bufferedBits) & UInt32((1 << width) - 1))
+          bits &= (1 << bufferedBits) - 1
+          guard started || code == 256 else { throw invalid("TIFF LZW 缺少初始清除码。") }
+          if code == 256 {
+            started = true
+            width = 9
+            next = 258
+            previous = nil
+            continue
+          }
+          if code == 257 {
+            guard written == expected else { throw invalid("TIFF LZW 解压样本数量不符。") }
+            return
+          }
+          let repeated = code == next && previous != nil
+          guard (code < next && (code < 256 || previous != nil)) || repeated else {
+            throw invalid("TIFF LZW 字典码无效。")
+          }
+          var cursor = repeated ? previous! : code
+          var length = 0
+          while cursor >= 258 {
+            guard length < stack.count else { throw invalid("TIFF LZW 字典链无效。") }
+            stack[length] = suffixes[cursor]
+            length += 1
+            cursor = prefixes[cursor]
+          }
+          guard cursor < 256, length < stack.count else { throw invalid("TIFF LZW 字典码无效。") }
+          let first = UInt8(cursor)
+          stack[length] = first
+          length += 1
+          let count = length + (repeated ? 1 : 0)
+          guard count <= expected - written else { throw invalid("TIFF LZW 解压样本数量超出条带范围。") }
+          for i in stride(from: length - 1, through: 0, by: -1) {
+            target[written] = stack[i]
+            written += 1
+          }
+          if repeated {
+            target[written] = first
+            written += 1
+          }
+          if let previous, next < 4096 {
+            prefixes[next] = previous
+            suffixes[next] = first
+            next += 1
+            // TIFF changes one code earlier than GIF's LZW variant.
+            if width < 12, next == (1 << width) - 1 { width += 1 }
+          }
+          previous = code
+        }
+      }
+    }
+    return result
   }
 
   private func inflateStrip(_ source: Data, expected: Int) throws -> Data {

@@ -9,6 +9,23 @@ public struct RAWProcessingIdentity: Codable, Hashable, Sendable {
   public let libRawVersion: String
   public let strategyVersion: String
   public let proxySamplingVersion: String
+
+  // Older projects stored size/inode/device/mtime/ctime. Compare the same
+  // size + nanosecond mtime contract without invalidating their calibration.
+  private var comparisonRevision: String {
+    let fields = sourceRevision.split(separator: ":")
+    if fields.count == 7 { return [fields[0], fields[3], fields[4]].joined(separator: ":") }
+    return sourceRevision
+  }
+  public static func == (a: Self, b: Self) -> Bool {
+    a.comparisonRevision == b.comparisonRevision && a.adobeVersion == b.adobeVersion
+      && a.libRawVersion == b.libRawVersion && a.strategyVersion == b.strategyVersion
+      && a.proxySamplingVersion == b.proxySamplingVersion
+  }
+  public func hash(into hasher: inout Hasher) {
+    hasher.combine(comparisonRevision); hasher.combine(adobeVersion)
+    hasher.combine(libRawVersion); hasher.combine(strategyVersion); hasher.combine(proxySamplingVersion)
+  }
 }
 
 /// All source reads pass through this boundary; TIFF sample interpretation is unchanged.
@@ -18,26 +35,28 @@ public enum SourceImageIO {
     isRAW(url) || ["tif", "tiff"].contains(url.pathExtension.lowercased())
   }
   public static func processingIdentity(url: URL) throws -> RAWProcessingIdentity? {
-    isRAW(url) ? try RAWSourceService.shared.identity(url: url) : nil
+    isRAW(url) ? try SourceProxyService.shared.identity(url: url) : nil
   }
   public static func metadata(url: URL) throws -> TIFFMetadata {
-    if !isRAW(url) { return try TIFFCodec.metadata(url: url) }
-    return try RAWSourceService.shared.metadata(url: url)
+    return try SourceProxyService.shared.metadata(url: url)
   }
   public static func readPreview(url: URL, maxDimension: Int,
                                  expectedIdentity: RAWProcessingIdentity? = nil) throws -> LinearImage {
-    if !isRAW(url) { return try TIFFCodec.readPreview(url: url, maxDimension: maxDimension) }
-    return try RAWSourceService.shared.preview(url: url, maxDimension: maxDimension,
+    // Non-editor resolutions retain direct original-grid sampling.
+    if !isRAW(url), maxDimension != 1600, maxDimension != 240 {
+      return try TIFFCodec.readPreview(url: url, maxDimension: maxDimension)
+    }
+    return try SourceProxyService.shared.preview(url: url, maxDimension: maxDimension,
                                               expectedIdentity: expectedIdentity)
   }
   public static func readRegion(url: URL, rect: PixelRect,
                                 expectedIdentity: RAWProcessingIdentity? = nil) throws -> LinearImage {
     if !isRAW(url) { return try TIFFCodec.readRegion(url: url, rect: rect) }
-    return try RAWSourceService.shared.region(url: url, rect: rect, expectedIdentity: expectedIdentity)
+    return try SourceProxyService.shared.region(url: url, rect: rect, expectedIdentity: expectedIdentity)
   }
   public static func read(url: URL, expectedIdentity: RAWProcessingIdentity? = nil) throws -> LinearImage {
     if !isRAW(url) { return try TIFFCodec.read(url: url) }
-    return try RAWSourceService.shared.read(url: url, expectedIdentity: expectedIdentity)
+    return try SourceProxyService.shared.read(url: url, expectedIdentity: expectedIdentity)
   }
 }
 
@@ -47,10 +66,10 @@ public struct AdobeRAWInstallation: Sendable {
   public init(executable: URL, version: String) { self.executable = executable; self.version = version }
 }
 
-/// Production defaults are immutable; injected functions allow failure tests without invoking Adobe.
-struct RAWSourceDependencies: Sendable {
-  var installation: @Sendable () throws -> AdobeRAWInstallation = RAWSourceService.adobeInstallation
-  var convert: @Sendable (AdobeRAWInstallation, URL, URL, @escaping @Sendable () -> Bool) throws -> Void = RAWSourceService.convert
+/// Production defaults are immutable; injected readers/converter allow isolated failure tests.
+struct SourceProxyDependencies: Sendable {
+  var installation: @Sendable () throws -> AdobeRAWInstallation = SourceProxyService.adobeInstallation
+  var convert: @Sendable (AdobeRAWInstallation, URL, URL, @escaping @Sendable () -> Bool) throws -> Void = SourceProxyService.convert
   var decode: @Sendable (URL, @escaping @Sendable () -> Bool) throws -> LinearImage = {
     try RawDecoder.decode(linearDNG: $0, cancelled: $1)
   }
@@ -58,16 +77,20 @@ struct RAWSourceDependencies: Sendable {
     let info = try RawDecoder.metadata(linearDNG: $0)
     return (info.width, info.height)
   }
+  var readTIFFPreview: @Sendable (URL, Int, @escaping @Sendable () -> Bool) throws -> LinearImage = {
+    try TIFFCodec.readPreview(url: $0, maxDimension: $1, cancelled: $2)
+  }
   var didMaintain: @Sendable () -> Void = {}
   var didReadDigest: @Sendable (URL, Int) -> Void = { _, _ in }
   var libRawVersion: String = RawDecoder.version
 }
 
-/// Four cross-process slots bound Adobe/LibRaw work. Waiting consumers share an operation,
+/// Four cross-process slots bound TIFF and Adobe/LibRaw proxy preparation. Consumers share an operation,
 /// and cancellation only stops its producer when the last consumer has gone away.
 /// Call synchronous methods off the main thread (as ImageService already does).
-public final class RAWSourceService: @unchecked Sendable {
-  public static let shared = RAWSourceService()
+/// The historical raw-v1 disk root is retained for existing RAW entries; TIFF keys are namespaced.
+public final class SourceProxyService: @unchecked Sendable {
+  public static let shared = SourceProxyService()
   public static let strategyVersion = "adobe-linear-camera-rgb-v1"
   public static let proxySamplingVersion = "nearest-original-1600-v1"
   public static let preparationConcurrency = 4
@@ -75,22 +98,22 @@ public final class RAWSourceService: @unchecked Sendable {
   private let root: URL
   private let usesManagedPolicy: Bool
   private let limit: Int64
-  private let dependencies: RAWSourceDependencies
-  private let queue = DispatchQueue(label: "studio.printroom.raw.prepare", qos: .userInitiated, attributes: .concurrent)
-  private let maintenanceQueue = DispatchQueue(label: "studio.printroom.raw.maintenance", qos: .utility)
+  private let dependencies: SourceProxyDependencies
+  private let queue = DispatchQueue(label: "studio.printroom.proxy.prepare", qos: .userInitiated, attributes: .concurrent)
+  private let maintenanceQueue = DispatchQueue(label: "studio.printroom.proxy.maintenance", qos: .utility)
   private let maintenanceLock = NSLock()
   private var maintenanceScheduled = false
   private var maintenanceRequested = false
   private let digestLock = NSLock()
   private let lock = NSLock()
-  private var jobs: [String: any RAWJobStatus] = [:]
-  // Protected independently from scheduling. Revisions include change time, inode and nanoseconds.
+  private var jobs: [String: any ProxyJobStatus] = [:]
+  // Protected independently from scheduling. Revisions use size and nanosecond mtime.
   private var digests: [String: (FileRevision, String)] = [:]
 
-  public convenience init(cacheRoot: URL? = nil, byteLimit: Int64 = RAWSourceService.defaultCacheLimit) {
-    self.init(cacheRoot: cacheRoot, byteLimit: byteLimit, dependencies: RAWSourceDependencies())
+  public convenience init(cacheRoot: URL? = nil, byteLimit: Int64 = SourceProxyService.defaultCacheLimit) {
+    self.init(cacheRoot: cacheRoot, byteLimit: byteLimit, dependencies: SourceProxyDependencies())
   }
-  init(cacheRoot: URL?, byteLimit: Int64, dependencies: RAWSourceDependencies) {
+  init(cacheRoot: URL?, byteLimit: Int64, dependencies: SourceProxyDependencies) {
     root = cacheRoot ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
       .appendingPathComponent("studio.printroom.local.v3.3/raw-v1", isDirectory: true)
     usesManagedPolicy = cacheRoot == nil
@@ -110,22 +133,25 @@ public final class RAWSourceService: @unchecked Sendable {
     try operation(url: url, key: "metadata") { cancelled in
       let entry = try self.prepare(url: url, cancelled: cancelled)
       return TIFFMetadata(width: entry.manifest.width, height: entry.manifest.height,
-                          embeddedProfileName: "Adobe RAW · 线性相机 RGB")
+                          embeddedProfileName: entry.manifest.profileName ?? "Adobe RAW · 线性相机 RGB")
     }
   }
   public func preview(url: URL, maxDimension: Int = 1600,
                       expectedIdentity: RAWProcessingIdentity? = nil) throws -> LinearImage {
-    guard maxDimension > 0 else { throw Self.invalid("RAW 代理尺寸必须大于零。") }
-    return try operation(url: url, key: "preview-\(maxDimension)-\(String(describing: expectedIdentity))") { cancelled in
+    guard maxDimension > 0 else { throw Self.invalid("代理尺寸必须大于零。") }
+    return try operation(url: url, key: "preview-\(maxDimension)-\(String(describing: expectedIdentity))", retrySourceChange: expectedIdentity == nil) { cancelled in
       let entry = try self.prepare(url: url, expectedIdentity: expectedIdentity, cancelled: cancelled)
       let image = try TIFFCodec.readPreview(
-        url: maxDimension == 240 ? entry.thumbnail : entry.proxy, maxDimension: maxDimension)
-      try self.verifySource(url, identity: entry.manifest.identity, cancelled: cancelled)
-      return image
+        url: maxDimension == 240 ? entry.thumbnail : entry.proxy, maxDimension: maxDimension,
+        cancelled: cancelled)
+      try self.verifySource(url, manifest: entry.manifest, cancelled: cancelled)
+      return LinearImage(width: image.width, height: image.height, samples: image.samples,
+        embeddedProfileName: entry.manifest.profileName ?? image.embeddedProfileName)
     }
   }
+  /// RAW export-only full decode; SourceImageIO keeps TIFF full reads in TIFFCodec.
   public func read(url: URL, expectedIdentity: RAWProcessingIdentity? = nil) throws -> LinearImage {
-    try operation(url: url, key: "read-\(String(describing: expectedIdentity))") { cancelled in
+    try operation(url: url, key: "read-\(String(describing: expectedIdentity))", retrySourceChange: expectedIdentity == nil) { cancelled in
       let identity = try self.identity(url: url)
       guard expectedIdentity == nil || expectedIdentity == identity else {
         throw Self.invalid("RAW 原片或处理版本已改变，请重新提交导出。")
@@ -135,13 +161,14 @@ public final class RAWSourceService: @unchecked Sendable {
       return image
     }
   }
+  /// RAW proxy sampling; SourceImageIO keeps TIFF calibration on original samples.
   public func region(url: URL, rect: PixelRect, expectedIdentity: RAWProcessingIdentity? = nil) throws -> LinearImage {
-    try operation(url: url, key: "region-\(rect)-\(String(describing: expectedIdentity))") { cancelled in
+    try operation(url: url, key: "region-\(rect)-\(String(describing: expectedIdentity))", retrySourceChange: expectedIdentity == nil) { cancelled in
       let entry = try self.prepare(url: url, expectedIdentity: expectedIdentity, cancelled: cancelled)
       let proxy = try TIFFCodec.read(url: entry.proxy)
       let image = try Self.proxyRegion(proxy, sourceWidth: entry.manifest.width,
         sourceHeight: entry.manifest.height, rect: rect, cancelled: cancelled)
-      try self.verifySource(url, identity: entry.manifest.identity, cancelled: cancelled)
+      try self.verifySource(url, manifest: entry.manifest, cancelled: cancelled)
       return image
     }
   }
@@ -163,7 +190,9 @@ public final class RAWSourceService: @unchecked Sendable {
   }
 
   private struct Manifest: Codable {
-    var identity: RAWProcessingIdentity
+    var identity: RAWProcessingIdentity?
+    var tiffRevision: String? = nil
+    var profileName: String? = nil
     var sourceSHA256: String
     var width: Int
     var height: Int
@@ -180,48 +209,34 @@ public final class RAWSourceService: @unchecked Sendable {
   private func prepare(url: URL, expectedIdentity: RAWProcessingIdentity? = nil,
                        cancelled: @escaping @Sendable () -> Bool) throws -> Entry {
     try check(cancelled)
-    guard SourceImageIO.isRAW(url), url.isFileURL else { throw Self.invalid("首版 RAW 输入只支持本地 ARW 文件。") }
+    guard SourceImageIO.isSupportedSource(url), url.isFileURL else { throw Self.invalid("代理输入只支持本地 TIFF 和 ARW 文件。") }
     // Always detect the actual dependency, including on a cache hit. Never silently
     // combine samples made by an unavailable/changed converter with a new full image.
-    let adobe = try dependencies.installation()
+    let raw = SourceImageIO.isRAW(url)
+    let adobe = raw ? try dependencies.installation() : nil
     let before = try FileRevision(url)
-    let identity = RAWProcessingIdentity(sourceRevision: before.key, adobeVersion: adobe.version,
+    let identity = adobe.map { RAWProcessingIdentity(sourceRevision: before.key, adobeVersion: $0.version,
       libRawVersion: dependencies.libRawVersion, strategyVersion: Self.strategyVersion,
-      proxySamplingVersion: Self.proxySamplingVersion)
-    let key = Self.hash(Data(["stat-cache-v1", before.key, adobe.version, dependencies.libRawVersion,
-                             Self.strategyVersion, Self.proxySamplingVersion].joined(separator: "\n").utf8))
+      proxySamplingVersion: Self.proxySamplingVersion) }
+    let tiffRevision = raw ? nil : before.tiffKey
+    let fields = raw
+      ? ["stat-cache-v2", url.standardizedFileURL.path, before.key, adobe!.version, dependencies.libRawVersion,
+         Self.strategyVersion, Self.proxySamplingVersion]
+      : ["tiff-proxy-v1", url.standardizedFileURL.path, before.tiffKey, Self.proxySamplingVersion]
+    let key = Self.hash(Data(fields.joined(separator: "\n").utf8))
     if let expectedIdentity {
-      guard expectedIdentity.sourceRevision == before.key,
-        expectedIdentity.adobeVersion == adobe.version,
-        expectedIdentity.libRawVersion == dependencies.libRawVersion,
-        expectedIdentity.strategyVersion == Self.strategyVersion,
-        expectedIdentity.proxySamplingVersion == Self.proxySamplingVersion
+      guard expectedIdentity == identity
       else { throw Self.invalid("RAW 原片或处理版本已改变，请重新提交操作。") }
     }
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     let destination = root.appendingPathComponent(key, isDirectory: true)
-    if let entry = try cachedEntry(at: destination, identity: identity, cancelled: cancelled) {
-      try verifySource(url, identity: identity, cancelled: cancelled)
+    if let entry = try cachedEntry(at: destination, identity: identity, tiffRevision: tiffRevision, cancelled: cancelled) {
+      try verifySource(url, manifest: entry.manifest, cancelled: cancelled)
       try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: destination.path)
       return entry
     }
-    // Old content-addressed entries already persist the complete stat identity.
-    // Discover them without reading the RAW; migrate under the existing same-source
-    // lock so subsequent launches use one direct lookup. Never follow cache symlinks.
-    if !FileManager.default.fileExists(atPath: destination.path) {
-      for candidate in try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) {
-        try check(cancelled)
-        let name = candidate.lastPathComponent
-        guard name.count == 64, name.allSatisfy({ $0.isHexDigit }),
-              let entry = try cachedEntry(at: candidate, identity: identity, cancelled: cancelled,
-                                          legacy: true) else { continue }
-        try verifySource(url, identity: identity, cancelled: cancelled)
-        try FileManager.default.moveItem(at: candidate, to: destination)
-        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: destination.path)
-        scheduleMaintenance()
-        return Entry(directory: destination, manifest: entry.manifest)
-      }
-    }
+    // Old cache keys lack path isolation under the relaxed revision contract.
+    // Rebuild on first use; ordinary cache maintenance retires old entries.
     let sourceHash = try digest(url, cancelled: cancelled)
     try check(cancelled)
     // Only this worker uses the owned directory; stale/corrupt entries are rebuilt.
@@ -229,50 +244,60 @@ public final class RAWSourceService: @unchecked Sendable {
     let temporary = root.appendingPathComponent(".preparing-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: false)
     defer { try? FileManager.default.removeItem(at: temporary) }
-    let dng = temporary.appendingPathComponent("source.dng")
-    try dependencies.convert(adobe, url, dng, cancelled)
-    try check(cancelled)
-    let size = try dependencies.inspect(dng) // Reject CFA before calling LibRaw's processing stage.
-    guard expectedIdentity == nil || expectedIdentity == identity else {
-      throw Self.invalid("RAW 有效画面与提交操作时不同，请重试。")
-    }
-    let image = try dependencies.decode(dng, cancelled)
-    guard image.width == size.0, image.height == size.1,
-      image.samples.count == image.width * image.height * 3 else {
-      throw Self.invalid("RAW 解码尺寸与有效主图不一致。")
-    }
     let proxy = temporary.appendingPathComponent("proxy.tiff")
-    try writeProxy(image, to: proxy, maxDimension: 1600, cancelled: cancelled)
     let thumbnail = temporary.appendingPathComponent("thumbnail.tiff")
-    try writeProxy(image, to: thumbnail, maxDimension: 240, cancelled: cancelled)
-    guard before == (try FileRevision(url)) else { throw Self.invalid("转换期间原始 RAW 已改变，请重试。") }
-    let manifest = Manifest(identity: identity, sourceSHA256: sourceHash, width: size.0, height: size.1,
+    let size: (Int, Int)
+    let profileName: String?
+    if let adobe {
+      let dng = temporary.appendingPathComponent("source.dng")
+      try dependencies.convert(adobe, url, dng, cancelled)
+      try check(cancelled)
+      size = try dependencies.inspect(dng) // Reject CFA before LibRaw processing.
+      let image = try dependencies.decode(dng, cancelled)
+      guard image.width == size.0, image.height == size.1,
+        image.samples.count == image.width * image.height * 3 else {
+        throw Self.invalid("RAW 解码尺寸与有效主图不一致。")
+      }
+      try writeProxy(image, to: proxy, maxDimension: 1600, cancelled: cancelled)
+      try writeProxy(image, to: thumbnail, maxDimension: 240, cancelled: cancelled)
+      profileName = nil
+      try FileManager.default.removeItem(at: dng)
+    } else {
+      let metadata = try TIFFCodec.metadata(url: url)
+      size = (metadata.width, metadata.height)
+      profileName = metadata.embeddedProfileName
+      // Each grid samples the original TIFF independently, with bounded strip memory.
+      for (dimension, destination) in [(1600, proxy), (240, thumbnail)] {
+        try check(cancelled)
+        let image = try dependencies.readTIFFPreview(url, dimension, cancelled)
+        try writeProxy(image, to: destination, maxDimension: dimension, cancelled: cancelled)
+      }
+    }
+    guard try Self.revisionKey(url) == (raw ? before.key : before.tiffKey) else {
+      throw Self.invalid("准备期间原始图像已改变，请重试。")
+    }
+    let manifest = Manifest(identity: identity, tiffRevision: tiffRevision, profileName: profileName,
+      sourceSHA256: sourceHash, width: size.0, height: size.1,
       proxySHA256: try digest(proxy, cancelled: cancelled),
       thumbnailSHA256: try digest(thumbnail, cancelled: cancelled))
     try JSONEncoder().encode(manifest).write(to: temporary.appendingPathComponent("manifest.json"), options: .atomic)
     try check(cancelled)
-    try FileManager.default.removeItem(at: dng)
     try FileManager.default.moveItem(at: temporary, to: destination)
     scheduleMaintenance()
     return Entry(directory: destination, manifest: manifest)
   }
 
-  private func cachedEntry(at directory: URL, identity: RAWProcessingIdentity,
-                           cancelled: @escaping @Sendable () -> Bool, legacy: Bool = false) throws -> Entry? {
+  private func cachedEntry(at directory: URL, identity: RAWProcessingIdentity?, tiffRevision: String?,
+                           cancelled: @escaping @Sendable () -> Bool) throws -> Entry? {
     try check(cancelled)
     let manifestURL = directory.appendingPathComponent("manifest.json")
     guard Self.isDirectory(directory), (try? FileRevision(manifestURL)) != nil,
           let data = try? Data(contentsOf: manifestURL),
           let manifest = try? JSONDecoder().decode(Manifest.self, from: data),
-          manifest.identity == identity, manifest.width > 0, manifest.height > 0,
+          manifest.identity == identity, manifest.tiffRevision == tiffRevision,
+          manifest.width > 0, manifest.height > 0,
           manifest.sourceSHA256.count == 64,
           manifest.sourceSHA256.allSatisfy({ $0.isHexDigit }) else { return nil }
-    if legacy {
-      let key = Self.hash(Data([identity.sourceRevision, manifest.sourceSHA256,
-        identity.adobeVersion, identity.libRawVersion, identity.strategyVersion,
-        identity.proxySamplingVersion].joined(separator: "\n").utf8))
-      guard directory.lastPathComponent == key else { return nil }
-    }
     let entry = Entry(directory: directory, manifest: manifest)
     let valid = (try? digest(entry.proxy, cancelled: cancelled)) == manifest.proxySHA256
       && (try? digest(entry.thumbnail, cancelled: cancelled)) == manifest.thumbnailSHA256
@@ -350,23 +375,51 @@ public final class RAWSourceService: @unchecked Sendable {
   private func verifySource(_ url: URL, identity: RAWProcessingIdentity,
                             cancelled: @escaping @Sendable () -> Bool) throws {
     try check(cancelled)
-    guard try FileRevision(url).key == identity.sourceRevision,
-          try dependencies.installation().version == identity.adobeVersion else {
+    guard try self.identity(url: url) == identity else {
       throw Self.invalid("RAW 原片或 Adobe 版本在准备期间改变，请重试。")
     }
   }
 
-  private func operation<T: Sendable>(url: URL, key: String,
+  private func verifySource(_ url: URL, manifest: Manifest,
+                            cancelled: @escaping @Sendable () -> Bool) throws {
+    try check(cancelled)
+    if let identity = manifest.identity {
+      try verifySource(url, identity: identity, cancelled: cancelled)
+    } else if try Self.revisionKey(url) != manifest.tiffRevision {
+      throw Self.invalid("TIFF 原片在准备期间改变，请重试。")
+    }
+  }
+
+  private static func revisionKey(_ url: URL) throws -> String {
+    let revision = try FileRevision(url)
+    return SourceImageIO.isRAW(url) ? revision.key : revision.tiffKey
+  }
+
+  private func operation<T: Sendable>(url: URL, key: String, retrySourceChange: Bool = true,
+    body: @escaping @Sendable (@escaping @Sendable () -> Bool) throws -> T) throws -> T {
+    let before = SourceImageIO.isSupportedSource(url) ? try Self.revisionKey(url) : nil
+    do {
+      return try operationOnce(url: url, key: key, body: body)
+    } catch {
+      try Task.checkCancellation()
+      guard !(error is CancellationError), retrySourceChange, let before,
+            let after = try? Self.revisionKey(url), before != after else { throw error }
+      // Retry the entire operation with fresh identity, locks and cache lookup.
+      return try operationOnce(url: url, key: key, body: body)
+    }
+  }
+
+  private func operationOnce<T: Sendable>(url: URL, key: String,
     body: @escaping @Sendable (@escaping @Sendable () -> Bool) throws -> T) throws -> T {
     try Task.checkCancellation()
-    let startingRevision = SourceImageIO.isRAW(url) ? try FileRevision(url) : nil
-    let jobKey = url.standardizedFileURL.path + "|" + key + "|" + (startingRevision?.key ?? "")
+    let startingRevision = SourceImageIO.isSupportedSource(url) ? try Self.revisionKey(url) : nil
+    let jobKey = url.standardizedFileURL.path + "|" + key + "|" + (startingRevision ?? "")
     lock.lock()
-    let job: RAWJob<T>
-    if let existing = jobs[jobKey] as? RAWJob<T>, existing.attach() {
+    let job: ProxyJob<T>
+    if let existing = jobs[jobKey] as? ProxyJob<T>, existing.attach() {
       job = existing
     } else {
-      job = RAWJob<T>()
+      job = ProxyJob<T>()
       jobs[jobKey] = job
       queue.async {
         let result = Result {
@@ -382,9 +435,9 @@ public final class RAWSourceService: @unchecked Sendable {
             return try body(cancelled)
           }
           try self.ensureCacheRoot()
-          // Serialize every operation for the same source revision before taking a
+          // Serialize every operation for the same source path before taking a
           // slot, so queued metadata/preview/full reads cannot occupy all four slots.
-          let entryName = ".entry-" + Self.hash(Data(startingRevision!.key.utf8)) + ".lock"
+          let entryName = ".entry-" + Self.hash(Data(url.standardizedFileURL.path.utf8)) + ".lock"
           let entryFD = try self.acquireNamedLock(entryName, mode: LOCK_EX, cancelled: cancelled)
           defer { Self.release(entryFD) }
           let slotFD = try self.acquirePreparationSlot(cancelled: cancelled)
@@ -399,15 +452,15 @@ public final class RAWSourceService: @unchecked Sendable {
         // explicit policy changes, startup and the hourly timer, not every read.
         job.finish(result)
         self.lock.lock()
-        if self.jobs[jobKey] as? RAWJob<T> === job { self.jobs.removeValue(forKey: jobKey) }
+        if self.jobs[jobKey] as? ProxyJob<T> === job { self.jobs.removeValue(forKey: jobKey) }
         self.lock.unlock()
       }
     }
     lock.unlock()
     defer { job.detach() }
     let value = try job.wait()
-    if let startingRevision, startingRevision != (try FileRevision(url)) {
-      throw Self.invalid("RAW 原片在读取期间改变，请重试。")
+    if let startingRevision, startingRevision != (try Self.revisionKey(url)) {
+      throw Self.invalid("原片在读取期间改变，请重试。")
     }
     return value
   }
@@ -445,24 +498,25 @@ public final class RAWSourceService: @unchecked Sendable {
   }
 
   private struct FileRevision: Equatable {
-    let size: Int64, inode: UInt64, device: Int32
-    let mtime: timespec, ctime: timespec
+    let size: Int64
+    let mtime: timespec
+    let inode: UInt64
     init(_ url: URL) throws {
       var s = stat()
       guard url.withUnsafeFileSystemRepresentation({ Darwin.lstat($0!, &s) }) == 0,
-            s.st_mode & S_IFMT == S_IFREG else { throw RAWSourceService.invalid("无法读取 RAW 或缓存文件：\(url.lastPathComponent)") }
-      size = s.st_size; inode = s.st_ino; device = s.st_dev; mtime = s.st_mtimespec; ctime = s.st_ctimespec
+            s.st_mode & S_IFMT == S_IFREG else { throw SourceProxyService.invalid("无法读取原片或缓存文件：\(url.lastPathComponent)") }
+      size = s.st_size; mtime = s.st_mtimespec; inode = UInt64(s.st_ino)
     }
-    var key: String { "\(size):\(inode):\(device):\(mtime.tv_sec):\(mtime.tv_nsec):\(ctime.tv_sec):\(ctime.tv_nsec)" }
+    var key: String { "\(size):\(mtime.tv_sec):\(mtime.tv_nsec)" }
+    var tiffKey: String { "\(key):\(inode)" }
     static func == (a: Self, b: Self) -> Bool {
-      a.size == b.size && a.inode == b.inode && a.device == b.device && a.mtime.tv_sec == b.mtime.tv_sec
-        && a.mtime.tv_nsec == b.mtime.tv_nsec && a.ctime.tv_sec == b.ctime.tv_sec && a.ctime.tv_nsec == b.ctime.tv_nsec
+      a.size == b.size && a.mtime.tv_sec == b.mtime.tv_sec && a.mtime.tv_nsec == b.mtime.tv_nsec
     }
   }
   private func digest(_ url: URL, cancelled: @Sendable () -> Bool) throws -> String {
     try check(cancelled)
     let before = try FileRevision(url)
-    if let value = digestLock.withLock({ digests[url.path] }), value.0 == before { return value.1 }
+    if let value = digestLock.withLock({ digests[url.path] }), value.0.tiffKey == before.tiffKey { return value.1 }
     let handle = try FileHandle(forReadingFrom: url)
     defer { try? handle.close() }
     var hash = SHA256()
@@ -522,7 +576,7 @@ public final class RAWSourceService: @unchecked Sendable {
     let fm = FileManager.default
     for directory in [root.deletingLastPathComponent(), root] {
       if (try? fm.attributesOfItem(atPath: directory.path)) != nil, !Self.isDirectory(directory) {
-        throw Self.invalid("RAW 缓存目录不是安全的普通目录，请检查缓存路径。")
+        throw Self.invalid("代理缓存目录不是安全的普通目录，请检查缓存路径。")
       }
     }
     try fm.createDirectory(at: root, withIntermediateDirectories: true)
@@ -535,7 +589,7 @@ public final class RAWSourceService: @unchecked Sendable {
     let fd = path.withUnsafeFileSystemRepresentation {
       Darwin.open($0!, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0o600)
     }
-    guard fd >= 0 else { throw Self.invalid("无法锁定 RAW 缓存目录。") }
+    guard fd >= 0 else { throw Self.invalid("无法锁定 代理缓存目录。") }
     return fd
   }
 
@@ -544,7 +598,7 @@ public final class RAWSourceService: @unchecked Sendable {
     let fd = try openLockFile(name)
     do {
       while flock(fd, mode | LOCK_NB) != 0 {
-        guard errno == EWOULDBLOCK || errno == EAGAIN else { throw Self.invalid("RAW 缓存锁定失败。") }
+        guard errno == EWOULDBLOCK || errno == EAGAIN else { throw Self.invalid("代理缓存锁定失败。") }
         try check(cancelled)
         Thread.sleep(forTimeInterval: 0.025)
       }
@@ -564,7 +618,7 @@ public final class RAWSourceService: @unchecked Sendable {
             for (other, descriptor) in descriptors.enumerated() where other != index { Darwin.close(descriptor) }
             return fd
           }
-          guard errno == EWOULDBLOCK || errno == EAGAIN else { throw Self.invalid("RAW 并行准备槽锁定失败。") }
+          guard errno == EWOULDBLOCK || errno == EAGAIN else { throw Self.invalid("代理并行准备槽锁定失败。") }
         }
         Thread.sleep(forTimeInterval: 0.025)
       }
@@ -647,9 +701,9 @@ public final class RAWSourceService: @unchecked Sendable {
   private static func invalid(_ message: String) -> PrintroomError { .invalid(message) }
 }
 
-private protocol RAWJobStatus: AnyObject { var isAbandoned: Bool { get } }
+private protocol ProxyJobStatus: AnyObject { var isAbandoned: Bool { get } }
 
-private final class RAWJob<T: Sendable>: RAWJobStatus, @unchecked Sendable {
+private final class ProxyJob<T: Sendable>: ProxyJobStatus, @unchecked Sendable {
   private let condition = NSCondition()
   private var consumers = 1
   private var result: Result<T, Error>?

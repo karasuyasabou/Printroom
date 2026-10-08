@@ -17,7 +17,10 @@ for argument in "$@"; do
     --loading) qa_arguments+=(--loading --appearance) ;;
     --export-layout) qa_arguments+=(--export-layout) ;;
     --crop-preview) qa_arguments+=(--crop-preview --appearance) ;;
+    --film-base) qa_arguments+=(--film-base --appearance) ;;
+    --sprocket) qa_arguments+=(--sprocket --appearance) ;;
     --roll-name) qa_arguments+=(--roll-name --appearance) ;;
+    --toolbar-alignment) qa_arguments+=(--toolbar-alignment --appearance) ;;
     --roll-timing) qa_arguments+=(--roll-timing) ;;
     --appearance) qa_arguments+=(--appearance) ;;
     --histogram) qa_arguments+=(--histogram) ;;

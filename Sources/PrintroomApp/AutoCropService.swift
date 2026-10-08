@@ -23,7 +23,9 @@ enum AutoCropService {
         await progress("分析画幅 \(index + 1)/\(inputs.count)")
         let stamp = try SourceStamp(url: input.url)
         let image = try SourceImageIO.readPreview(url: input.url, maxDimension: 1600)
-        let seed = try AutoCropAnalyzer.prepare(image).seed
+        let metadata = try SourceImageIO.metadata(url: input.url)
+        let seed = try AutoCropAnalyzer.prepare(image,
+          sourceWidth: metadata.width, sourceHeight: metadata.height).seed
         guard try SourceStamp(url: input.url) == stamp else {
           throw PrintroomError.invalid("自动裁剪期间源照片已改变：\(input.url.lastPathComponent)")
         }
@@ -39,7 +41,8 @@ enum AutoCropService {
         }
         let image = try SourceImageIO.readPreview(url: input.url, maxDimension: 1600)
         let metadata = try SourceImageIO.metadata(url: input.url)
-        let analysis = try AutoCropAnalyzer.prepare(image, seed: seeds[index])
+        let analysis = try AutoCropAnalyzer.prepare(image, seed: seeds[index],
+          sourceWidth: metadata.width, sourceHeight: metadata.height)
         let fit = try AutoCropAnalyzer.fit(analysis, template: template,
           sourceWidth: metadata.width, sourceHeight: metadata.height,
           requiresAllEdges: index == inputs.startIndex || index == inputs.index(before: inputs.endIndex))

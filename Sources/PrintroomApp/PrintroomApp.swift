@@ -47,7 +47,6 @@ import SwiftUI
       .windowStyle(.hiddenTitleBar)
       .windowToolbarStyle(.unified)
       .commands {
-        AppearanceCommands()
         ShortcutHelpCommands()
         CacheManagerCommands()
         CommandGroup(replacing: .newItem) {
@@ -68,24 +67,11 @@ import SwiftUI
             "e", modifiers: [.command, .shift]
           ).disabled(!model.hasImage || model.isExporting || model.isCropping)
         }
-        CommandMenu("批量输出") {
-          Button("导出所选照片…") { model.batchExportPanel(allFrames: false) }.disabled(model.selection.selectedFrameIDs.isEmpty || model.isExporting || model.isCropping)
-          Button("导出整卷…") { model.batchExportPanel(allFrames: true) }.disabled(model.project == nil || model.isExporting || model.isCropping)
-          Button("取消导出") { model.cancelExport() }.disabled(!model.isExporting)
-        }
         CommandGroup(replacing: .undoRedo) {
           Button("撤销") { model.undo() }.keyboardShortcut("z").disabled(
             !model.canUndo)
           Button("重做") { model.redo() }.keyboardShortcut("z", modifiers: [.command, .shift])
             .disabled(!model.canRedo)
-        }
-        CommandGroup(after: .toolbar) {
-          Button("原始分辨率 1:1") { model.inspectNativeResolution() }.keyboardShortcut("1").disabled(!model.hasImage || model.isCropping)
-        }
-        CommandMenu("调色") {
-          // Routed by ShortcutView so native text copy/paste keeps priority.
-          Button("复制调色（⌘C）") { model.copyParameters() }.disabled(model.activeFrame == nil)
-          Button("粘贴调色到所选照片（⌘V）") { model.applyParameters() }.disabled(!model.canApply)
         }
       }
     Window("管理缓存", id: "cache-manager") {
@@ -102,9 +88,9 @@ import SwiftUI
   weak var model: EditorModel?
   private var cacheMaintenanceTimer: Timer?
   func applicationDidFinishLaunching(_ notification: Notification) {
-    RAWSourceService.shared.scheduleMaintenance()
+    SourceProxyService.shared.scheduleMaintenance()
     cacheMaintenanceTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in
-      RAWSourceService.shared.scheduleMaintenance()
+      SourceProxyService.shared.scheduleMaintenance()
     }
     (AppAppearance(rawValue: UserDefaults.standard.string(forKey: AppAppearance.defaultsKey) ?? "") ?? .dark).apply()
     NSApp.setActivationPolicy(.regular)

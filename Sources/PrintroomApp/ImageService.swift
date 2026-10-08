@@ -2,7 +2,7 @@ import Foundation
 import PrintroomCore
 
 /// Keeps only bounded, unadjusted preview buffers. Full-resolution reads are transient;
-/// preview, thumbnail and viewport callers use separate actors so utility work does
+/// preview and thumbnail callers use separate actors so utility work does
 /// not queue ahead of interactive work. Cancellation propagates from the caller into
 /// the strip decoder, and canceled requests never enter the cache.
 actor ImageService {
@@ -29,7 +29,9 @@ actor ImageService {
   private let cacheLimitBytes: Int
   private let cacheLimitEntries: Int
 
-  init(cacheLimitBytes: Int = 64 * 1024 * 1024, cacheLimitEntries: Int = 12) {
+  // Twelve 1600×1600 Float32 RGBA previews fit even for square scans.
+  // Entries allocate on demand and remain subject to both LRU limits.
+  init(cacheLimitBytes: Int = 512 * 1024 * 1024, cacheLimitEntries: Int = 12) {
     self.cacheLimitBytes = max(0, cacheLimitBytes)
     self.cacheLimitEntries = max(0, cacheLimitEntries)
   }
@@ -84,26 +86,13 @@ actor ImageService {
     return (entry.pixels, entry.width, entry.height)
   }
 
-  /// Read only the bounding source tile required by the final crop viewport,
-  /// including interpolation neighbours. Geometry runs before density processing.
-  func transformedRegion(_ url: URL, geometry: CropGeometry, rect: PixelRect) throws -> PixelBuffer {
-    guard rect.width > 0, rect.height > 0, rect.width <= 8_388_608 / rect.height else {
-      throw PrintroomError.invalid("1:1 检查区域超过 8 百万像素，请缩小检查视口")
-    }
-    let sourceRect = try geometry.sourceRegion(for: rect)
-    let input = try region(url, rect: sourceRect)
-    return try geometry.render(input, sourceRegion: sourceRect, outputRegion: rect,
-      maxDimension: max(rect.width, rect.height),
-      cancelled: { Task.isCancelled })
-  }
-
-  /// A native-resolution tile in source coordinates. Regions are transient and
+  /// An original-sample region for calibration. Regions are transient and
   /// cannot evict the small input previews needed for continuous adjustment.
   func region(_ url: URL, rect: PixelRect) throws -> PixelBuffer {
     try Task.checkCancellation()
     guard rect.width > 0, rect.height > 0,
       rect.width <= 8_388_608 / rect.height
-    else { throw PrintroomError.invalid("1:1 检查区域超过 8 百万像素，请缩小检查视口") }
+    else { throw PrintroomError.invalid("采样区域超过 8 百万像素，请缩小选区") }
     let identity = try SourceStamp(url: url)
     let image = try autoreleasepool { try SourceImageIO.readRegion(url: url, rect: rect) }
     try Task.checkCancellation()

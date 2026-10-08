@@ -20,7 +20,7 @@ public struct ExportFrameSnapshot: Sendable {
     sourceURL = folder.appendingPathComponent(frame.filename)
     rawProcessing = try SourceImageIO.processingIdentity(url: sourceURL)
     if let previous = frame.rawProcessing, previous != rawProcessing {
-      throw PrintroomError.invalid("RAW 处理版本已改变，请重新载入照片并检查片基校准后导出。")
+      throw PrintroomError.invalid("RAW 处理版本已改变，请重新载入照片后导出。")
     }
     adjustments = frame.adjustments
     orientation = frame.orientation
@@ -37,6 +37,7 @@ public struct ExportRequest: Sendable {
   public let frames: [ExportFrameSnapshot]
   public let calibration: FilmCalibration
   public let settings: ProjectExportSettings
+  public let sprocketWhitening: SprocketWhiteningSettings
   public let destinationDirectory: URL
   public let filenamePrefix: String?
   public let explicitDestination: URL?
@@ -62,6 +63,8 @@ public struct ExportRequest: Sendable {
       try ExportFrameSnapshot(frame: $0.element, folder: folder, rollNumber: $0.offset + 1)
     }
     calibration = project.calibration
+    sprocketWhitening = project.sprocketWhitening
+    try sprocketWhitening.validate()
     settings = project.exportSettings
     self.destinationDirectory = destinationDirectory
     self.explicitDestination = explicitDestination
@@ -73,7 +76,8 @@ public struct ExportRequest: Sendable {
   public init(
     source: URL, destination: URL, calibration: FilmCalibration,
     adjustments: FrameAdjustments, orientation: FrameOrientation = .identity,
-    settings: ProjectExportSettings = .init(), crop: FrameCrop? = nil
+    settings: ProjectExportSettings = .init(), crop: FrameCrop? = nil,
+    sprocketWhitening: SprocketWhiteningSettings = .init()
   ) throws {
     let attributes = try FileManager.default.attributesOfItem(atPath: source.path)
     guard source.isFileURL, destination.isFileURL,
@@ -89,6 +93,8 @@ public struct ExportRequest: Sendable {
     frames = [try ExportFrameSnapshot(frame: frame, folder: source.deletingLastPathComponent())]
     self.calibration = calibration
     self.settings = settings
+    try sprocketWhitening.validate()
+    self.sprocketWhitening = sprocketWhitening
     destinationDirectory = destination.deletingLastPathComponent()
     explicitDestination = destination
     filenamePrefix = nil
@@ -351,29 +357,44 @@ private actor ExportWorker {
         let renderRows: (Range<Int>) throws -> PixelBuffer = { rows in
           try Task.checkCancellation()
           let input = try geometry.renderRows(image, rows: rows)
+          let whitening: SprocketWhiteningContext?
+          if !request.settings.applyCrop, request.sprocketWhitening.enabled,
+            request.calibration.isCalibrated, let crop = frame.crop {
+            whitening = try SprocketWhiteningContext(settings: request.sprocketWhitening,
+              protectedCrop: crop, sourceWidth: image.width, sourceHeight: image.height,
+              orientation: frame.orientation, renderWidth: size.width, renderHeight: size.height,
+              rowOffset: rows.lowerBound)
+          } else { whitening = nil }
           let final: PixelBuffer
           if let gpu = self.gpu {
             final = try gpu.render(
               input, calibration: request.calibration,
-              adjustments: frame.adjustments, lut: lut, stage: .final)
+              adjustments: frame.adjustments, lut: lut, stage: .final, sprocketWhitening: whitening)
           } else {
             final = try Pipeline.render(
               input, calibration: request.calibration,
-              adjustments: frame.adjustments, lut: lut, stage: .final)
+              adjustments: frame.adjustments, lut: lut, stage: .final, sprocketWhitening: whitening)
           }
           try Task.checkCancellation()
           progress(0.08 + 0.90 * Double(rows.upperBound) / Double(size.height))
-          return final
+          var converted = try converter.convert(final)
+          if let whitening {
+            // Preserve preview-equivalent edge colors through ICC; opaque holes
+            // become the exact destination white, including fixed-point ICC rounding.
+            converted = try whitening.apply(raw: input, to: converted,
+              calibration: request.calibration, onlyOpaque: true)
+          }
+          return converted
         }
         if request.settings.format == .jpeg {
           try JPEGCodec.write(url: writeURL, width: size.width, height: size.height,
             profile: converter.outputProfile) { rows in
-              try converter.quantized8(renderRows(rows))
+              try OutputColorConverter.quantize8(renderRows(rows))
             }
         } else {
           try TIFFCodec.write(url: writeURL, width: size.width, height: size.height,
             profile: converter.outputProfile, compression: request.settings.compression) { rows in
-              try converter.quantized(renderRows(rows))
+              try OutputColorConverter.quantize16(renderRows(rows))
             }
         }
         if overwrite {

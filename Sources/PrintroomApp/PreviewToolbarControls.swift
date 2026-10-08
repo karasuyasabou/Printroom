@@ -1,7 +1,5 @@
 import SwiftUI
 
-enum PreviewViewportMode { case fit, native }
-
 struct PreviewToolLabel<Content: View>: View {
   var selected = false
   @ViewBuilder var content: () -> Content

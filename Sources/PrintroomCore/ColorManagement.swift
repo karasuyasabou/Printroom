@@ -123,7 +123,11 @@ public final class OutputColorConverter {
   }
 
   public func quantized8(_ final: PixelBuffer) throws -> [UInt8] {
-    let converted = try convert(final)
+    try Self.quantize8(convert(final))
+  }
+
+  public static func quantize8(_ converted: PixelBuffer) throws -> [UInt8] {
+    try validateConverted(converted)
     return converted.pixels.flatMap { pixel in
       (0..<3).map { UInt8(floor(min(1, max(0, pixel[$0])) * 255 + 0.5)) }
     }
@@ -131,7 +135,11 @@ public final class OutputColorConverter {
 
   /// The only output clamp/quantization. No dithering or transfer function here.
   public func quantized(_ final: PixelBuffer) throws -> [UInt16] {
-    let converted = try convert(final)
+    try Self.quantize16(convert(final))
+  }
+
+  public static func quantize16(_ converted: PixelBuffer) throws -> [UInt16] {
+    try validateConverted(converted)
     var samples = [UInt16]()
     samples.reserveCapacity(converted.pixels.count * 3)
     for pixel in converted.pixels {
@@ -140,6 +148,13 @@ public final class OutputColorConverter {
       }
     }
     return samples
+  }
+  private static func validateConverted(_ converted: PixelBuffer) throws {
+    guard converted.width > 0, converted.height > 0, converted.width <= Int.max / converted.height,
+      converted.pixels.count == converted.width * converted.height,
+      converted.pixels.allSatisfy({ $0.x.isFinite && $0.y.isFinite && $0.z.isFinite }) else {
+      throw PrintroomError.invalid("输出量化输入尺寸或数值无效。")
+    }
   }
 }
 

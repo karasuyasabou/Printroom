@@ -15,7 +15,7 @@ struct RAWPreviewPerformanceMeasurements {
     func ms(_ start: Date) -> Double { Date().timeIntervalSince(start) * 1000 }
     let background = ProcessInfo.processInfo.environment["PRINTROOM_RAW_MEASURE_BACKGROUND"] == "1"
     let prewarm = Task {
-      if background { await RAWPrewarmer.prepare(project.frames.map { folder.appendingPathComponent($0.filename) }) }
+      if background { await SourcePrewarmer.prepare(project.frames.map { folder.appendingPathComponent($0.filename) }) }
     }
     defer { prewarm.cancel() }
     for frame in project.frames.prefix(6) {

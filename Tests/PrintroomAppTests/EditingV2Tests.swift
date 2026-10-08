@@ -34,6 +34,8 @@ struct EditingV2Tests {
     defer { try? FileManager.default.removeItem(at: folder) }
     for name in ["A.tif", "B.tif", "C.tif"] { try write(name, folder: folder, profile: assets.profile) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     let frames = try #require(model.project?.frames)
     try await until("initial preview", { model.histogram != nil })
     #expect(model.sourceWidth == 12 && model.sourceHeight == 8)
@@ -82,6 +84,8 @@ struct EditingV2Tests {
     defer { try? FileManager.default.removeItem(at: folder) }
     for name in ["A.tif", "B.tif", "C.tif"] { try write(name, folder: folder, profile: assets.profile) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     try await until("initial preview", { model.histogram != nil })
     let frames = try #require(model.project?.frames)
     model.changeOrientation(.rotateClockwise)
@@ -134,6 +138,8 @@ struct EditingV2Tests {
     try write("A.tif", folder: folder, width: 512, height: 256, profile: assets.profile, value: 8192)
     try write("B.tif", folder: folder, width: 48, height: 32, profile: assets.profile, value: 49152)
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     model.stage = .l0
     let frames = try #require(model.project?.frames)
     try await until("first histogram", { model.histogram?.stage == .final })
@@ -155,7 +161,7 @@ struct EditingV2Tests {
       calibration: try #require(model.project).calibration,
       adjustments: model.adjustments, lut: assets.lut, stage: .final)
     for channel in 0..<3 {
-      #expect(result.channels[channel].bins[min(255, Int(expectedFinal[channel] * 256))] == 48 * 32)
+      #expect(result.channels[channel].bins[max(0, min(255, Int(expectedFinal[channel] * 256)))] == 48 * 32)
     }
     // Give cancelled, more expensive A work an opportunity to finish; it still cannot publish.
     try await Task.sleep(for: .milliseconds(200))
@@ -170,8 +176,13 @@ struct EditingV2Tests {
     let value = try Pipeline.process(SIMD3<Float>(repeating: Float(49152) / 65535),
       calibration: try #require(model.project).calibration,
       adjustments: model.adjustments, lut: assets.lut, stage: .d3)
-    let bin = min(255, Int(value.x * 256))
-    #expect(adjusted.channels[0].bins[bin] == 48 * 32)
+    if value.x < 0 {
+      #expect(adjusted.channels[0].belowRange == 48 * 32)
+    } else if value.x > 1 {
+      #expect(adjusted.channels[0].aboveRange == 48 * 32)
+    } else {
+      #expect(adjusted.channels[0].bins[min(255, Int(value.x * 256))] == 48 * 32)
+    }
     #expect(adjusted.unit.contains("1024"))
     #expect(model.errorMessage == nil)
   }
@@ -188,8 +199,9 @@ struct EditingV2Tests {
       Array(samples[(rows.lowerBound * width * 3)..<(rows.upperBound * width * 3)])
     }
     model.open(folder)
+    try await waitForProxyImport(model)
     model.stage = .l0
-    try await until("sampling preview", { model.histogram != nil })
+    try await until("sampling preview", { model.hasImage })
     model.changeOrientation(.rotateClockwise)
     model.changeOrientation(.flipVertical)
     #expect(model.orientation == .transverse)
@@ -217,26 +229,25 @@ struct EditingV2Tests {
     #expect(model.errorMessage == nil)
   }
 
-  @Test func nativeDetailDoesNotReplaceWholePhotoHistogram() async throws {
+  @Test func rotationPreservesWholePhotoHistogram() async throws {
     let model = EditorModel()
     let assets = try #require(model.assets)
     let folder = try fixture("PrintroomWholeHistogram")
     defer { try? FileManager.default.removeItem(at: folder) }
     try write("A.tif", folder: folder, width: 128, height: 96, profile: assets.profile)
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     model.stage = .l0
     try await until("whole photo histogram", { model.histogram != nil })
     let whole = try #require(model.histogram)
     model.changeOrientation(.rotateClockwise)
     try await until("rotated histogram", { model.histogram != nil })
     #expect(model.histogram == whole)
-    model.requestDetail(PixelRect(x: 2, y: 3, width: 20, height: 16))
-    try await until("native detail tile", { model.detailImage != nil && !model.isDetailLoading })
-    #expect(model.detailImage?.width == 20 && model.detailImage?.height == 16)
     #expect(model.histogram == whole)
     #expect(model.histogram?.pixelCount == 128 * 96)
     model.stage = .d0
-    #expect(model.detailImage == nil && model.histogram == nil)
+    #expect(model.histogram == nil)
     try await until("new diagnostic histogram", { model.histogram?.stage == .final })
     #expect(model.histogram?.pixelCount == 128 * 96)
     #expect(model.errorMessage == nil)
@@ -249,12 +260,14 @@ struct EditingV2Tests {
     defer { try? FileManager.default.removeItem(at: folder) }
     try write("source.tif", folder: folder, profile: assets.profile)
     model.open(folder)
-    try await until("initial sampling preview", { model.histogram != nil })
+    try await waitForProxyImport(model)
+    try await until("initial sampling preview", { model.hasImage })
     #expect(model.project?.calibration.isCalibrated == false)
     model.sampleBase(PixelRect(x: 1, y: 1, width: 4, height: 4))
     // Both commands happen in the same MainActor turn, before the asynchronous read starts.
     model.reloadDiscardingUnsaved()
-    try await until("reloaded preview", { model.histogram != nil })
+    try await waitForProxyImport(model)
+    try await until("reloaded preview", { model.hasImage })
     try await Task.sleep(for: .milliseconds(150))
     #expect(model.project?.calibration.isCalibrated == false)
     #expect(try ProjectStore.open(folder: folder).calibration.isCalibrated == false)
@@ -267,10 +280,14 @@ struct EditingV2Tests {
     let folder = try fixture("PrintroomFailedNextFrame")
     defer { try? FileManager.default.removeItem(at: folder) }
     try write("A.tif", folder: folder, profile: assets.profile)
-    try Data("broken TIFF".utf8).write(to: folder.appendingPathComponent("B.tif"))
+    try write("B.tif", folder: folder, profile: assets.profile)
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     let frames = try #require(model.project?.frames)
     try await until("valid first preview", { model.histogram != nil })
+    // Corruption after import exercises switching failure; initial corruption now blocks the roll.
+    try Data("broken TIFF".utf8).write(to: folder.appendingPathComponent("B.tif"), options: .atomic)
     model.stage = .d1
     #expect(model.isRendering)
     model.select(frames[1].id)
@@ -288,6 +305,8 @@ struct EditingV2Tests {
     defer { try? FileManager.default.removeItem(at: folder) }
     try write("source.tif", folder: folder, profile: assets.profile)
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     try await until("initial geometry preview", { model.histogram != nil })
     model.changeOrientation(.rotateClockwise)
     if let visible = model.previewImage {
@@ -312,6 +331,8 @@ struct EditingV2Tests {
     let oldURL = folder.appendingPathComponent("B-old.tif")
     let newURL = folder.appendingPathComponent("C-renamed.tif")
     model.open(oldURL)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     let stableID = try #require(model.activeFrame?.id)
     model.edit { $0.timing.green = 51 }
     model.changeOrientation(.rotateClockwise)
@@ -319,6 +340,8 @@ struct EditingV2Tests {
     try await until("old source preview settled", { model.histogram != nil })
     try FileManager.default.moveItem(at: oldURL, to: newURL)
     model.reloadDiscardingUnsaved()
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     #expect(model.project?.frames.first(where: { $0.id == stableID })?.isMissing == true)
     model.relocate(stableID, to: newURL)
     #expect(model.activeFrame?.id == stableID)
@@ -351,6 +374,8 @@ struct EditingV2Tests {
     let destination = folder.appendingPathComponent("Exports")
     try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     let firstID = try #require(model.activeFrame?.id)
     do { var settings = model.exportSettings; settings.profile = .displayP3; model.setExportSettings(settings) }
     let captured = try #require(model.project)

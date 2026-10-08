@@ -59,7 +59,7 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
     guard let window, window.isKeyWindow,
       window.attachedSheet == nil, NSApp.modalWindow == nil,
       !(window.firstResponder is NSTextView),
-      let model, model.errorMessage == nil, !model.showExportSummary, !model.showSync, model.matrixManager == nil, !model.showMatrixMenu else { return false }
+      let model, model.errorMessage == nil, !model.showExportDialog, !model.showSync, model.matrixManager == nil, !model.showMatrixMenu else { return false }
     return true
   }
 
@@ -100,6 +100,7 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
         if let nudge { model.nudgeCropDraft(horizontal: nudge.0, vertical: nudge.1) }
         return true
       }
+      guard model.canAdjustColors else { return true }
       model.startAdjustmentKey(adjustmentKey, contrast: modifiers.contains(.option),
         shift: modifiers.contains(.shift), isRepeat: event.isARepeat) { [weak self] in
           self?.canRouteKeys == true && NSApp.isActive
@@ -108,7 +109,7 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
     }
     model.stopTimingKey()
     if modifiers == [.command], key == "c" {
-      if !event.isARepeat { model.copyParameters() }
+      if !event.isARepeat && model.canAdjustColors { model.copyParameters() }
       return true
     }
     if modifiers == [.command], key == "v" {

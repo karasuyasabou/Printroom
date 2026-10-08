@@ -43,7 +43,6 @@ struct KeyboardShortcutsView: View {
             row("← / →", "上一张 / 下一张可用照片")
             row("[ / ]", "向左 / 向右旋转 90°（也支持【 / 】）")
             row("⌘F", "按当前画面水平翻转")
-            row("⌘1", "查看 1:1")
             row("I", "开启 / 取消 Final 中性点吸管")
             row("Esc", "取消中性点取样")
             row("R", "进入裁剪")

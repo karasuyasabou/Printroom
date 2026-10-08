@@ -8,12 +8,19 @@ import PrintroomCore
   let compressionCheckbox = NSButton(checkboxWithTitle: "ZIP 压缩", target: nil, action: nil)
   let applyCropCheckbox = NSButton(checkboxWithTitle: "应用裁剪", target: nil, action: nil)
   let prefixField = NSTextField(string: "")
+  let progressIndicator = NSProgressIndicator()
+  let statusField = NSTextField(labelWithString: "")
+  private let percentField = NSTextField(labelWithString: "")
+  private let choose = NSButton(title: "选择…", target: nil, action: nil)
+  private let statusRow = NSStackView()
   var filenamePrefix: String { prefixField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) }
   private let destinationField = NSTextField(labelWithString: "请选择文件夹")
   private var grid: NSGridView!
   private let rollName: String
   private var customPrefix: Bool
-  var destinationURL: URL?
+  var destinationURL: URL? {
+    didSet { updateDestinationLabel(); refreshValidity() }
+  }
   var validityChanged: ((Bool) -> Void)?
   var isValid: Bool {
     guard let destinationURL else { return false }
@@ -37,10 +44,11 @@ import PrintroomCore
     panel.directoryURL = destinationURL
     if panel.runModal() == .OK, let url = panel.url {
       destinationURL = url
-      destinationField.stringValue = url.path
-      destinationField.toolTip = url.path
-      refreshValidity()
     }
+  }
+  private func updateDestinationLabel() {
+    destinationField.stringValue = destinationURL.map { FileManager.default.fileExists(atPath: $0.path) ? $0.path : "原文件夹不可用，请重新选择" } ?? "请选择文件夹"
+    destinationField.toolTip = destinationURL?.path
   }
   private let initialSettings: ProjectExportSettings
 
@@ -92,8 +100,9 @@ import PrintroomCore
     formatPopUp.action = #selector(formatChanged)
 
 
-    let choose = NSButton(title: "选择…", target: self, action: #selector(chooseDestination))
-    destinationField.stringValue = destinationURL.map { FileManager.default.fileExists(atPath: $0.path) ? $0.path : "原文件夹不可用，请重新选择" } ?? "请选择文件夹"
+    choose.target = self
+    choose.action = #selector(chooseDestination)
+    updateDestinationLabel()
     destinationField.lineBreakMode = .byTruncatingMiddle
     destinationField.toolTip = destinationURL?.path
     destinationField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -119,12 +128,65 @@ import PrintroomCore
     grid.column(at: 1).xPlacement = .fill
     grid.translatesAutoresizingMaskIntoConstraints = false
     addSubview(grid)
+    progressIndicator.style = .bar
+    progressIndicator.isIndeterminate = false
+    progressIndicator.minValue = 0
+    progressIndicator.maxValue = 1
+    progressIndicator.setAccessibilityIdentifier("export-progress")
+    statusField.setAccessibilityIdentifier("export-status")
+    statusField.lineBreakMode = .byTruncatingMiddle
+    statusField.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+    statusField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    statusField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    percentField.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+    percentField.alignment = .right
+    statusRow.orientation = .horizontal
+    statusRow.distribution = .fill
+    statusRow.alignment = .centerY
+    statusRow.spacing = 8
+    statusRow.addArrangedSubview(statusField)
+    statusRow.addArrangedSubview(progressIndicator)
+    statusRow.addArrangedSubview(percentField)
+    statusRow.translatesAutoresizingMaskIntoConstraints = false
+    statusRow.isHidden = true
+    addSubview(statusRow)
     NSLayoutConstraint.activate([
       grid.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
       grid.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
       grid.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-      grid.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -12),
+      grid.bottomAnchor.constraint(lessThanOrEqualTo: statusRow.topAnchor, constant: -18),
+      statusRow.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+      statusRow.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+      statusRow.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+      statusRow.heightAnchor.constraint(equalToConstant: 24),
+      progressIndicator.widthAnchor.constraint(equalToConstant: 140),
+      percentField.widthAnchor.constraint(equalToConstant: 38),
     ])
+  }
+
+  func setExporting(_ exporting: Bool) {
+    for control in [prefixField, formatPopUp, profilePopUp, compressionCheckbox, applyCropCheckbox, choose] as [NSControl] {
+      control.isEnabled = !exporting
+    }
+    if !exporting { formatChanged() }
+  }
+
+  func showProgress(fraction: Double, detail: String) {
+    statusRow.isHidden = false
+    progressIndicator.isHidden = false
+    percentField.isHidden = false
+    progressIndicator.doubleValue = min(1, max(0, fraction))
+    statusField.stringValue = detail
+    statusField.toolTip = detail
+    percentField.stringValue = "\(Int(progressIndicator.doubleValue * 100))%"
+  }
+
+  func showResult(_ message: String, detail: String? = nil) {
+    statusRow.isHidden = false
+    progressIndicator.isHidden = true
+    percentField.isHidden = true
+    statusField.stringValue = message
+    statusField.toolTip = detail ?? message
   }
 
   @objc func formatChanged() {

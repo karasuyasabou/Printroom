@@ -26,11 +26,12 @@ actor PreviewRenderService {
   private var geometryIdentity = UUID()
   func render(
     _ input: PixelBuffer, calibration: FilmCalibration, adjustments: FrameAdjustments,
-    assets: AppAssets, stage: PipelineStage = .final,
+    assets: AppAssets, stage: PipelineStage = .final, original: Bool = false,
     orientation: FrameOrientation = .identity, inputIdentity: UUID? = nil,
     crop: FrameCrop? = nil, sourceWidth: Int? = nil, sourceHeight: Int? = nil,
     includeHistogram: Bool = false, histogramStage: PipelineStage? = nil,
-    histogramCrop: FrameCrop? = nil
+    histogramCrop: FrameCrop? = nil,
+    sprocketWhitening: SprocketWhiteningSettings = .init(), protectedCrop: FrameCrop? = nil
   ) throws -> RenderedPreview {
     try autoreleasepool {
       try Task.checkCancellation()
@@ -60,18 +61,24 @@ actor PreviewRenderService {
         geometryKey = nil
         geometryInput = nil
       }
-      let output = try session!.render(
+      let whitening: SprocketWhiteningContext?
+      if crop == nil, sprocketWhitening.enabled, calibration.isCalibrated, let protectedCrop {
+        whitening = try SprocketWhiteningContext(settings: sprocketWhitening, protectedCrop: protectedCrop,
+          sourceWidth: sourceWidth ?? input.width, sourceHeight: sourceHeight ?? input.height,
+          renderWidth: input.width, renderHeight: input.height)
+      } else { whitening = nil }
+      let output = original ? prepared : try session!.render(
         prepared, calibration: calibration, adjustments: adjustments, lut: assets.lut(for: adjustments.cineonLogLUT), stage: stage,
-        inputIdentity: preparedIdentity)
+        inputIdentity: preparedIdentity, sprocketWhitening: whitening)
       try Task.checkCancellation()
       let oriented = crop == nil
         ? try orientation.transform(output, cancelled: { Task.isCancelled }) : output
       try Task.checkCancellation()
       let image = try DisplayImage.make(
-        oriented, profile: assets.profile, diagnostic: stage != .final)
+        oriented, profile: assets.profile, diagnostic: stage != .final, original: original)
       try Task.checkCancellation()
       var histogram: HistogramStatistics?
-      if includeHistogram {
+      if includeHistogram && !original {
         let statisticsStage = histogramStage ?? stage
         let statisticsPixels: PixelBuffer
         // A hidden display crop must not expand the histogram's saved region.
@@ -90,7 +97,7 @@ actor PreviewRenderService {
           let statisticsOutput = try session!.render(
             prepared, calibration: calibration, adjustments: adjustments,
             lut: assets.lut(for: adjustments.cineonLogLUT), stage: statisticsStage,
-            inputIdentity: preparedIdentity)
+            inputIdentity: preparedIdentity, sprocketWhitening: whitening)
           statisticsPixels = crop == nil
             ? try orientation.transform(statisticsOutput, cancelled: { Task.isCancelled }) : statisticsOutput
         }

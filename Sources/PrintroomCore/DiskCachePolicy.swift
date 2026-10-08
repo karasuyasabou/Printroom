@@ -21,7 +21,7 @@ public struct DiskCachePolicy: Sendable, Equatable {
 }
 
 /// Enumerates only committed application cache entries, never originals or active staging.
-/// Call maintenance under RAWSourceService's exclusive lock.
+/// Call maintenance under SourceProxyService's exclusive lock.
 public enum ManagedDiskCache {
   struct Entry { let url: URL; let bytes: Int64; let date: Date }
   static func isDirectory(_ url: URL) -> Bool {

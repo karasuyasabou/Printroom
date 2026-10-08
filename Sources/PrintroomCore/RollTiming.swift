@@ -33,6 +33,18 @@ public enum RollTiming {
       .pixels.map { SIMD3($0.x, $0.y, $0.z) * 1024 }
   }
 
+  /// Optional second pass, after the shared RGB solution. Never subtract exposure.
+  public static func automaticMaster(densityCV: [SIMD3<Float>], timing: TimingParameters) throws -> Int {
+    try Task.checkCancellation()
+    guard !densityCV.isEmpty, densityCV.allSatisfy({ $0.x.isFinite && $0.y.isFinite && $0.z.isFinite }) else {
+      throw PrintroomError.invalid("自动曝光样本无效。")
+    }
+    let shift = (Double(timing.red) + Double(timing.green) + Double(timing.blue)) / 3
+    let values = densityCV.map { (Double($0.x) + Double($0.y) + Double($0.z)) / 3 + shift }.sorted()
+    let p95 = values[Int(ceil(Double(values.count) * 0.95)) - 1]
+    return Int(min(512, max(0, (685 - p95).rounded())))
+  }
+
   public static func solve(_ frames: [Frame], profile: Data) throws -> TimingParameters {
     try Task.checkCancellation()
     guard let count = frames.first?.densityCV.count, count > 0,

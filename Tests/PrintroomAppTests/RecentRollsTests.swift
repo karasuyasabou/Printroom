@@ -40,7 +40,7 @@ import Testing
     #expect(RecentRolls(defaults: defaults).entries.first?.displayName == "old-roll")
   }
 
-  @Test func openingRestoresFrameAndRemovalPreservesProject() throws {
+  @Test func openingRestoresFrameAndRemovalPreservesProject() async throws {
     let suite = "Printroom.RecentTests.\(UUID())"
     let defaults = try #require(UserDefaults(suiteName: suite))
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
@@ -57,10 +57,12 @@ import Testing
     let history = RecentRolls(defaults: defaults)
     let model = EditorModel(recentRolls: history)
     model.open(folder.appendingPathComponent("b.tiff"))
+    try await waitForProxyImport(model)
     #expect(history.entries.count == 1)
     #expect(model.activeFrame?.filename == "b.tiff")
     let entry = try #require(history.entries.first)
     model.openRecent(entry)
+    try await waitForProxyImport(model)
     #expect(model.activeFrame?.filename == "b.tiff")
     #expect(history.entries.count == 1)
     let projectURL = folder.appendingPathComponent(".printroom.json")
@@ -69,8 +71,10 @@ import Testing
     #expect(try Data(contentsOf: projectURL) == saved)
     #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("b.tiff").path))
     model.open(folder)
+    try await waitForProxyImport(model)
     #expect(history.entries.count == 1)
     model.open(folder.appendingPathComponent("missing.tiff"))
+    try await waitForProxyImport(model)
     #expect(history.entries.count == 1)
   }
 
@@ -89,6 +93,7 @@ import Testing
     let history = RecentRolls(defaults: defaults)
     let model = EditorModel(recentRolls: history)
     model.open(folder)
+    try await waitForProxyImport(model)
     model.edit { $0.timing.master = 12 }
     model.returnHome()
     #expect(model.project == nil)
@@ -100,6 +105,7 @@ import Testing
     #expect(model.previewImage == nil && model.histogram == nil && model.thumbnails.isEmpty)
     #expect(!model.isLoading && !model.isRendering)
     model.openRecent(try #require(history.entries.first))
+    try await waitForProxyImport(model)
     #expect(model.adjustments.timing.master == 12)
     model.isExporting = true
     model.returnHome()

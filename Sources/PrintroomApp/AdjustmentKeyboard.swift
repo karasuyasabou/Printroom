@@ -18,7 +18,7 @@ import PrintroomCore
              isRepeat: Bool, canContinue: @escaping @MainActor () -> Bool) {
     let key = key.lowercased()
     guard !isRepeat, key.count == 1, "qeadzcws".contains(key),
-      model.activeFrame != nil, !model.isCropping else { return }
+      model.canAdjustColors, !model.isCropping else { return }
     stop(model: model)
     guard contrast || model.timingMode == .rgb || !["z", "c"].contains(key) else { return }
     model.beginAdjustment()
@@ -34,7 +34,7 @@ import PrintroomCore
       while !Task.isCancelled {
         guard let self, let model else { return }
         guard model.selection.activeFrameID == frameID, canContinue(),
-          model.errorMessage == nil, !model.showExportSummary, !model.isCropping else {
+          model.canAdjustColors, model.errorMessage == nil, !model.showExportDialog, !model.isCropping else {
           self.stop(model: model)
           return
         }

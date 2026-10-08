@@ -21,6 +21,7 @@ import UniformTypeIdentifiers
   let matrixStore: MatrixLibraryStore
   @Published var project: RollProject?
   @Published var folder: URL?
+  @Published private(set) var newRollNamingID: UUID?
   @Published var selection = SelectionState()
   @Published var snapshot: ParameterSnapshot?
   @Published var previewImage: CGImage? {
@@ -32,15 +33,13 @@ import UniformTypeIdentifiers
     let size: CGSize
     let isCropping: Bool
     let geometry: CropGeometry?
-    let detailImage: CGImage?
-    let detailRect: PixelRect?
   }
   private(set) var cropPreviewTransition: CropPreviewTransition?
   private func retainCropPreview() {
     guard cropPreviewTransition == nil, previewImage != nil, previewInput != nil else { return }
     cropPreviewTransition = CropPreviewTransition(
       size: CGSize(width: displayWidth, height: displayHeight), isCropping: isCropping,
-      geometry: cropDraftGeometry, detailImage: detailImage, detailRect: detailRect)
+      geometry: cropDraftGeometry)
   }
   @Published private(set) var isPreviewPlaceholder = false
   @Published var histogram: HistogramStatistics? {
@@ -86,10 +85,6 @@ import UniformTypeIdentifiers
       render()
     }
   }
-  @Published var detailImage: CGImage?
-  @Published var detailRect: PixelRect?
-  @Published var isDetailLoading = false
-  @Published var nativeZoomToken = 0
   @Published var thumbnails: [UUID: CGImage] = [:]
   @Published var stage: PipelineStage = .final {
     didSet {
@@ -121,8 +116,10 @@ import UniformTypeIdentifiers
     }
   }
   @Published private(set) var isCropping = false
+  @Published var cropRatioLocked = true
   @Published var cropDraft: FrameCrop?
   @Published var cropViewportToken = 0
+  @Published var showMissingFilmBaseDialog = false
   @Published private(set) var showRollTimingDialog = false
   @Published private(set) var isAnalyzingRollTiming = false
   @Published private(set) var rollTimingProgress = ""
@@ -131,35 +128,47 @@ import UniformTypeIdentifiers
   private var rollTimingGeneration = UUID()
   private var rollTimingSnapshot: RollProject?
   private var rollTimingResult: RollTimingResult?
-  var rollTimingValues: TimingParameters? { rollTimingResult?.timing }
-  typealias RollTimingRunner = @Sendable (RollProject, URL, AppAssets, @escaping @Sendable (String) async -> Void) async throws -> RollTimingResult
-  var rollTimingRunner: RollTimingRunner = { project, folder, assets, progress in
-    try await RollTimingService.run(project: project, folder: folder, assets: assets, progress: progress)
+  private var rollTimingAutoExposure = false
+  typealias RollTimingRunner = @Sendable (RollProject, URL, AppAssets, Bool, @escaping @Sendable (String) async -> Void) async throws -> RollTimingResult
+  var rollTimingRunner: RollTimingRunner = { project, folder, assets, autoExposure, progress in
+    try await RollTimingService.run(project: project, folder: folder, assets: assets, autoExposure: autoExposure, progress: progress)
+  }
+  var hasFilmBase: Bool { project?.calibration.isCalibrated == true }
+  var canAdjustColors: Bool { hasFilmBase && activeFrame != nil }
+  var canOpenRollTiming: Bool {
+    guard let p = project else { return false }
+    return p.frames.contains { !$0.isMissing }
+      && !isCropping && !isLoading && !isAutoCropping && !isExporting
+      && !showRollTimingDialog && !showMissingFilmBaseDialog
+      && !isNeutralSampling && !sampling && pendingMatrixCalibration == nil
   }
   var canStartRollTiming: Bool {
     guard let p = project else { return false }
-    return p.calibration.isCalibrated && !p.calibrationNeedsReview
+    return canOpenRollTiming && p.calibration.isCalibrated
       && p.calibration.cmosMatrix == p.calibration.sampledCMOSMatrix
       && p.calibration.matrix == p.calibration.sampledDensityMatrix
-      && p.frames.contains { !$0.isMissing }
-      && !isCropping && !isLoading && !isAutoCropping && !isExporting
-      && !showRollTimingDialog && !isNeutralSampling && !sampling && pendingMatrixCalibration == nil
-      && p.frames.contains { $0.id == p.calibration.sourceFrameID && !$0.isMissing }
+  }
+  func beginFilmBaseSelection() {
+    showMissingFilmBaseDialog = false
+    guard hasImage, !isCropping else { return }
+    stopTimingKey()
+    endAdjustment()
+    sampling = true
   }
   func cancelRollTiming() {
     rollTimingTask?.cancel(); rollTimingTask = nil
     rollTimingGeneration = UUID()
+    showMissingFilmBaseDialog = false
     showRollTimingDialog = false; isAnalyzingRollTiming = false
     rollTimingSnapshot = nil; rollTimingResult = nil; rollTimingError = nil
   }
-  func startRollTiming() {
+  func startRollTiming(autoExposure: Bool = false) {
     guard canStartRollTiming, let folder, let assets else { return }
     stopTimingKey(); endAdjustment()
     guard let old = project else { return }
-    do { _ = try calibrationSource(old) }
-    catch { errorMessage = error.localizedDescription; return }
     cancelSampling()
     neutralPicking = false
+    rollTimingAutoExposure = autoExposure
     rollTimingSnapshot = old; rollTimingResult = nil; rollTimingError = nil
     let generation = UUID()
     rollTimingGeneration = generation
@@ -168,7 +177,7 @@ import UniformTypeIdentifiers
     let runner = rollTimingRunner
     rollTimingTask = Task {
       do {
-        let result = try await runner(old, folder, assets) { [weak model = self] text in
+        let result = try await runner(old, folder, assets, autoExposure) { [weak model = self] text in
           await model?.updateRollTimingProgress(text, generation: generation)
         }
         guard !Task.isCancelled, rollTimingGeneration == generation else { return }
@@ -189,7 +198,6 @@ import UniformTypeIdentifiers
       let lut = old.frames.first?.adjustments.cineonLogLUT else { return }
     do {
       guard current.id == old.id, current.calibration == old.calibration,
-        current.calibrationNeedsReview == old.calibrationNeedsReview,
         current.frames == old.frames else {
         throw PrintroomError.invalid("照片或参数已改变，请重新分析。")
       }
@@ -202,7 +210,14 @@ import UniformTypeIdentifiers
         let a = next.frames[index].adjustments
         if preserveEdited && (a.timing != TimingParameters() || a.contrast != ContrastParameters()) { continue }
         next.frames[index].adjustments.cineonLogLUT = lut
-        next.frames[index].adjustments.timing = result.timing
+        var timing = result.timing
+        if rollTimingAutoExposure {
+          guard let master = result.masters[next.frames[index].id], (0...512).contains(master) else {
+            throw PrintroomError.invalid("自动曝光结果不完整，请重新分析。")
+          }
+          timing.master = master
+        }
+        next.frames[index].adjustments.timing = timing
         next.frames[index].adjustments.contrast = ContrastParameters()
         targets.insert(next.frames[index].id)
       }
@@ -240,7 +255,8 @@ import UniformTypeIdentifiers
   @Published var exportProgress = 0.0
   @Published var exportDetail = ""
   @Published var exportSummary: ExportSummary?
-  @Published var showExportSummary = false
+  @Published var showExportDialog = false
+  private var exportDialog: ExportDialogController?
   private let exportEngine = ExportEngine()
   private var exportGeneration = UUID()
   @Published var dirty = false
@@ -253,9 +269,8 @@ import UniformTypeIdentifiers
   let undoManager = UndoManager()
   let imageService = ImageService()
   private let previewRenderer = PreviewRenderService()
-  private let detailRenderer = PreviewRenderService()
   private let thumbnailRenderer = PreviewRenderService()
-  private let thumbnailService = ImageService()
+  private let thumbnailService = ImageService(cacheLimitBytes: 16 * 1024 * 1024)
   var assets: AppAssets?
   private var previewInput: PixelBuffer?
   private var previewInputIdentity = UUID()
@@ -268,6 +283,7 @@ import UniformTypeIdentifiers
     let orientation: FrameOrientation
     let crop: FrameCrop?
     let histogramCrop: FrameCrop?
+    let sprocketWhitening: SprocketWhiteningSettings
     let sourceWidth: Int
     let sourceHeight: Int
   }
@@ -292,11 +308,7 @@ import UniformTypeIdentifiers
   private let neutralSolver: NeutralSolver
   private var previewSourceStamp: SourceStamp?
   private var presentationCache = PreviewPresentationCache()
-  private var thumbnailPresentationKeys: [UUID: PreviewPresentationKey] = [:]
   private var loadTask: Task<Void, Never>?
-  private var detailTask: Task<Void, Never>?
-  private var detailRevision = 0
-  private var requestedDetailRect: PixelRect?
   private var renderTask: Task<Void, Never>?
   private var thumbnailTask: Task<Void, Never>?
   private var exportTask: Task<Void, Never>?
@@ -307,11 +319,11 @@ import UniformTypeIdentifiers
   private var thumbnailGeneration = UUID()
   var activeFrame: FrameRecord? { project?.frames.first { $0.id == selection.activeFrameID } }
   var adjustments: FrameAdjustments { activeFrame?.adjustments ?? .init() }
-  var canApply: Bool { snapshot != nil && !selection.selectedFrameIDs.isEmpty }
+  var canApply: Bool { hasFilmBase && snapshot != nil && !selection.selectedFrameIDs.isEmpty }
   var canUndo: Bool { undoManager.canUndo }
   var canRedo: Bool { undoManager.canRedo }
   var hasImage: Bool { previewImage != nil && activeFrame != nil && !isPreviewPlaceholder && !isLoading && cropPreviewTransition == nil }
-  var canPickNeutral: Bool { hasImage && !isCropping && !sampling && !isNeutralSampling && !isRendering }
+  var canPickNeutral: Bool { hasFilmBase && hasImage && !isCropping && !sampling && !isNeutralSampling && !isRendering }
   var orientation: FrameOrientation { activeFrame?.orientation ?? .identity }
   var displayedCrop: FrameCrop? { isCropping || sampling || !cropPreviewEnabled ? nil : activeFrame?.crop }
   var displayGeometry: CropGeometry? {
@@ -398,12 +410,7 @@ import UniformTypeIdentifiers
     let targetFolder = isDirectory.boolValue ? url : url.deletingLastPathComponent()
     let preferred = isDirectory.boolValue ? nil : url
     do {
-      var roll = try ProjectStore.open(folder: targetFolder, preferredFile: preferred)
-      if let source = roll.frames.first(where: { $0.id == roll.calibration.sourceFrameID }),
-        let previous = source.rawProcessing,
-        previous != (try? SourceImageIO.processingIdentity(url: targetFolder.appendingPathComponent(source.filename))) {
-        roll.calibrationNeedsReview = true
-      }
+      let roll = try ProjectStore.open(folder: targetFolder, preferredFile: preferred)
       beginImport(roll, folder: targetFolder, preferred: preferred, replacingRecent: replacingRecent)
     } catch { errorMessage = error.localizedDescription }
   }
@@ -411,7 +418,6 @@ import UniformTypeIdentifiers
     preferred: URL?, replacingRecent: String?) {
     if folder != targetFolder { snapshot = nil }
     thumbnails = [:]
-    thumbnailPresentationKeys = [:]
     presentationCache.clear()
     pendingThumbnailIDs = []
     loadTask?.cancel()
@@ -439,6 +445,7 @@ import UniformTypeIdentifiers
     _ = flushSave()
     loadActive()
     refreshThumbnails()
+    if roll.loadedModificationDate == nil { newRollNamingID = roll.id }
   }
   func returnHome() {
     if isImporting { cancelImport(); return }
@@ -454,6 +461,7 @@ import UniformTypeIdentifiers
     resetAutoCropReview()
     project = nil
     folder = nil
+    newRollNamingID = nil
     selection = SelectionState()
     snapshot = nil
     loadActive()
@@ -461,7 +469,6 @@ import UniformTypeIdentifiers
     thumbnailGeneration = UUID()
     pendingThumbnailIDs = []
     thumbnails = [:]
-    thumbnailPresentationKeys = [:]
     presentationCache.clear()
     preparedGeometryMetadata = [:]
     persistence.expectedModification = nil
@@ -469,7 +476,8 @@ import UniformTypeIdentifiers
     showSync = false
     matrixManager = nil
     showMatrixMenu = false
-    showExportSummary = false
+    exportDialog?.dismiss()
+    showExportDialog = false
     exportSummary = nil
     undoManager.removeAllActions()
     undoRevision += 1
@@ -538,7 +546,7 @@ import UniformTypeIdentifiers
     selection.selectAll(project.frames.filter { !$0.isMissing }.map(\.id))
     if before != selection.activeFrameID { loadActive() }
   }
-  private var rawPreparationTask: Task<Void, Never>?
+  private var proxyPreparationTask: Task<Void, Never>?
   private var importGeneration = UUID()
   private var importURL: URL?
   private var importReplacingRecent: String?
@@ -546,12 +554,12 @@ import UniformTypeIdentifiers
   @Published private(set) var importCompleted = 0
   @Published private(set) var importTotal = 0
   @Published private(set) var importFailure: String?
-  var rawProxyLoader: @Sendable (URL) throws -> Void = { _ = try SourceImageIO.metadata(url: $0) }
+  var proxyLoader: @Sendable (URL) throws -> Void = { _ = try SourceImageIO.metadata(url: $0) }
 
   func cancelImport() {
     importGeneration = UUID()
-    rawPreparationTask?.cancel()
-    rawPreparationTask = nil
+    proxyPreparationTask?.cancel()
+    proxyPreparationTask = nil
     isImporting = false
     importFailure = nil
     importURL = nil
@@ -566,7 +574,7 @@ import UniformTypeIdentifiers
     resetEditor()
     cancelImport()
     let urls = roll.frames.filter { !$0.isMissing }
-      .map { targetFolder.appendingPathComponent($0.filename) }.filter { SourceImageIO.isRAW($0) }
+      .map { targetFolder.appendingPathComponent($0.filename) }
     guard !urls.isEmpty else {
       activateRoll(roll, folder: targetFolder, preferred: preferred, replacingRecent: replacingRecent)
       return
@@ -577,13 +585,13 @@ import UniformTypeIdentifiers
     importURL = preferred ?? targetFolder
     importReplacingRecent = replacingRecent
     let generation = importGeneration
-    let loader = rawProxyLoader
-    rawPreparationTask = Task {
-      let failures = await RAWPrewarmer.prepare(urls, progress: { [weak self] completed in
+    let loader = proxyLoader
+    proxyPreparationTask = Task {
+      let failures = await SourcePrewarmer.prepare(urls, progress: { [weak self] completed in
         await self?.updateImportProgress(completed, generation: generation)
       }, load: loader)
       guard !Task.isCancelled, generation == importGeneration else { return }
-      rawPreparationTask = nil
+      proxyPreparationTask = nil
       guard failures.isEmpty else {
         importFailure = failures.map { "\($0.url.lastPathComponent)：\($0.message)" }.joined(separator: "\n")
         return
@@ -613,7 +621,6 @@ import UniformTypeIdentifiers
     renderRevision += 1
     let revision = loadRevision
     histogram = nil
-    invalidateDetail()
     previewImage = nil
     isPreviewPlaceholder = false
     previewSourceStamp = nil
@@ -642,6 +649,7 @@ import UniformTypeIdentifiers
         sourceWidth = result.1
         sourceHeight = result.2
         if isCropping {
+          cropRatioLocked = true
           let initial = frame.crop ?? FrameCrop(aspect: .free, freeRatio: Double(sourceWidth) / Double(sourceHeight))
           cropDraft = try initial.sourceCoordinates(sourceWidth: sourceWidth,
             sourceHeight: sourceHeight, orientation: frame.orientation)
@@ -649,8 +657,6 @@ import UniformTypeIdentifiers
         }
         if SourceImageIO.isRAW(url), let index = project?.frames.firstIndex(where: { $0.id == frame.id }) {
           let identity = try SourceImageIO.processingIdentity(url: url)
-          if let previous = project?.frames[index].rawProcessing, previous != identity,
-            project?.calibration.sourceFrameID == frame.id { project?.calibrationNeedsReview = true }
           project?.frames[index].rawProcessing = identity
           dirty = true
           scheduleSave()
@@ -677,7 +683,8 @@ import UniformTypeIdentifiers
     guard let source = previewSourceStamp, let frame = activeFrame, let project else { return nil }
     return PreviewPresentationKey(source: source, frameID: frame.id,
       calibration: project.calibration, adjustments: frame.adjustments,
-      orientation: frame.orientation, crop: displayedCrop, stage: stage ?? self.stage)
+      orientation: frame.orientation, crop: displayedCrop, stage: stage ?? self.stage,
+      sprocketWhitening: effectiveSprocketWhitening, protectedCrop: sampling ? nil : frame.crop)
   }
   private func showCachedPreview() {
     guard isLoading || isRendering, previewImage == nil || isPreviewPlaceholder,
@@ -687,27 +694,21 @@ import UniformTypeIdentifiers
       sourceHeight = entry.sourceHeight
       previewImage = entry.image
       isPreviewPlaceholder = true
-    } else if stage == .final, thumbnailPresentationKeys[key.frameID] == key,
-      let image = thumbnails[key.frameID] {
-      previewImage = image
-      isPreviewPlaceholder = true
     }
   }
   private func publishThumbnail(_ image: CGImage, key: PreviewPresentationKey) {
     guard (try? SourceStamp(url: key.source.url)) == key.source else { return }
     thumbnails[key.frameID] = image
-    thumbnailPresentationKeys[key.frameID] = key
-    if activeFrame?.id == key.frameID { showCachedPreview() }
   }
   func render(preservingHistogram: Bool = false) {
     cancelNeutralPicker()
     if histogram?.stage != histogramStage { histogram = nil }
-    invalidateDetail()
     renderRevision += 1
     guard let input = previewInput, let project, let frame = activeFrame, let assets else { return }
     let context = PreviewContext(source: previewInputIdentity, frameID: frame.id,
       calibration: project.calibration, stage: stage, histogramStage: histogramStage, orientation: frame.orientation,
       crop: displayedCrop, histogramCrop: sampling ? nil : frame.crop,
+      sprocketWhitening: effectiveSprocketWhitening,
       sourceWidth: sourceWidth, sourceHeight: sourceHeight)
     // Geometry/source/stage changes invalidate in-flight work. Ordinary edits keep
     // the current job alive and replace the single pending snapshot instead.
@@ -729,10 +730,12 @@ import UniformTypeIdentifiers
           let result = try await previewRenderer.render(request.input,
             calibration: request.context.calibration, adjustments: request.adjustments,
             assets: request.assets, stage: request.context.stage,
+            original: !request.context.calibration.isCalibrated,
             orientation: request.context.orientation, inputIdentity: request.context.source,
             crop: request.context.crop, sourceWidth: request.context.sourceWidth,
             sourceHeight: request.context.sourceHeight, includeHistogram: !isCropping,
-            histogramStage: request.context.histogramStage, histogramCrop: request.context.histogramCrop)
+            histogramStage: request.context.histogramStage, histogramCrop: request.context.histogramCrop,
+            sprocketWhitening: request.context.sprocketWhitening, protectedCrop: request.context.histogramCrop)
           guard !Task.isCancelled, generation == renderGeneration,
             previewContext == request.context, activeFrame?.id == request.context.frameID else { return }
           // One serial worker publishes snapshots in increasing order, including
@@ -749,7 +752,8 @@ import UniformTypeIdentifiers
             let key = PreviewPresentationKey(source: source, frameID: request.context.frameID,
               calibration: request.context.calibration, adjustments: request.adjustments,
               orientation: request.context.orientation, crop: request.context.crop,
-              stage: request.context.stage)
+              stage: request.context.stage, sprocketWhitening: request.context.sprocketWhitening,
+              protectedCrop: request.context.histogramCrop)
             presentationCache.store(.init(key: key, image: result.image,
               sourceWidth: request.context.sourceWidth, sourceHeight: request.context.sourceHeight))
           }
@@ -978,6 +982,7 @@ import UniformTypeIdentifiers
         sourceHeight: sourceHeight, orientation: orientation)
       retainCropPreview()
       cropDraft = draft
+      cropRatioLocked = true
       isCropping = true
       cropViewportToken += 1
       render()
@@ -992,6 +997,36 @@ import UniformTypeIdentifiers
   }
   func updateDisplayedCropDraft(_ value: FrameCrop) {
     updateCropDraft(value)
+  }
+  var currentDisplayedCrop: FrameCrop {
+    displayedCropDraft ?? FrameCrop(aspect: .free, geometryVersion: 1,
+      freeRatio: Double(max(1, displayWidth)) / Double(max(1, displayHeight)))
+  }
+  func setCropRatioLocked(_ locked: Bool) {
+    guard isCropping else { return }
+    if !locked, cropDraft != nil {
+      var draft = currentDisplayedCrop
+      let ratio = draft.ratio
+      draft.aspect = .free
+      draft.portrait = false
+      draft.freeRatio = ratio
+      updateDisplayedCropDraft(draft)
+    }
+    cropRatioLocked = locked
+  }
+  func selectCropRatio(_ ratio: Double, aspect: CropAspectRatio = .free) {
+    guard ratio.isFinite, ratio > 0 else { return }
+    var draft = currentDisplayedCrop
+    draft.aspect = aspect
+    draft.portrait = false
+    draft.freeRatio = aspect == .free ? ratio : nil
+    updateDisplayedCropDraft(draft)
+    cropRatioLocked = true
+  }
+  func swapCropRatio() {
+    var draft = currentDisplayedCrop
+    draft.portrait.toggle()
+    updateDisplayedCropDraft(draft)
   }
   func nudgeCropDraft(horizontal: Double = 0, vertical: Double = 0) {
     guard isCropping, let displayed = displayedCropDraft else { return }
@@ -1009,6 +1044,7 @@ import UniformTypeIdentifiers
   }
   func resetCropDraft() {
     guard isCropping else { return }
+    cropRatioLocked = true
     cropDraft = nil
   }
   func cancelCrop() {
@@ -1126,54 +1162,6 @@ import UniformTypeIdentifiers
     }
     return true
   }
-  func inspectNativeResolution() { if !isCropping { nativeZoomToken += 1 } }
-  func invalidateDetail() {
-    detailTask?.cancel()
-    detailRevision += 1
-    requestedDetailRect = nil
-    detailImage = nil
-    detailRect = nil
-    isDetailLoading = false
-  }
-  func requestDetail(_ rect: PixelRect?) {
-    guard let rect else {
-      if requestedDetailRect != nil { invalidateDetail() }
-      return
-    }
-    guard rect != requestedDetailRect, !isRendering, !isLoading, !isCropping,
-      let frame = activeFrame, let project, let folder, let assets,
-      rect.width > 0, rect.height > 0 else { return }
-    detailTask?.cancel()
-    detailRevision += 1
-    let revision = detailRevision
-    let renderID = renderRevision
-    requestedDetailRect = rect
-    detailImage = nil
-    detailRect = nil
-    isDetailLoading = true
-    let width = sourceWidth, height = sourceHeight, stage = stage, crop = displayedCrop
-    detailTask = Task {
-      do {
-        try await Task.sleep(for: .milliseconds(80))
-        let geometry = try CropGeometry(crop: crop, sourceWidth: width,
-          sourceHeight: height, orientation: frame.orientation)
-        let input = try await imageService.transformedRegion(
-          folder.appendingPathComponent(frame.filename), geometry: geometry, rect: rect)
-        try Task.checkCancellation()
-        let result = try await detailRenderer.render(input, calibration: project.calibration,
-          adjustments: frame.adjustments, assets: assets, stage: stage)
-        guard !Task.isCancelled, revision == detailRevision, renderID == renderRevision, activeFrame?.id == frame.id else { return }
-        detailImage = result.image
-        detailRect = rect
-        isDetailLoading = false
-      } catch {
-        if !Task.isCancelled && revision == detailRevision {
-          isDetailLoading = false
-          errorMessage = "原始像素区域读取失败：\(error.localizedDescription)"
-        }
-      }
-    }
-  }
   func sampleDisplayedBase(_ rect: PixelRect) {
     do { sampleBase(try orientation.inverseRect(rect, sourceWidth: sourceWidth, sourceHeight: sourceHeight)) }
     catch { errorMessage = error.localizedDescription }
@@ -1255,10 +1243,35 @@ import UniformTypeIdentifiers
       }
     }
   }
+  var sprocketWhitening: SprocketWhiteningSettings { project?.sprocketWhitening ?? .init() }
+  var canAdjustSprocketWhitening: Bool {
+    guard let project else { return false }
+    return project.calibration.isCalibrated
+      && project.frames.contains { !$0.isMissing && $0.crop != nil }
+      && !isLoading && !isCropping && !isAutoCropping && !isExporting && !sampling
+  }
+  private var effectiveSprocketWhitening: SprocketWhiteningSettings {
+    guard hasFilmBase, !sampling, !isCropping else { return .init() }
+    return sprocketWhitening
+  }
+  func setSprocketWhitening(_ settings: SprocketWhiteningSettings) {
+    guard var next = project, settings != next.sprocketWhitening else { return }
+    guard !settings.enabled || canAdjustSprocketWhitening else { return }
+    do { try settings.validate() } catch { errorMessage = error.localizedDescription; return }
+    let old = next
+    next.sprocketWhitening = settings
+    if gestureBefore == nil { registerUndo(old: old, name: "齿孔置白") }
+    project = next
+    dirty = true
+    render()
+    scheduleSave(immediate: gestureBefore == nil)
+    if gestureBefore == nil { refreshThumbnails() }
+  }
   func beginAdjustment() { if gestureBefore == nil { gestureBefore = project } }
   func endAdjustment() {
-    if let old = gestureBefore, let current = project, old.frames != current.frames {
-      registerUndo(old: old, name: "调整参数")
+    if let old = gestureBefore, let current = project,
+      old.frames != current.frames || old.sprocketWhitening != current.sprocketWhitening {
+      registerUndo(old: old, name: old.sprocketWhitening != current.sprocketWhitening ? "齿孔置白" : "调整参数")
       refreshThumbnails(changedFrom: old, to: current)
     }
     gestureBefore = nil
@@ -1485,7 +1498,6 @@ import UniformTypeIdentifiers
         commitMatrixCalibration(target, name: "切换\(kind.label)")
         return
       }
-      let sourceURL = try calibrationSource(current)
       // Older projects can retain a base sampled under a different CMOS matrix.
       // Re-read that selection as well before promising alignment under the current one.
       if target.cmosMatrix == target.sampledCMOSMatrix {
@@ -1494,8 +1506,9 @@ import UniformTypeIdentifiers
         return
       }
       guard let rect = target.selection, let sourceID = target.sourceFrameID else {
-        throw PrintroomError.invalid("片基采样记录不完整，请重新框选片基。")
+        throw PrintroomError.invalid("片基采样记录不完整。")
       }
+      let sourceURL = try calibrationSource(current)
       let requested = target
       let revision = sampleRevision
       pendingMatrixCalibration = requested
@@ -1509,7 +1522,7 @@ import UniformTypeIdentifiers
           _ = try calibrationSource(latest)
           guard result.sourceWidth == requested.sourceWidth,
             result.sourceHeight == requested.sourceHeight else {
-            throw PrintroomError.invalid("片基原图尺寸已改变，请重新框选片基。")
+            throw PrintroomError.invalid("片基采样来源的尺寸与选区记录不匹配。")
           }
           pendingMatrixCalibration = nil
           commitMatrixCalibration(result, name: "切换矩阵并对齐片基")
@@ -1525,20 +1538,14 @@ import UniformTypeIdentifiers
   }
 
   private func calibrationSource(_ roll: RollProject) throws -> URL {
-    guard let folder, !roll.calibrationNeedsReview,
+    guard let folder,
       let source = roll.frames.first(where: { $0.id == roll.calibration.sourceFrameID }),
       !source.isMissing else {
-      throw PrintroomError.invalid("片基原图缺失或已改变，请恢复原图并重新框选片基。")
+      throw PrintroomError.invalid("无法读取片基采样来源。")
     }
     let url = folder.appendingPathComponent(source.filename)
-    let values = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-    guard Int64(values.fileSize ?? -1) == source.sourceSize,
-      values.contentModificationDate?.timeIntervalSince1970 == source.sourceModified else {
-      throw PrintroomError.invalid("片基原图已改变，请重新框选片基。")
-    }
-    if let previous = source.rawProcessing,
-      previous != (try SourceImageIO.processingIdentity(url: url)) {
-      throw PrintroomError.invalid("片基 RAW 处理方式已改变，请重新框选片基。")
+    guard FileManager.default.fileExists(atPath: url.path) else {
+      throw PrintroomError.invalid("无法读取片基采样来源。")
     }
     return url
   }
@@ -1576,10 +1583,12 @@ import UniformTypeIdentifiers
           folder.appendingPathComponent(frame.filename), rect: rect, matrix: matrix, frameID: id, cmosMatrix: cmos)
         guard !Task.isCancelled, revision == sampleRevision, var next = self.project, next.id == rollID else { return }
         guard next.calibration.matrix == matrix, next.calibration.cmosMatrix == cmos else { return }
+        let firstCalibration = !next.calibration.isCalibrated
         next.calibration = result
         next.calibrationNeedsReview = false
         if let old = self.project { registerUndo(old: old, name: "片基校准") }
         self.project = next
+        if firstCalibration { stage = .final }
         dirty = true
         render()
         refreshThumbnails()
@@ -1674,15 +1683,9 @@ import UniformTypeIdentifiers
     }
     next.exportSettings = backup.exportSettings
     next.name = backup.name
+    next.sprocketWhitening = backup.sprocketWhitening
     next.calibration = backup.calibration
-    if let source = backup.frames.first(where: { $0.id == backup.calibration.sourceFrameID }),
-      let current = next.frames.first(where: { $0.id == source.id })
-    {
-      next.calibrationNeedsReview =
-        current.isMissing || source.sourceSize != current.sourceSize
-        || source.rawProcessing != current.rawProcessing
-        || source.sourceModified != current.sourceModified
-    }
+    next.calibrationNeedsReview = false
     let saved = try ProjectStore.save(
       next, folder: folder, expectedModification: next.loadedModificationDate)
     cancelSampling()
@@ -1702,8 +1705,24 @@ import UniformTypeIdentifiers
   }
   var rollName: String { project?.name ?? folder?.lastPathComponent ?? "Printroom" }
 
+  func nameNewRollIfNeeded() {
+    guard let id = newRollNamingID, project?.id == id else { return }
+    newRollNamingID = nil
+    renameRollPanel()
+  }
+
+  func openRollFolderInFinder() {
+    guard let folder else { return }
+    if !NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: folder.path) {
+      errorMessage = "无法在 Finder 中打开底片文件夹。"
+    }
+  }
+
   func renameRollPanel(recent: RecentRoll? = nil) {
     guard let target = recent?.url ?? folder else { return }
+    NSApp.keyWindow?.makeFirstResponder(nil)
+    stopTimingKey()
+    endAdjustment()
     let isCurrent = folder?.standardizedFileURL.resolvingSymlinksInPath() == target.standardizedFileURL.resolvingSymlinksInPath()
     do {
       let original = try isCurrent ? project : ProjectStore.open(folder: target)
@@ -1751,24 +1770,26 @@ import UniformTypeIdentifiers
     showExportPanel(project: project, targets: targets)
   }
   private func showExportPanel(project: RollProject, targets: Set<UUID>) {
+    guard !showExportDialog else { return }
     let options = ExportOptionsView(settings: project.exportSettings, filenamePrefix: rollName)
-    let dialog = NSAlert()
-    dialog.messageText = "导出设置"
-    dialog.accessoryView = options
-    dialog.addButton(withTitle: "导出")
-    dialog.addButton(withTitle: "取消")
-    options.validityChanged = { [weak dialog] valid in dialog?.buttons[0].isEnabled = valid }
-    options.refreshValidity()
-    let complete: (NSApplication.ModalResponse) -> Void = { [weak self] response in
-      guard response == .alertFirstButtonReturn, let self,
-        self.project?.id == project.id, !self.isExporting,
+    guard let window = NSApp.keyWindow ?? NSApp.mainWindow, window.attachedSheet == nil else { return }
+    let dialog = ExportDialogController(options: options, start: { [weak self] in
+      guard let self, self.project?.id == project.id, !self.isExporting,
         options.isValid, let directory = options.destinationURL else { return }
       self.setExportSettings(options.settings)
-      guard self.flushSave() else { return }
+      guard self.flushSave() else {
+        self.exportDialog?.finish(message: "导出失败：设置未保存", detail: self.errorMessage)
+        self.errorMessage = nil
+        return
+      }
       self.startExport(targetIDs: targets, directory: directory, filenamePrefix: options.filenamePrefix)
-    }
-    if let window = NSApp.keyWindow { dialog.beginSheetModal(for: window, completionHandler: complete) }
-    else { complete(dialog.runModal()) }
+    }, cancel: { [weak self] in self?.cancelExport() }, close: { [weak self] in
+      self?.showExportDialog = false
+      self?.exportDialog = nil
+    })
+    exportDialog = dialog
+    showExportDialog = true
+    dialog.present(on: window)
   }
 
   func startExport(targetIDs: Set<UUID>, directory: URL, explicitDestination: URL? = nil, filenamePrefix: String? = nil) {
@@ -1783,7 +1804,7 @@ import UniformTypeIdentifiers
       exportProgress = 0
       exportDetail = "准备导出 \(targetIDs.count) 张"
       exportSummary = nil
-      showExportSummary = false
+      exportDialog?.showProgress(fraction: 0, detail: exportDetail)
       exportTask = Task {
         do {
           let summary = try await exportEngine.run(request, lut: assets.lut, p3Profile: assets.profile, fujifilmLUT: assets.fujifilmLUT,
@@ -1809,20 +1830,40 @@ import UniformTypeIdentifiers
                 progress.fraction >= self.exportProgress else { return }
               self.exportProgress = progress.fraction
               self.exportDetail = "\(progress.processedCount)/\(progress.totalCount) · \(progress.currentName ?? "")"
+              self.exportDialog?.showProgress(fraction: progress.fraction, detail: self.exportDetail)
             }
           }
           exportSummary = summary
-          showExportSummary = true
+          if summary.wasCancelled {
+            exportDetail = "导出已取消 · 已完成 \(summary.completedCount) 张"
+          } else if summary.failedCount > 0 {
+            exportDetail = "导出失败 · 成功 \(summary.completedCount) 张，失败 \(summary.failedCount) 张"
+          } else {
+            exportDetail = "导出成功 · \(summary.completedCount) 张"
+          }
+          exportDialog?.finish(message: exportDetail,
+            detail: summary.results.compactMap(\.error).first)
         } catch {
-          errorMessage = error.localizedDescription
+          exportDetail = "导出失败"
+          if let exportDialog { exportDialog.finish(message: exportDetail, detail: error.localizedDescription) }
+          else { errorMessage = error.localizedDescription }
         }
         isExporting = false
       }
-    } catch { errorMessage = error.localizedDescription }
+    } catch {
+      exportDetail = "导出失败"
+      if let exportDialog { exportDialog.finish(message: exportDetail, detail: error.localizedDescription) }
+      else { errorMessage = error.localizedDescription }
+    }
   }
-  func cancelExport() { exportTask?.cancel(); exportDetail = "正在取消；保留已完成文件…" }
+  func cancelExport() {
+    exportTask?.cancel()
+    exportDetail = "正在取消…"
+    exportDialog?.showProgress(fraction: exportProgress, detail: exportDetail)
+  }
   private func refreshThumbnails(changedFrom old: RollProject, to next: RollProject) {
-    guard old.calibration == next.calibration else { refreshThumbnails(); return }
+    guard old.calibration == next.calibration,
+      old.sprocketWhitening == next.sprocketWhitening else { refreshThumbnails(); return }
     let previous = Dictionary(uniqueKeysWithValues: old.frames.map { ($0.id, $0) })
     refreshThumbnails(affectedIDs: Set(next.frames.filter { previous[$0.id] != $0 }.map(\.id)))
   }
@@ -1833,7 +1874,6 @@ import UniformTypeIdentifiers
     pendingThumbnailIDs.formIntersection(available)
     if thumbnails.keys.contains(where: { !available.contains($0) }) {
       thumbnails = thumbnails.filter { available.contains($0.key) }
-      thumbnailPresentationKeys = thumbnailPresentationKeys.filter { available.contains($0.key) }
     }
     thumbnailTask?.cancel()
     thumbnailGeneration = UUID()
@@ -1853,7 +1893,9 @@ import UniformTypeIdentifiers
           let stamp = try SourceStamp(url: sourceURL)
           let presentationKey = PreviewPresentationKey(source: stamp, frameID: frame.id,
             calibration: project.calibration, adjustments: frame.adjustments,
-            orientation: frame.orientation, crop: frame.crop, stage: .final)
+            orientation: frame.orientation, crop: frame.crop, stage: .final,
+            sprocketWhitening: project.sprocketWhitening,
+            protectedCrop: frame.crop)
           let encoder = JSONEncoder()
           encoder.outputFormatting = .sortedKeys
           let keyData = try encoder.encode(
@@ -1865,6 +1907,7 @@ import UniformTypeIdentifiers
               calibration: project.calibration, adjustments: frame.adjustments,
               orientation: frame.orientation,
               crop: frame.crop,
+              sprocketWhitening: project.sprocketWhitening,
               algorithm: algorithmVersion, icc: ProjectAssetIdentity.expectedICCSHA256,
               lut: frame.adjustments.cineonLogLUT.sha256, dimension: 240,
               presentationVersion: DisplayImage.presentationVersion,
@@ -1879,8 +1922,11 @@ import UniformTypeIdentifiers
           let source = try await thumbnailService.thumbnailSource(sourceURL)
           let output = try await thumbnailRenderer.render(source.0,
             calibration: project.calibration, adjustments: frame.adjustments,
-            assets: assets, orientation: frame.orientation, crop: frame.crop,
-            sourceWidth: source.1, sourceHeight: source.2)
+            assets: assets, original: !project.calibration.isCalibrated,
+            orientation: frame.orientation, crop: frame.crop,
+            sourceWidth: source.1, sourceHeight: source.2,
+            sprocketWhitening: project.sprocketWhitening,
+            protectedCrop: frame.crop)
           guard !Task.isCancelled, generation == thumbnailGeneration else { return }
           publishThumbnail(output.image, key: presentationKey)
           // Expendable disk cache failures never prevent editing or project save.
@@ -1971,6 +2017,7 @@ import UniformTypeIdentifiers
     let adjustments: FrameAdjustments
     let orientation: FrameOrientation
     let crop: FrameCrop?
+    let sprocketWhitening: SprocketWhiteningSettings
     let algorithm: String
     let icc: String
     let lut: String

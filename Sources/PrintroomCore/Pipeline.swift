@@ -238,7 +238,8 @@ public enum Pipeline {
 
   public static func render(
     _ input: PixelBuffer, calibration: FilmCalibration, adjustments: FrameAdjustments,
-    lut: CubeLUT? = nil, stage: PipelineStage = .final
+    lut: CubeLUT? = nil, stage: PipelineStage = .final,
+    sprocketWhitening: SprocketWhiteningContext? = nil
   ) throws -> PixelBuffer {
     let count = try checkedPixelCount(width: input.width, height: input.height)
     guard input.pixels.count == count else {
@@ -251,7 +252,11 @@ public enum Pipeline {
       let rgb = try prepared.process(SIMD3(pixel.x, pixel.y, pixel.z), lut: lut, stage: stage)
       pixels.append(SIMD4(rgb, 1))
     }
-    return PixelBuffer(width: input.width, height: input.height, pixels: pixels)
+    let output = PixelBuffer(width: input.width, height: input.height, pixels: pixels)
+    if stage == .final, let sprocketWhitening {
+      return try sprocketWhitening.apply(raw: input, to: output, calibration: calibration)
+    }
+    return output
   }
 
   public static func validate(_ adjustments: FrameAdjustments) throws {

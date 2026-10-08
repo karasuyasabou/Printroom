@@ -58,7 +58,7 @@ final class RawIntegrationTests: XCTestCase, @unchecked Sendable {
     }
     let report: [String: Any] = ["frames": outputs, "fullRollExportSeconds": result.elapsedSeconds,
                                 "peakTestProcessRSSBeforeVerificationBytes": usage.ru_maxrss,
-                                "cacheBytes": cacheBytes, "cacheLimitBytes": RAWSourceService.defaultCacheLimit,
+                                "cacheBytes": cacheBytes, "cacheLimitBytes": SourceProxyService.defaultCacheLimit,
                                 "cacheState": "proxy cache only; each export decodes transient full-size pixels",
                                 "concurrency": 1, "renderer": "CPU reference", "compression": "none", "output": output.path]
     try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])

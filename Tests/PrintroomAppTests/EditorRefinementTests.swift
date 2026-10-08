@@ -65,6 +65,8 @@ struct EditorRefinementTests {
     let folder = try fixture(model, count: 2, pixel: pixel)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     model.histogramStage = .d3
     try await settled(model)
     let calibration = try #require(model.project).calibration
@@ -112,6 +114,8 @@ struct EditorRefinementTests {
     folder = try fixture(model)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     model.stage = .d3
     try await settled(model)
     let previous = try #require(model.histogram)
@@ -136,6 +140,8 @@ struct EditorRefinementTests {
     let folder = try fixture(model)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     model.stage = .final
     model.histogramStage = .d3
     try await settled(model)
@@ -158,23 +164,23 @@ struct EditorRefinementTests {
     #expect(model.flushSave())
   }
 
-  @Test func switchingUsesThumbnailThenFullPreviewAndReturningUsesCachedPreview() async throws {
+  @Test func switchingWaitsForFullPreviewAndReturningUsesCachedPreview() async throws {
     let model = EditorModel(), folder: URL
     folder = try fixture(model)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     try await settled(model)
     try await until("thumbnails") { model.thumbnails.count == 2 }
     let frames = try #require(model.project?.frames)
     let original = try #require(model.previewImage)
     model.select(frames[1].id)
-    #expect(model.previewImage === model.thumbnails[frames[1].id])
-    #expect(model.isPreviewPlaceholder && model.isLoading)
+    #expect(model.previewImage == nil)
+    #expect(!model.isPreviewPlaceholder && model.isLoading)
     #expect(!model.hasImage && !model.canPickNeutral)
-    let placeholder = model.previewImage
     try await settled(model)
     #expect(!model.isPreviewPlaceholder && model.hasImage)
-    #expect(model.previewImage !== placeholder)
     model.select(frames[0].id)
     #expect(model.previewImage === original)
     #expect(model.isPreviewPlaceholder)
@@ -191,6 +197,8 @@ struct EditorRefinementTests {
     folder = try fixture(model)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     try await settled(model)
     try await until("thumbnails") { model.thumbnails.count == 2 }
     let frames = try #require(model.project?.frames)
@@ -209,6 +217,8 @@ struct EditorRefinementTests {
     folder = try fixture(model)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     try await settled(model)
     model.edit { $0.timing.master = 200; $0.contrast.red = 1.1; $0.contrast.blue = 0.9 }
     model.beginCrop()
@@ -258,7 +268,17 @@ struct EditorRefinementTests {
     let model = EditorModel()
     let folder = try fixture(model, pixel: SIMD3(1, 32768, 32768))
     defer { try? FileManager.default.removeItem(at: folder) }
+    // The tested frame cannot itself provide a positive film-base sample under
+    // the CMOS matrix. Use an already calibrated roll to test the solver failure.
+    var roll = try ProjectStore.open(folder: folder)
+    roll.calibration = try Pipeline.calibrate(
+      image: LinearImage(width: 4, height: 4, samples: [UInt16](repeating: 49151, count: 48)),
+      rect: .init(x: 0, y: 0, width: 4, height: 4), matrix: roll.calibration.matrix,
+      sourceFrameID: roll.frames[0].id, cmosMatrix: roll.calibration.cmosMatrix)
+    try ProjectStore.save(roll, folder: folder, expectedModification: nil)
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     try await settled(model)
     #expect(model.flushSave())
     let before = try #require(model.project)
@@ -281,6 +301,8 @@ struct EditorRefinementTests {
     let folder = try fixture(model)
     defer { gate.release(); try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     try await settled(model)
     let before = try #require(model.project)
     let undoRevision = model.undoRevision
@@ -305,6 +327,8 @@ struct EditorRefinementTests {
     let folder = try fixture(model)
     defer { gate.release(); try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     try await settled(model)
     let before = try #require(model.project)
     let frame = try #require(model.activeFrame)
@@ -327,6 +351,8 @@ struct EditorRefinementTests {
     folder = try fixture(model)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     try await settled(model)
     model.toggleNeutralPicker()
     model.pickNeutralDisplayed(x: 20, y: 20)
@@ -349,6 +375,8 @@ struct EditorRefinementTests {
     folder = try fixture(model, count: 3)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
+    try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     try await settled(model)
     let image = try #require(model.previewImage)
     let bytes = image.bytesPerRow * image.height

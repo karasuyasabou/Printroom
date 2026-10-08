@@ -50,7 +50,7 @@ private final class Observations: @unchecked Sendable {
     for (frame, _) in frames {
       try FileManager.default.copyItem(at: root.appendingPathComponent("TEST/RAW/\(frame).ARW"), to: roll.appendingPathComponent("\(frame).ARW"))
     }
-    let service = RAWSourceService(cacheRoot: work.appendingPathComponent("cache"))
+    let service = SourceProxyService(cacheRoot: work.appendingPathComponent("cache"))
     let observations = Observations(), watcher = DispatchGroup(), consumers = DispatchGroup()
     watcher.enter()
     DispatchQueue.global(qos: .userInitiated).async {

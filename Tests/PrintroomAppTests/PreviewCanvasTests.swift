@@ -243,7 +243,7 @@ struct PreviewCanvasTests {
     canvas.magnify(with: event)
     #expect(canvas.zoom == 1.5)
     canvas.scrollWheel(with: event)
-    #expect(canvas.pan == CGPoint(x: 10, y: -30))
+    #expect(canvas.pan == CGPoint(x: 10, y: -2))
     event.testModifiers = .option
     canvas.scrollWheel(with: event)
     #expect(canvas.zoom > 1.5)
@@ -253,58 +253,132 @@ struct PreviewCanvasTests {
         == NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric))
   }
 
-  @Test func toolbarZoomSelectionTracksViewportAndDoubleClick() async throws {
-    let model = EditorModel()
-    model.previewImage = try image(width: 1200, height: 800)
-    let canvas = CanvasView(frame: CGRect(x: 0, y: 0, width: 500, height: 400))
-    canvas.model = model
-    var reported: PreviewViewportMode?
-    canvas.onViewportChange = { reported = $0 }
-    canvas.resetViewport()
-    try await Task.sleep(for: .milliseconds(20))
-    #expect(reported == .fit)
-    canvas.setNativeZoom()
-    try await Task.sleep(for: .milliseconds(20))
-    #expect(reported == .native)
-    canvas.pan = CGPoint(x: 30, y: 40)
-    canvas.scheduleDetail()
-    try await Task.sleep(for: .milliseconds(20))
-    #expect(reported == .native)
-    canvas.zoom *= 1.2
-    canvas.scheduleDetail()
-    try await Task.sleep(for: .milliseconds(20))
-    #expect(reported == nil)
-    try canvas.mouseDown(with: mouse(.leftMouseDown, CGPoint(x: 100, y: 100), in: canvas, clicks: 2))
-    try await Task.sleep(for: .milliseconds(20))
-    #expect(reported == .fit)
-    canvas.pan.x = 10
-    canvas.scheduleDetail()
-    try await Task.sleep(for: .milliseconds(20))
-    #expect(reported == nil)
+  private func expectVisible(_ canvas: CanvasView) {
+    let photo = canvas.imageRect, viewport = canvas.bounds
+    if photo.width <= viewport.width {
+      #expect(photo.minX >= viewport.minX - 0.0001 && photo.maxX <= viewport.maxX + 0.0001)
+    } else {
+      #expect(photo.minX <= viewport.minX + 0.0001 && photo.maxX >= viewport.maxX - 0.0001)
+    }
+    if photo.height <= viewport.height {
+      #expect(photo.minY >= viewport.minY - 0.0001 && photo.maxY <= viewport.maxY + 0.0001)
+    } else {
+      #expect(photo.minY <= viewport.minY + 0.0001 && photo.maxY >= viewport.maxY - 0.0001)
+    }
   }
 
-  @Test func fitAndDoubleClickRecenterAfterZoomPanAndResize() throws {
+  @Test func wheelKeepsSmallLargeAndMixedAxisPhotosVisible() throws {
+    let model = EditorModel()
+    let canvas = CanvasView(frame: CGRect(x: 0, y: 0, width: 500, height: 400))
+    canvas.model = model
+    let event = CanvasGestureEvent()
+    event.testLocation = canvas.convert(CGPoint(x: 250, y: 200), to: nil)
+    for dimensions in [(300, 200), (200, 300), (1200, 100), (100, 1200)] {
+      model.previewImage = try image(width: dimensions.0, height: dimensions.1)
+      for zoom: CGFloat in [0.25, 1, 1.5, 16] {
+        canvas.zoom = zoom
+        canvas.pan = .zero
+        for direction in [CGPoint(x: -1, y: -1), CGPoint(x: 1, y: -1),
+          CGPoint(x: -1, y: 1), CGPoint(x: 1, y: 1)] {
+          event.testDeltaX = direction.x * 100_000
+          event.testDeltaY = direction.y * 100_000
+          canvas.scrollWheel(with: event)
+          expectVisible(canvas)
+          #expect(!canvas.imageRect.intersection(canvas.bounds).isEmpty)
+        }
+      }
+    }
+  }
+
+  @Test func draggingStopsAtEdgeAndImmediatelyMovesBack() throws {
     let model = EditorModel()
     model.previewImage = try image()
     let canvas = CanvasView(frame: CGRect(x: 0, y: 0, width: 500, height: 400))
     canvas.model = model
-    for dimensions in [CGSize(width: 500, height: 400), CGSize(width: 200, height: 600)] {
-      canvas.setFrameSize(dimensions)
-      canvas.zoom = 16
-      canvas.pan = CGPoint(x: -200, y: 900)
-      canvas.resetViewport()
-      #expect(canvas.zoom == 1 && canvas.pan == .zero)
-      #expect(canvas.imageRect.midX == canvas.bounds.midX)
-      #expect(canvas.imageRect.midY == canvas.bounds.midY)
-      #expect(canvas.bounds.contains(canvas.imageRect))
-      canvas.zoom = 0.25
-      canvas.pan = CGPoint(x: 90, y: -100)
-      try canvas.mouseDown(
-        with: mouse(.leftMouseDown, CGPoint(x: 100, y: 100), in: canvas, clicks: 2))
-      #expect(canvas.zoom == 1 && canvas.pan == .zero)
-      #expect(canvas.imageRect.midX == canvas.bounds.midX)
-      #expect(canvas.imageRect.midY == canvas.bounds.midY)
+    for zoom: CGFloat in [0.25, 1.5] {
+      canvas.zoom = zoom
+      canvas.pan = .zero
+      for _ in 0..<20 {
+        try canvas.mouseDown(with: mouse(.leftMouseDown, CGPoint(x: 100, y: 100), in: canvas))
+        try canvas.mouseDragged(with: mouse(.leftMouseDragged, CGPoint(x: 450, y: 350), in: canvas))
+        try canvas.mouseUp(with: mouse(.leftMouseUp, CGPoint(x: 450, y: 350), in: canvas))
+      }
+      expectVisible(canvas)
+      let edge = canvas.pan
+      try canvas.mouseDown(with: mouse(.leftMouseDown, CGPoint(x: 450, y: 350), in: canvas))
+      try canvas.mouseDragged(with: mouse(.leftMouseDragged, CGPoint(x: 100, y: 100), in: canvas))
+      #expect(canvas.pan.x < edge.x && canvas.pan.y < edge.y)
+      expectVisible(canvas)
+      try canvas.mouseUp(with: mouse(.leftMouseUp, CGPoint(x: 100, y: 100), in: canvas))
     }
+  }
+
+  @Test func shrinkingAndResizingConstrainPositionWithoutResettingZoom() throws {
+    let model = EditorModel()
+    model.previewImage = try image()
+    let canvas = CanvasView(frame: CGRect(x: 0, y: 0, width: 500, height: 400))
+    canvas.model = model
+    let event = CanvasGestureEvent()
+    event.testLocation = canvas.convert(CGPoint(x: 100, y: 80), to: nil)
+    event.testDeltaX = 100_000
+    event.testDeltaY = -100_000
+    canvas.zoom = 16
+    canvas.scrollWheel(with: event)
+    event.testMagnification = -0.9
+    canvas.magnify(with: event)
+    #expect(abs(canvas.zoom - 1.6) < 0.0001)
+    expectVisible(canvas)
+    event.testModifiers = .command
+    event.testDeltaY = 1000
+    canvas.scrollWheel(with: event)
+    #expect(canvas.zoom == 0.25)
+    expectVisible(canvas)
+    event.testModifiers = []
+    for zoom: CGFloat in [0.25, 1.5, 16] {
+      canvas.zoom = zoom
+      canvas.scrollWheel(with: event)
+      for dimensions in [CGSize(width: 200, height: 600), CGSize(width: 900, height: 160),
+        CGSize(width: 500, height: 400)] {
+        try canvas.mouseDown(with: mouse(.leftMouseDown,
+          CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY), in: canvas))
+        canvas.setFrameSize(dimensions)
+        #expect(canvas.start == nil && canvas.previous == nil)
+        #expect(canvas.zoom == zoom)
+        expectVisible(canvas)
+      }
+    }
+  }
+
+  @Test func doubleClickDoesNotResetViewportAndFrameChangeStillCenters() async throws {
+    _ = NSApplication.shared
+    let model = EditorModel()
+    let first = FrameRecord(filename: "first.tiff"), second = FrameRecord(filename: "second.tiff")
+    var project = RollProject()
+    project.frames = [first, second]
+    model.project = project
+    model.selection.click(first.id, ordered: [first.id, second.id])
+    model.previewImage = try image()
+    let host = NSHostingView(rootView: PreviewCanvas(model: model))
+    host.frame = CGRect(x: 0, y: 0, width: 500, height: 400)
+    host.layoutSubtreeIfNeeded()
+    func find(_ view: NSView) -> CanvasView? {
+      (view as? CanvasView) ?? view.subviews.lazy.compactMap { find($0) }.first
+    }
+    let canvas = try #require(find(host))
+    canvas.zoom = 2
+    canvas.pan = CGPoint(x: 30, y: 40)
+    try canvas.mouseDown(with: mouse(.leftMouseDown, CGPoint(x: 100, y: 100), in: canvas, clicks: 2))
+    try canvas.mouseUp(with: mouse(.leftMouseUp, CGPoint(x: 100, y: 100), in: canvas, clicks: 2))
+    #expect(canvas.zoom == 2 && canvas.pan == CGPoint(x: 30, y: 40))
+    model.selection.click(second.id, ordered: [first.id, second.id])
+    // SwiftUI publishes the selected frame independently of loading a new preview.
+    for _ in 0..<100 where canvas.frameID != second.id {
+      try await Task.sleep(for: .milliseconds(10))
+      host.layoutSubtreeIfNeeded()
+    }
+    #expect(canvas.frameID == second.id)
+    #expect(canvas.zoom == 1 && canvas.pan == .zero)
+    expectVisible(canvas)
   }
 
   @Test func zoomedClicksOnlySampleWithNeutralToolAndOutsideReleaseDoesNotCommit() async throws {
@@ -322,10 +396,12 @@ struct PreviewCanvasTests {
       (0..<(rows.count * 120)).flatMap { _ in [UInt16(10387), 7524, 5206] }
     }
     model.open(folder)
-    for _ in 0..<100 where !model.canPickNeutral {
+    try await waitForProxyImport(model)
+    for _ in 0..<1000 where !model.canPickNeutral {
       try await Task.sleep(for: .milliseconds(10))
     }
-    #expect(model.canPickNeutral)
+    let ready = model.canPickNeutral
+    try #require(ready)
     let frame = try #require(model.activeFrame)
     // A 10× smaller preview must still map tools to the full source.
     model.previewImage = try image(width: 12, height: 8)
@@ -354,7 +430,7 @@ struct PreviewCanvasTests {
     try canvas.mouseDown(with: mouse(.leftMouseDown, point, in: canvas))
     try canvas.mouseUp(with: mouse(.leftMouseUp, point, in: canvas))
     #expect(!model.neutralPicking)
-    for _ in 0..<100 where model.isNeutralSampling || model.isRendering {
+    for _ in 0..<1000 where model.isNeutralSampling || model.isRendering {
       try await Task.sleep(for: .milliseconds(10))
     }
     #expect(model.adjustments != originalAdjustments)
@@ -381,7 +457,7 @@ struct PreviewCanvasTests {
     try canvas.mouseDragged(with: mouse(.leftMouseDragged, roiEnd, in: canvas))
     try canvas.mouseUp(with: mouse(.leftMouseUp, roiEnd, in: canvas))
     let expected = PixelRect(x: 50, y: 35, width: 16, height: 11)
-    for _ in 0..<100 where model.project?.calibration.selection != expected {
+    for _ in 0..<1000 where model.project?.calibration.selection != expected {
       try await Task.sleep(for: .milliseconds(10))
     }
     let calibration = try #require(model.project?.calibration)
@@ -391,7 +467,7 @@ struct PreviewCanvasTests {
     #expect(calibration.selection?.width == 16 && calibration.selection?.height == 11)
     #expect(calibration.isCalibrated && !model.sampling)
     // Let the render and thumbnail work triggered by calibration finish before fixture cleanup.
-    for _ in 0..<100 where model.isRendering || model.thumbnails[frame.id] == nil {
+    for _ in 0..<1000 where model.isRendering || model.thumbnails[frame.id] == nil {
       try await Task.sleep(for: .milliseconds(10))
     }
   }
@@ -402,7 +478,10 @@ private final class CanvasGestureEvent: NSEvent, @unchecked Sendable {
   var testModifiers: NSEvent.ModifierFlags = []
   override var locationInWindow: NSPoint { testLocation }
   override var modifierFlags: NSEvent.ModifierFlags { testModifiers }
-  override var magnification: CGFloat { 0.5 }
-  override var scrollingDeltaY: CGFloat { -30 }
-  override var scrollingDeltaX: CGFloat { 10 }
+  var testMagnification: CGFloat = 0.5
+  var testDeltaY: CGFloat = -30
+  var testDeltaX: CGFloat = 10
+  override var magnification: CGFloat { testMagnification }
+  override var scrollingDeltaY: CGFloat { testDeltaY }
+  override var scrollingDeltaX: CGFloat { testDeltaX }
 }

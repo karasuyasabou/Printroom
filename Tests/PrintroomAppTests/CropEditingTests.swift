@@ -37,6 +37,7 @@ struct CropEditingTests {
     defer { try? FileManager.default.removeItem(at: folder) }
     _ = try write("A.tif", folder: folder, width: 120, height: 80, profile: assets.profile)
     model.open(folder)
+    try await waitForProxyImport(model)
     try await until("full preview", { !model.isRendering && model.hasImage })
     let canvas = CanvasView(frame: CGRect(x: 0, y: 0, width: 753, height: 460))
     canvas.model = model
@@ -88,6 +89,7 @@ struct CropEditingTests {
       _ = try write(name, folder: folder, width: 120, height: 80, profile: assets.profile)
     }
     model.open(folder)
+    try await waitForProxyImport(model)
     try await until("loaded", { model.histogram != nil })
     model.copyParameters()
     var project = try #require(model.project)
@@ -169,6 +171,7 @@ struct CropEditingTests {
     let url = try write("A.tif", folder: folder, width: 120, height: 80, profile: assets.profile)
     let sourceBytes = try Data(contentsOf: url)
     model.open(folder)
+    try await waitForProxyImport(model)
     try await until("initial full-frame preview", { model.histogram != nil })
     let original = try #require(model.project)
     let token = model.cropViewportToken
@@ -224,6 +227,7 @@ struct CropEditingTests {
                     profile: assets.profile)
     }
     model.open(folder)
+    try await waitForProxyImport(model)
     let frames = try #require(model.project?.frames)
     for index in frames.indices {
       model.select(frames[index].id)
@@ -302,6 +306,7 @@ struct CropEditingTests {
     defer { try? FileManager.default.removeItem(at: folder) }
     _ = try write("A.tif", folder: folder, width: 120, height: 80, profile: assets.profile)
     model.open(folder)
+    try await waitForProxyImport(model)
     try await until("backup source loaded", { model.histogram != nil })
     model.beginCrop()
     model.updateCropDraft(FrameCrop(aspect: .square, width: 0.5, angleDegrees: 3.25))
@@ -316,8 +321,6 @@ struct CropEditingTests {
     #expect(changed.frames[0].crop != backedUp.frames[0].crop)
     try await until("changed crop preview", { model.histogram?.pixelCount == 96 * 64 })
     #expect(model.previewImage?.width == 96 && model.previewImage?.height == 64)
-    model.requestDetail(PixelRect(x: 2, y: 3, width: 12, height: 10))
-    try await until("detail before restoring settings", { model.detailImage != nil })
     model.undoManager.removeAllActions()
     let token = model.cropViewportToken
     try model.restoreBackup(data: backup)
@@ -325,7 +328,7 @@ struct CropEditingTests {
     #expect(model.displayGeometry?.crop == backedUp.frames[0].crop)
     #expect(model.displayWidth == 60 && model.displayHeight == 60)
     #expect(model.cropViewportToken > token)
-    #expect(model.previewImage == nil && model.detailImage == nil && model.histogram == nil)
+    #expect(model.previewImage == nil && model.histogram == nil)
     try await until("restored backup crop preview", { model.histogram?.pixelCount == 60 * 60 })
     #expect(model.previewImage?.width == 60 && model.previewImage?.height == 60)
     model.undo()
@@ -356,6 +359,7 @@ struct CropEditingTests {
       _ = try write(name, folder: folder, width: 84, height: 72, profile: assets.profile)
     }
     model.open(folder)
+    try await waitForProxyImport(model)
     try await until("failure fixture loaded", { model.histogram != nil })
     model.selectAll()
     model.beginCrop()
@@ -382,7 +386,7 @@ struct CropEditingTests {
     try await until("valid active frame still renders", { model.histogram != nil })
   }
 
-  @Test func angledPreviewAndNativeRegionUseLinearInterpolationBeforeDensity() async throws {
+  @Test func angledPreviewUsesLinearInterpolationBeforeDensity() async throws {
     let assets = try AppAssets()
     let folder = try fixture()
     defer { try? FileManager.default.removeItem(at: folder) }
@@ -411,12 +415,6 @@ struct CropEditingTests {
       assets: assets, stage: .d0, inputIdentity: identity, crop: crop,
       sourceWidth: width, sourceHeight: height)
     #expect(preview.pixels.width == 36 && preview.pixels.height == 36)
-    let geometry = try CropGeometry(crop: crop, sourceWidth: width, sourceHeight: height)
-    let rect = PixelRect(x: 3, y: 5, width: 13, height: 9)
-    let region = try await service.transformedRegion(url, geometry: geometry, rect: rect)
-    let detail = try await renderer.render(region, calibration: .init(), adjustments: .init(),
-      assets: assets, stage: .d0)
-    #expect(detail.pixels.width == rect.width && detail.pixels.height == rect.height)
     let angle = 6.0 * Double.pi / 180
     for y in 0..<36 {
       for x in 0..<36 {
@@ -429,10 +427,7 @@ struct CropEditingTests {
         for channel in 0..<3 {
           let expected = Float(-log10(linear[channel] / 65535) / 2.048)
           #expect(abs(preview.pixels.pixels[y * 36 + x][channel] - expected) < 2e-5)
-          if x >= rect.x, x < rect.x + rect.width, y >= rect.y, y < rect.y + rect.height {
-            let index = (y - rect.y) * rect.width + x - rect.x
-            #expect(abs(detail.pixels.pixels[index][channel] - expected) < 2e-5)
-          }
+
         }
       }
     }
@@ -450,13 +445,14 @@ struct CropEditingTests {
     #expect(try Data(contentsOf: url) == originalBytes)
   }
 
-  @Test func cropHistogramAndDetailRemainCroppedWhileBaseSamplingTemporarilyShowsFullSource() async throws {
+  @Test func cropHistogramRemainsCroppedWhileBaseSamplingTemporarilyShowsFullSource() async throws {
     let model = EditorModel()
     let assets = try #require(model.assets)
     let folder = try fixture()
     defer { try? FileManager.default.removeItem(at: folder) }
     let url = try write("A.tif", folder: folder, width: 60, height: 48, profile: assets.profile)
     model.open(folder)
+    try await waitForProxyImport(model)
     model.stage = .l0
     try await until("base sampling fixture", { model.histogram != nil })
     model.beginCrop()
@@ -465,13 +461,9 @@ struct CropEditingTests {
     let savedCrop = try #require(model.activeFrame?.crop)
     try await until("cropped histogram", { model.histogram?.pixelCount == 900 })
     let histogram = try #require(model.histogram)
-    model.requestDetail(PixelRect(x: 2, y: 3, width: 12, height: 10))
-    try await until("cropped native tile", { model.detailImage != nil && !model.isDetailLoading })
-    #expect(model.detailImage?.width == 12 && model.detailImage?.height == 10)
     #expect(model.histogram == histogram)
     model.sampling = true
     #expect(model.displayWidth == 60 && model.displayHeight == 48)
-    #expect(model.detailImage == nil)
     #expect(model.activeFrame?.crop == savedCrop)
     try await until("uncropped sampling preview", { model.histogram?.pixelCount == 60 * 48 })
     // This strip lies wholly outside the cropped square and remains available as film base.
@@ -503,6 +495,7 @@ struct CropEditingTests {
     _ = try write("B.tif", folder: folder, width: 84, height: 72,
                   profile: assets.profile, value: 49152)
     model.open(folder)
+    try await waitForProxyImport(model)
     model.stage = .l0
     let frames = try #require(model.project?.frames)
     try await until("race source A loaded", { model.histogram != nil })

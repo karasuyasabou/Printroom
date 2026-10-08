@@ -10,6 +10,8 @@ struct PreviewPresentationKey: Equatable {
   let orientation: FrameOrientation
   let crop: FrameCrop?
   let stage: PipelineStage
+  var sprocketWhitening: SprocketWhiteningSettings = .init()
+  var protectedCrop: FrameCrop? = nil
 }
 
 struct PreviewPresentationCache {
@@ -25,7 +27,8 @@ struct PreviewPresentationCache {
   let countLimit: Int
   var bytes: Int { entries.reduce(0) { $0 + $1.bytes } }
 
-  init(byteLimit: Int = 64 * 1024 * 1024, countLimit: Int = 4) {
+  // Match the input cache's twelve frames, including 1600×1600 UInt16 RGBA images.
+  init(byteLimit: Int = 256 * 1024 * 1024, countLimit: Int = 12) {
     self.byteLimit = max(0, byteLimit)
     self.countLimit = max(0, countLimit)
   }

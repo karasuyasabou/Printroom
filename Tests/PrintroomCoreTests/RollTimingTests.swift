@@ -12,6 +12,19 @@ final class RollTimingTests: XCTestCase {
       SIMD4(Float($0 & 1), Float(($0 >> 1) & 1), Float(($0 >> 2) & 1), 1)
     })
   }
+  func testAutomaticMasterOnlyAddsExposureAfterSharedRGB() throws {
+    let timing = TimingParameters(red: 153, green: 78, blue: 43)
+    let shift = Double(153 + 78 + 43) / 3
+    for (value, expected) in [(400.0, Int((685 - 400 - shift).rounded())), (700, 0), (-100, 512)] {
+      let samples = Array(repeating: SIMD3<Float>(repeating: Float(value)), count: 95)
+        + Array(repeating: SIMD3<Float>(repeating: 1100), count: 5)
+      XCTAssertEqual(try RollTiming.automaticMaster(densityCV: samples, timing: timing), expected)
+    }
+    XCTAssertEqual(try RollTiming.automaticMaster(densityCV: [SIMD3(repeating: 684.4)], timing: .init()), 1)
+    XCTAssertThrowsError(try RollTiming.automaticMaster(densityCV: [], timing: timing))
+    XCTAssertThrowsError(try RollTiming.automaticMaster(densityCV: [SIMD3(repeating: .nan)], timing: timing))
+  }
+
   func testP95RetainsBrighterLightsAndDeterminism() throws {
     // 95 diffuse pixels at 600, five lights at 900: independent expected E=85.
     let pixels = Array(repeating: SIMD3<Float>(repeating: 600), count: 95)
