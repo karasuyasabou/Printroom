@@ -8,8 +8,7 @@ struct EditorView: View {
   @State private var showPreviewLoadingHint = false
   @State private var showAutoCropDialog = false
   @State private var showSprocketWhitening = false
-  @State private var showRollTimingConfirmation = false
-  @State private var autoExposure = false
+  @State private var autoExposure = true
   @State private var preserveRollTimingEdits = false
   private let accent = InterfaceColors.accent
   var body: some View {
@@ -119,25 +118,25 @@ struct EditorView: View {
       Text(model.errorMessage ?? "")
     }
     .nativeDialog(isPresented: model.showMissingFilmBaseDialog,
-      title: "未框选片基", primaryTitle: "框选片基",
-      primaryEnabled: model.hasImage,
-      primary: { model.beginFilmBaseSelection() },
+      title: "请先框选片基", primaryTitle: "框选片基",
+      primaryEnabled: model.hasImage, compactCenteredTitle: true,
+      primary: { model.beginFilmBaseSelection(continueToRollTiming: true) },
       cancel: { model.showMissingFilmBaseDialog = false }) { EmptyView() }
-    .nativeDialog(isPresented: showRollTimingConfirmation || model.showRollTimingDialog,
-      title: showRollTimingConfirmation ? "色罩分析" : (model.isAnalyzingRollTiming ? "色罩分析" : (model.rollTimingError == nil ? "分析成功" : "分析未完成")),
-      message: showRollTimingConfirmation ? "将开始整卷色罩分析，请确认已完成有效画幅裁剪和片基框选" : (model.rollTimingError ?? ""),
-      primaryTitle: showRollTimingConfirmation ? "开始分析" : (!model.isAnalyzingRollTiming && model.rollTimingError == nil ? "应用到整卷" : nil),
+    .nativeDialog(isPresented: model.showRollTimingConfirmation || model.showRollTimingDialog,
+      title: model.showRollTimingConfirmation ? "色罩分析" : (model.isAnalyzingRollTiming ? "色罩分析" : (model.rollTimingError == nil ? "分析成功" : "分析未完成")),
+      message: model.showRollTimingConfirmation ? "将开始整卷色罩分析，请确认已完成有效画幅裁剪和片基框选" : (model.rollTimingError ?? ""),
+      primaryTitle: model.showRollTimingConfirmation ? "开始分析" : (!model.isAnalyzingRollTiming && model.rollTimingError == nil ? "应用到整卷" : nil),
       cancelTitle: model.isAnalyzingRollTiming ? "取消分析" : "取消",
       primary: {
-        if showRollTimingConfirmation {
+        if model.showRollTimingConfirmation {
+          model.showRollTimingConfirmation = false
           model.startRollTiming(autoExposure: autoExposure)
-          showRollTimingConfirmation = false
         } else { model.applyRollTiming(preserveEdited: preserveRollTimingEdits) }
       }, cancel: {
-        showRollTimingConfirmation = false
+        model.showRollTimingConfirmation = false
         model.cancelRollTiming()
       }) {
-        if showRollTimingConfirmation {
+        if model.showRollTimingConfirmation {
           Toggle("自动曝光", isOn: $autoExposure).toggleStyle(.checkbox)
         } else if model.isAnalyzingRollTiming {
           HStack { ProgressView().controlSize(.small); Text(model.rollTimingProgress); Spacer() }
@@ -145,6 +144,12 @@ struct EditorView: View {
           Toggle("保留已调色", isOn: $preserveRollTimingEdits).toggleStyle(.checkbox)
         }
       }
+    .onChange(of: model.showRollTimingConfirmation) { _, presented in
+      if presented {
+        autoExposure = true
+        preserveRollTimingEdits = false
+      }
+    }
     .background(AutoCropDialogView(model: model, isPresented: $showAutoCropDialog))
     .sheet(item: $model.matrixManager) { kind in MatrixManagerView(model: model, kind: kind) }
     .task(id: previewIsWaiting) {
@@ -232,9 +237,7 @@ struct EditorView: View {
           model.showMissingFilmBaseDialog = true
           return
         }
-        autoExposure = false
-        preserveRollTimingEdits = false
-        showRollTimingConfirmation = true
+        model.requestRollTimingConfirmation()
       } label: {
         Label("色罩分析", systemImage: "wand.and.stars")
       }

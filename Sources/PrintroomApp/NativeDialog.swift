@@ -10,6 +10,7 @@ struct NativeDialog: NSViewRepresentable {
   var primaryTitle: String?
   var primaryEnabled = true
   var cancelTitle = "取消"
+  var compactCenteredTitle = false
   var primary: () -> Void
   var cancel: () -> Void
   var accessory: AnyView
@@ -42,7 +43,7 @@ struct NativeDialog: NSViewRepresentable {
         dialog.addButton(withTitle: parent.primaryTitle ?? "确定")
         dialog.addButton(withTitle: parent.cancelTitle)
         let hosting = NSHostingView(rootView: parent.accessory)
-        dialog.accessoryView = hosting
+        dialog.accessoryView = parent.compactCenteredTitle ? nil : hosting
         alert = dialog; host = hosting
         configure()
         dialog.beginSheetModal(for: window) { [weak self, weak dialog] _ in
@@ -67,6 +68,15 @@ struct NativeDialog: NSViewRepresentable {
       host.rootView = parent.accessory
       host.setFrameSize(host.fittingSize)
       alert.layout()
+      if parent.compactCenteredTitle, let content = alert.window.contentView {
+        centerTitle(in: content)
+      }
+    }
+    private func centerTitle(in view: NSView) {
+      if let label = view as? NSTextField, label.stringValue == parent.title {
+        label.alignment = .center
+      }
+      for child in view.subviews { centerTitle(in: child) }
     }
     @objc private func accept() { if parent.primaryEnabled { parent.primary() } }
     @objc private func cancel() { parent.cancel() }
@@ -82,10 +92,12 @@ struct NativeDialog: NSViewRepresentable {
 extension View {
   func nativeDialog<Accessory: View>(isPresented: Bool, title: String, message: String = "",
     primaryTitle: String? = nil, primaryEnabled: Bool = true, cancelTitle: String = "取消",
+    compactCenteredTitle: Bool = false,
     primary: @escaping () -> Void = {}, cancel: @escaping () -> Void,
     @ViewBuilder accessory: () -> Accessory) -> some View {
     background(NativeDialog(isPresented: isPresented, title: title, message: message,
       primaryTitle: primaryTitle, primaryEnabled: primaryEnabled, cancelTitle: cancelTitle,
+      compactCenteredTitle: compactCenteredTitle,
       primary: primary, cancel: cancel, accessory: AnyView(accessory().frame(width: 300, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true))))
   }

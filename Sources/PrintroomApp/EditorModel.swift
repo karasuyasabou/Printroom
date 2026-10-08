@@ -98,6 +98,7 @@ import UniformTypeIdentifiers
   @Published var sampling = false {
     didSet {
       guard sampling != oldValue else { return }
+      if !sampling { continueRollTimingAfterFilmBase = false }
       schedulePreviewWarmup()
       if sampling { cancelNeutralPicker() }
       let changesGeometry = activeFrame?.crop != nil || isCropping
@@ -121,6 +122,8 @@ import UniformTypeIdentifiers
   @Published var cropDraft: FrameCrop?
   @Published var cropViewportToken = 0
   @Published var showMissingFilmBaseDialog = false
+  @Published var showRollTimingConfirmation = false
+  private var continueRollTimingAfterFilmBase = false
   @Published private(set) var showRollTimingDialog = false
   @Published private(set) var isAnalyzingRollTiming = false { didSet { schedulePreviewWarmup() } }
   @Published private(set) var rollTimingProgress = ""
@@ -140,7 +143,7 @@ import UniformTypeIdentifiers
     guard let p = project else { return false }
     return p.frames.contains { !$0.isMissing }
       && !isCropping && !isLoading && !isAutoCropping && !isExporting
-      && !showRollTimingDialog && !showMissingFilmBaseDialog
+      && !showRollTimingDialog && !showMissingFilmBaseDialog && !showRollTimingConfirmation
       && !isNeutralSampling && !sampling && pendingMatrixCalibration == nil
   }
   var canStartRollTiming: Bool {
@@ -149,17 +152,23 @@ import UniformTypeIdentifiers
       && p.calibration.cmosMatrix == p.calibration.sampledCMOSMatrix
       && p.calibration.matrix == p.calibration.sampledDensityMatrix
   }
-  func beginFilmBaseSelection() {
+  func requestRollTimingConfirmation() {
+    guard canStartRollTiming else { return }
+    showRollTimingConfirmation = true
+  }
+  func beginFilmBaseSelection(continueToRollTiming: Bool = false) {
     showMissingFilmBaseDialog = false
     guard hasImage, !isCropping else { return }
     stopTimingKey()
     endAdjustment()
     sampling = true
+    continueRollTimingAfterFilmBase = continueToRollTiming
   }
   func cancelRollTiming() {
     rollTimingTask?.cancel(); rollTimingTask = nil
     rollTimingGeneration = UUID()
     showMissingFilmBaseDialog = false
+    showRollTimingConfirmation = false
     showRollTimingDialog = false; isAnalyzingRollTiming = false
     rollTimingSnapshot = nil; rollTimingResult = nil; rollTimingError = nil
   }
@@ -1673,6 +1682,7 @@ import UniformTypeIdentifiers
   private var pendingMatrixCalibration: FilmCalibration? { didSet { schedulePreviewWarmup() } }
 
   private func cancelSampling() {
+    continueRollTimingAfterFilmBase = false
     pendingMatrixCalibration = nil
     cancelNeutralPicker()
     sampleTask?.cancel()
@@ -1680,6 +1690,7 @@ import UniformTypeIdentifiers
   }
   func sampleBase(_ rect: PixelRect) {
     guard let folder, let frame = activeFrame, let project else { return }
+    let continueToRollTiming = continueRollTimingAfterFilmBase
     cancelSampling()
     let revision = sampleRevision
     let id = frame.id
@@ -1704,6 +1715,7 @@ import UniformTypeIdentifiers
         render()
         refreshThumbnails()
         scheduleSave(immediate: true)
+        if continueToRollTiming && errorMessage == nil { requestRollTimingConfirmation() }
       } catch {
         if !Task.isCancelled && revision == sampleRevision {
           errorMessage = error.localizedDescription
