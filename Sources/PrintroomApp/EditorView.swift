@@ -156,7 +156,8 @@ struct EditorView: View {
     }
   }
   private var previewIsWaiting: Bool {
-    model.project != nil && model.previewImage == nil && (model.isLoading || model.isRendering)
+    model.project != nil && (model.previewImage == nil || model.isPreviewPlaceholder)
+      && (model.isLoading || model.isRendering)
   }
   @ToolbarContentBuilder private var mainToolbar: some ToolbarContent {
     if #available(macOS 26.0, *) {

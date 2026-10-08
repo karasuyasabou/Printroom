@@ -36,7 +36,7 @@ import UniformTypeIdentifiers
   }
   private(set) var cropPreviewTransition: CropPreviewTransition?
   private func retainCropPreview() {
-    guard cropPreviewTransition == nil, previewImage != nil, previewInput != nil else { return }
+    guard cropPreviewTransition == nil, previewImage != nil else { return }
     cropPreviewTransition = CropPreviewTransition(
       size: CGSize(width: displayWidth, height: displayHeight), isCropping: isCropping,
       geometry: cropDraftGeometry)
@@ -98,6 +98,7 @@ import UniformTypeIdentifiers
   @Published var sampling = false {
     didSet {
       guard sampling != oldValue else { return }
+      schedulePreviewWarmup()
       if sampling { cancelNeutralPicker() }
       let changesGeometry = activeFrame?.crop != nil || isCropping
       if sampling { isCropping = false; cropDraft = nil }
@@ -115,13 +116,13 @@ import UniformTypeIdentifiers
       render(preservingHistogram: true)
     }
   }
-  @Published private(set) var isCropping = false
+  @Published private(set) var isCropping = false { didSet { schedulePreviewWarmup() } }
   @Published var cropRatioLocked = true
   @Published var cropDraft: FrameCrop?
   @Published var cropViewportToken = 0
   @Published var showMissingFilmBaseDialog = false
   @Published private(set) var showRollTimingDialog = false
-  @Published private(set) var isAnalyzingRollTiming = false
+  @Published private(set) var isAnalyzingRollTiming = false { didSet { schedulePreviewWarmup() } }
   @Published private(set) var rollTimingProgress = ""
   @Published private(set) var rollTimingError: String?
   private var rollTimingTask: Task<Void, Never>?
@@ -229,7 +230,7 @@ import UniformTypeIdentifiers
       cancelRollTiming()
     } catch { rollTimingError = error.localizedDescription; rollTimingResult = nil }
   }
-  @Published private(set) var isAutoCropping = false
+  @Published private(set) var isAutoCropping = false { didSet { schedulePreviewWarmup() } }
   @Published private(set) var autoCropProgressText = ""
   @Published private(set) var autoCropCompletedRun = 0
   @Published var reviewOnlyPendingCrops = false
@@ -249,9 +250,9 @@ import UniformTypeIdentifiers
       && project?.frames.contains(where: { !$0.isMissing }) == true
   }
   @Published var errorMessage: String?
-  @Published var isLoading = false
-  @Published var isRendering = false
-  @Published var isExporting = false
+  @Published var isLoading = false { didSet { schedulePreviewWarmup() } }
+  @Published var isRendering = false { didSet { schedulePreviewWarmup() } }
+  @Published var isExporting = false { didSet { schedulePreviewWarmup() } }
   @Published var exportProgress = 0.0
   @Published var exportDetail = ""
   @Published var exportSummary: ExportSummary?
@@ -263,14 +264,14 @@ import UniformTypeIdentifiers
   @Published var saveFailure = false
   @Published var sourceWidth = 0
   @Published var sourceHeight = 0
-  @Published private(set) var neutralPicking = false
-  @Published private(set) var isNeutralSampling = false
+  @Published private(set) var neutralPicking = false { didSet { schedulePreviewWarmup() } }
+  @Published private(set) var isNeutralSampling = false { didSet { schedulePreviewWarmup() } }
   @Published var undoRevision = 0
   let undoManager = UndoManager()
   let imageService = ImageService()
   private let previewRenderer = PreviewRenderService()
   private let thumbnailRenderer = PreviewRenderService()
-  private let thumbnailService = ImageService(cacheLimitBytes: 16 * 1024 * 1024)
+  private let thumbnailService = ImageService(cacheLimitBytes: 16 * 1024 * 1024, cacheLimitEntries: 12)
   var assets: AppAssets?
   private var previewInput: PixelBuffer?
   private var previewInputIdentity = UUID()
@@ -308,6 +309,9 @@ import UniformTypeIdentifiers
   private let neutralSolver: NeutralSolver
   private var previewSourceStamp: SourceStamp?
   private var presentationCache = PreviewPresentationCache()
+  private let previewWarmupEnabled: Bool
+  private var previewWarmupTask: Task<Void, Never>?
+  private var previewWarmupGeneration = UUID()
   private var loadTask: Task<Void, Never>?
   private var renderTask: Task<Void, Never>?
   private var thumbnailTask: Task<Void, Never>?
@@ -323,6 +327,7 @@ import UniformTypeIdentifiers
   var canUndo: Bool { undoManager.canUndo }
   var canRedo: Bool { undoManager.canRedo }
   var hasImage: Bool { previewImage != nil && activeFrame != nil && !isPreviewPlaceholder && !isLoading && cropPreviewTransition == nil }
+  var canEditCrop: Bool { isCropping && !isLoading && !isPreviewPlaceholder && sourceWidth > 0 && sourceHeight > 0 }
   var canPickNeutral: Bool { hasFilmBase && hasImage && !isCropping && !sampling && !isNeutralSampling && !isRendering }
   var orientation: FrameOrientation { activeFrame?.orientation ?? .identity }
   var displayedCrop: FrameCrop? { isCropping || sampling || !cropPreviewEnabled ? nil : activeFrame?.crop }
@@ -345,7 +350,7 @@ import UniformTypeIdentifiers
 
   let recentRolls: RecentRolls?
 
-  init(recentRolls: RecentRolls? = nil, timingDefaults: UserDefaults = .standard, matrixStore: MatrixLibraryStore = .init(), neutralSolver: @escaping NeutralSolver = { samples, calibration, adjustments, lut, profile in
+  init(recentRolls: RecentRolls? = nil, timingDefaults: UserDefaults = .standard, matrixStore: MatrixLibraryStore = .init(), previewWarmupEnabled: Bool = true, neutralSolver: @escaping NeutralSolver = { samples, calibration, adjustments, lut, profile in
     try NeutralTiming.solve(samples, calibration: calibration, adjustments: adjustments,
       lut: lut, p3Profile: profile)
   }) {
@@ -354,6 +359,7 @@ import UniformTypeIdentifiers
     self.recentRolls = recentRolls
     self.matrixStore = matrixStore
     self.neutralSolver = neutralSolver
+    self.previewWarmupEnabled = previewWarmupEnabled
     do { matrixLibrary = try matrixStore.load() }
     catch { matrixLibraryError = error.localizedDescription }
     undoManager.groupsByEvent = false
@@ -456,6 +462,7 @@ import UniformTypeIdentifiers
     resetEditor()
   }
   private func resetEditor() {
+    cancelPreviewWarmup()
     cancelRollTiming()
     cancelAutoCrop()
     resetAutoCropReview()
@@ -493,6 +500,7 @@ import UniformTypeIdentifiers
       id, ordered: project.frames.filter { !$0.isMissing }.map(\.id), command: command, shift: shift
     )
     if old != nextSelection.activeFrameID, !saveCropBeforeSwitching() { return }
+    if old != nextSelection.activeFrameID { retainCropPreview() }
     selection = nextSelection
     if old != selection.activeFrameID {
       loadActive(preservingCropMode: isCropping, preservingSamplingMode: sampling)
@@ -503,7 +511,7 @@ import UniformTypeIdentifiers
   }
   private func saveCropBeforeSwitching(confirm: Bool = false) -> Bool {
     // A loading frame has no editable draft; nil must not clear its saved crop.
-    guard isCropping, !isLoading, sourceWidth > 0, sourceHeight > 0,
+    guard canEditCrop,
       var next = project,
       let index = next.frames.firstIndex(where: { $0.id == selection.activeFrameID })
     else { return true }
@@ -543,14 +551,17 @@ import UniformTypeIdentifiers
     stopTimingKey()
     guard let project else { return }
     let before = selection.activeFrameID
-    selection.selectAll(project.frames.filter { !$0.isMissing }.map(\.id))
+    var nextSelection = selection
+    nextSelection.selectAll(project.frames.filter { !$0.isMissing }.map(\.id))
+    if before != nextSelection.activeFrameID { retainCropPreview() }
+    selection = nextSelection
     if before != selection.activeFrameID { loadActive() }
   }
   private var proxyPreparationTask: Task<Void, Never>?
   private var importGeneration = UUID()
   private var importURL: URL?
   private var importReplacingRecent: String?
-  @Published private(set) var isImporting = false
+  @Published private(set) var isImporting = false { didSet { schedulePreviewWarmup() } }
   @Published private(set) var importCompleted = 0
   @Published private(set) var importTotal = 0
   @Published private(set) var importFailure: String?
@@ -607,6 +618,8 @@ import UniformTypeIdentifiers
   }
   func loadActive(preservingCropMode: Bool = false, preservingSamplingMode: Bool = false) {
     guard !isImporting else { return }
+    cancelPreviewWarmup()
+    retainCropPreview()
     cancelGeometryPreparation()
     isCropping = preservingCropMode
     cropDraft = nil
@@ -620,14 +633,17 @@ import UniformTypeIdentifiers
     loadRevision += 1
     renderRevision += 1
     let revision = loadRevision
-    histogram = nil
-    previewImage = nil
-    isPreviewPlaceholder = false
+    histogramProbeSnapshot = nil
+    clearHistogramProbe()
+    isPreviewPlaceholder = previewImage != nil
     previewSourceStamp = nil
     previewInput = nil
     sourceWidth = 0
     sourceHeight = 0
     guard let frame = activeFrame, let folder else {
+      histogram = nil
+      previewImage = nil
+      isPreviewPlaceholder = false
       isLoading = false
       isRendering = false
       return
@@ -648,7 +664,7 @@ import UniformTypeIdentifiers
         previewInputIdentity = UUID()
         sourceWidth = result.1
         sourceHeight = result.2
-        if isCropping {
+        if isCropping && cropDraft == nil {
           cropRatioLocked = true
           let initial = frame.crop ?? FrameCrop(aspect: .free, freeRatio: Double(sourceWidth) / Double(sourceHeight))
           cropDraft = try initial.sourceCoordinates(sourceWidth: sourceWidth,
@@ -666,6 +682,7 @@ import UniformTypeIdentifiers
       } catch {
         if !Task.isCancelled && revision == loadRevision {
           isLoading = false
+          histogram = nil
           previewImage = nil
           isPreviewPlaceholder = false
           errorMessage = error.localizedDescription
@@ -686,12 +703,97 @@ import UniformTypeIdentifiers
       orientation: frame.orientation, crop: displayedCrop, stage: stage ?? self.stage,
       sprocketWhitening: effectiveSprocketWhitening, protectedCrop: sampling ? nil : frame.crop)
   }
+  private var canWarmPreviews: Bool {
+    previewWarmupEnabled && project != nil && folder != nil && hasImage && assets != nil
+      && !isImporting && !isLoading && !isRendering && !isExporting && !isCropping
+      && !sampling && !neutralPicking && !isNeutralSampling && !isAutoCropping
+      && !isAnalyzingRollTiming && !isPreparingGeometry && pendingMatrixCalibration == nil
+      && gestureBefore == nil && thumbnailTask == nil
+  }
+  private func cancelPreviewWarmup() {
+    previewWarmupTask?.cancel()
+    previewWarmupTask = nil
+    previewWarmupGeneration = UUID()
+  }
+  private func schedulePreviewWarmup() {
+    cancelPreviewWarmup()
+    guard canWarmPreviews else { return }
+    let generation = previewWarmupGeneration
+    previewWarmupTask = Task(priority: .utility) { [weak self] in
+      do { try await Task.sleep(for: .seconds(1)) } catch { return }
+      guard let self, !Task.isCancelled, generation == self.previewWarmupGeneration else { return }
+      await self.warmPreviewCache(generation: generation)
+      if generation == self.previewWarmupGeneration { self.previewWarmupTask = nil }
+    }
+  }
+  private func warmPreviewCache(generation: UUID) async {
+    guard canWarmPreviews, let roll = project, let folder, let assets else { return }
+    let frames = roll.frames.filter { !$0.isMissing }
+    let activeIndex = frames.firstIndex { $0.id == selection.activeFrameID } ?? 0
+    // At most forty nearby frames; one utility request at a time, with a pause between frames.
+    let candidates = frames.enumerated().sorted {
+      let lhs = abs($0.offset - activeIndex), rhs = abs($1.offset - activeIndex)
+      return lhs == rhs ? $0.offset < $1.offset : lhs < rhs
+    }.prefix(presentationCache.countLimit).map(\.element)
+    let renderer = PreviewRenderService()
+    let savedStage = stage, savedHistogramStage = histogramStage, savedCropPreview = cropPreviewEnabled
+    for frame in candidates {
+      guard !Task.isCancelled, generation == previewWarmupGeneration, canWarmPreviews else { return }
+      do {
+        let url = folder.appendingPathComponent(frame.filename)
+        let source = try SourceStamp(url: url)
+        let crop = savedCropPreview ? frame.crop : nil
+        let key = PreviewPresentationKey(source: source, frameID: frame.id,
+          calibration: roll.calibration, adjustments: frame.adjustments,
+          orientation: frame.orientation, crop: crop, stage: savedStage,
+          sprocketWhitening: roll.calibration.isCalibrated ? roll.sprocketWhitening : .init(),
+          protectedCrop: frame.crop)
+        // Fill the shared input cache even when the rendered display is already cached.
+        let input = try await imageService.preview(url)
+        guard !Task.isCancelled, generation == previewWarmupGeneration, canWarmPreviews else { return }
+        if !presentationCache.contains(key, histogramStage: roll.calibration.isCalibrated ? savedHistogramStage : nil) {
+          let result = try await renderer.render(input.0, calibration: roll.calibration,
+            adjustments: frame.adjustments, assets: assets, stage: savedStage,
+            original: !roll.calibration.isCalibrated, orientation: frame.orientation,
+            inputIdentity: UUID(), crop: crop, sourceWidth: input.1, sourceHeight: input.2,
+            includeHistogram: true, histogramStage: savedHistogramStage, histogramCrop: frame.crop,
+            sprocketWhitening: key.sprocketWhitening, protectedCrop: frame.crop)
+          guard !Task.isCancelled, generation == previewWarmupGeneration, canWarmPreviews,
+            self.folder == folder, project?.id == roll.id, project?.calibration == roll.calibration,
+            project?.sprocketWhitening == roll.sprocketWhitening,
+            project?.frames.first(where: { $0.id == frame.id }) == frame,
+            stage == savedStage, histogramStage == savedHistogramStage,
+            cropPreviewEnabled == savedCropPreview, try SourceStamp(url: url) == source else { return }
+          // Keep the visible frame most recently used while background work fills free slots.
+          if let activeKey = presentationKey() { _ = presentationCache.image(for: activeKey) }
+          presentationCache.store(.init(key: key, image: result.image, sourceWidth: input.1,
+            sourceHeight: input.2, histogram: result.histogram))
+        }
+        try await Task.sleep(for: .milliseconds(120))
+      } catch is CancellationError { return }
+      catch {
+        // Disposable preloading must not change selection, edits or show foreground errors.
+        continue
+      }
+    }
+  }
   private func showCachedPreview() {
     guard isLoading || isRendering, previewImage == nil || isPreviewPlaceholder,
       let key = presentationKey() else { return }
     if let entry = presentationCache.image(for: key) {
       sourceWidth = entry.sourceWidth
       sourceHeight = entry.sourceHeight
+      if isCropping {
+        cropRatioLocked = true
+        let initial = activeFrame?.crop ?? FrameCrop(aspect: .free,
+          freeRatio: Double(sourceWidth) / Double(sourceHeight))
+        cropDraft = try? initial.sourceCoordinates(sourceWidth: sourceWidth,
+          sourceHeight: sourceHeight, orientation: orientation)
+      }
+      cropPreviewTransition = nil
+      histogram = !isCropping && entry.histogram?.stage == histogramStage ? entry.histogram : nil
+      histogramProbeSnapshot = nil
+      clearHistogramProbe()
       previewImage = entry.image
       isPreviewPlaceholder = true
     }
@@ -701,6 +803,7 @@ import UniformTypeIdentifiers
     thumbnails[key.frameID] = image
   }
   func render(preservingHistogram: Bool = false) {
+    cancelPreviewWarmup()
     cancelNeutralPicker()
     if histogram?.stage != histogramStage { histogram = nil }
     renderRevision += 1
@@ -713,7 +816,7 @@ import UniformTypeIdentifiers
     // Geometry/source/stage changes invalidate in-flight work. Ordinary edits keep
     // the current job alive and replace the single pending snapshot instead.
     if context != previewContext {
-      if !preservingHistogram { histogram = nil }
+      if !preservingHistogram && !isPreviewPlaceholder && cropPreviewTransition == nil { histogram = nil }
       clearHistogramProbe()
       cancelPreviewWorker()
       previewContext = context
@@ -755,7 +858,8 @@ import UniformTypeIdentifiers
               stage: request.context.stage, sprocketWhitening: request.context.sprocketWhitening,
               protectedCrop: request.context.histogramCrop)
             presentationCache.store(.init(key: key, image: result.image,
-              sourceWidth: request.context.sourceWidth, sourceHeight: request.context.sourceHeight))
+              sourceWidth: request.context.sourceWidth, sourceHeight: request.context.sourceHeight,
+              histogram: result.histogram))
           }
           if request.revision == renderRevision {
             isRendering = false
@@ -938,6 +1042,7 @@ import UniformTypeIdentifiers
     reviewOnlyPendingCrops = !pendingAutoCropFrameIDs.isEmpty
     // Loading in crop mode creates the correct draft for this frame and keeps the
     // review controls usable when the currently displayed frame is still loading.
+    retainCropPreview()
     selection.click(target.id, ordered: frames.map(\.id))
     project?.lastActiveFrameID = target.id
     dirty = true
@@ -953,7 +1058,7 @@ import UniformTypeIdentifiers
   }
 
   func confirmCropAndAdvance() {
-    guard isCropping, !isLoading, let id = selection.activeFrameID,
+    guard canEditCrop, let id = selection.activeFrameID,
       let frames = project?.frames.filter({ !$0.isMissing }),
       let index = frames.firstIndex(where: { $0.id == id }),
       saveCropBeforeSwitching(confirm: true) else { return }
@@ -989,7 +1094,7 @@ import UniformTypeIdentifiers
     } catch { errorMessage = error.localizedDescription }
   }
   func updateCropDraft(_ value: FrameCrop) {
-    guard isCropping, !isLoading, sourceWidth > 0, sourceHeight > 0 else { return }
+    guard canEditCrop else { return }
     do {
       cropDraft = try value.sourceCoordinates(sourceWidth: sourceWidth,
         sourceHeight: sourceHeight, orientation: orientation)
@@ -1003,7 +1108,7 @@ import UniformTypeIdentifiers
       freeRatio: Double(max(1, displayWidth)) / Double(max(1, displayHeight)))
   }
   func setCropRatioLocked(_ locked: Bool) {
-    guard isCropping else { return }
+    guard canEditCrop else { return }
     if !locked, cropDraft != nil {
       var draft = currentDisplayedCrop
       let ratio = draft.ratio
@@ -1015,7 +1120,7 @@ import UniformTypeIdentifiers
     cropRatioLocked = locked
   }
   func selectCropRatio(_ ratio: Double, aspect: CropAspectRatio = .free) {
-    guard ratio.isFinite, ratio > 0 else { return }
+    guard canEditCrop, ratio.isFinite, ratio > 0 else { return }
     var draft = currentDisplayedCrop
     draft.aspect = aspect
     draft.portrait = false
@@ -1043,7 +1148,7 @@ import UniformTypeIdentifiers
     updateDisplayedCropDraft(draft)
   }
   func resetCropDraft() {
-    guard isCropping else { return }
+    guard canEditCrop else { return }
     cropRatioLocked = true
     cropDraft = nil
   }
@@ -1056,7 +1161,7 @@ import UniformTypeIdentifiers
     render()
   }
   func commitCrop() {
-    guard isCropping, !isLoading, sourceWidth > 0, sourceHeight > 0,
+    guard canEditCrop,
       let old = project, let folder, let frame = activeFrame else { return }
     let url = folder.appendingPathComponent(frame.filename)
     if prepareGeometryIfNeeded([url], then: { self.commitCrop() }) { return }
@@ -1084,7 +1189,7 @@ import UniformTypeIdentifiers
     try SourceImageIO.metadata(url: $0)
   }
   private var preparedGeometryMetadata: [URL: TIFFMetadata] = [:]
-  @Published private(set) var isPreparingGeometry = false
+  @Published private(set) var isPreparingGeometry = false { didSet { schedulePreviewWarmup() } }
   private var geometryPreparationTask: Task<Void, Never>?
   private var geometryPreparationToken = UUID()
   private func cancelGeometryPreparation() {
@@ -1163,6 +1268,7 @@ import UniformTypeIdentifiers
     return true
   }
   func sampleDisplayedBase(_ rect: PixelRect) {
+    guard hasImage else { return }
     do { sampleBase(try orientation.inverseRect(rect, sourceWidth: sourceWidth, sourceHeight: sourceHeight)) }
     catch { errorMessage = error.localizedDescription }
   }
@@ -1267,7 +1373,10 @@ import UniformTypeIdentifiers
     scheduleSave(immediate: gestureBefore == nil)
     if gestureBefore == nil { refreshThumbnails() }
   }
-  func beginAdjustment() { if gestureBefore == nil { gestureBefore = project } }
+  func beginAdjustment() {
+    cancelPreviewWarmup()
+    if gestureBefore == nil { gestureBefore = project }
+  }
   func endAdjustment() {
     if let old = gestureBefore, let current = project,
       old.frames != current.frames || old.sprocketWhitening != current.sprocketWhitening {
@@ -1276,6 +1385,7 @@ import UniformTypeIdentifiers
     }
     gestureBefore = nil
     scheduleSave(immediate: true)
+    schedulePreviewWarmup()
   }
   func edit(actionName: String = "调整参数", _ mutate: (inout FrameAdjustments) -> Void) {
     guard var next = project,
@@ -1560,7 +1670,7 @@ import UniformTypeIdentifiers
     refreshThumbnails()
     scheduleSave(immediate: true)
   }
-  private var pendingMatrixCalibration: FilmCalibration?
+  private var pendingMatrixCalibration: FilmCalibration? { didSet { schedulePreviewWarmup() } }
 
   private func cancelSampling() {
     pendingMatrixCalibration = nil
@@ -1577,6 +1687,7 @@ import UniformTypeIdentifiers
     let cmos = project.calibration.cmosMatrix
     let rollID = project.id
     sampling = false
+    cancelPreviewWarmup()
     sampleTask = Task {
       do {
         let result = try await imageService.sample(
@@ -1869,6 +1980,7 @@ import UniformTypeIdentifiers
   }
   private func refreshThumbnails(affectedIDs: Set<UUID>? = nil) {
     guard let project, let folder, let assets else { return }
+    cancelPreviewWarmup()
     let available = Set(project.frames.filter { !$0.isMissing }.map(\.id))
     pendingThumbnailIDs.formUnion(affectedIDs ?? available)
     pendingThumbnailIDs.formIntersection(available)
@@ -1882,6 +1994,12 @@ import UniformTypeIdentifiers
       .sorted { $0.id == selection.activeFrameID && $1.id != selection.activeFrameID }
     let cache = DiskThumbnailCache.forRoll(folder: folder, projectID: project.id)
     thumbnailTask = Task {
+      defer {
+        if generation == thumbnailGeneration {
+          thumbnailTask = nil
+          schedulePreviewWarmup()
+        }
+      }
       if affectedIDs == nil {
         try? await cache.migrateLegacy(from: folder)
         _ = try? await cache.maintain()

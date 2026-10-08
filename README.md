@@ -26,10 +26,10 @@
 
 要求 **macOS 14 或更新版本**。
 
-[下载 Printroom v1.0.0](https://github.com/karasuyasabou/Printroom/releases/tag/v1.0.0)
+[下载 Printroom v1.0.1](https://github.com/karasuyasabou/Printroom/releases/tag/v1.0.1)
 
-- **Apple Silicon（M 系列）**：下载 `Printroom-v1.0.0-macOS-arm64.zip`。
-- **Intel**：下载 `Printroom-v1.0.0-macOS-x86_64.zip`。
+- **Apple Silicon（M 系列）**：下载 `Printroom-v1.0.1-macOS-arm64.zip`。
+- **Intel**：下载 `Printroom-v1.0.1-macOS-x86_64.zip`。
 
 解压后将 `Printroom.app` 拖入“应用程序”。应用未使用 Developer ID 签名或 Apple 公证；首次打开若被 macOS 拦截，请在尝试打开后前往“系统设置 → 隐私与安全性”，找到 Printroom 并选择“仍要打开”。
 
@@ -46,7 +46,7 @@ RAW 输入需要另行安装 [Adobe DNG Converter](https://helpx.adobe.com/camer
 
 ### 1. 打开并命名胶卷
 
-在主页点击“打开底片”，选择存放这一卷照片的文件夹。加载完成后可为胶卷命名，取消则沿用文件夹名。尚未框选片基时显示原始负片，调色控件暂不可用。
+在主页点击“打开底片”，选择存放这一卷照片的文件夹。加载完成后可为胶卷命名。
 
 <p align="center">
   <img src="docs/images/quick-start-01-open-roll.png" width="720" alt="打开底片文件夹后，在命名胶卷窗口中输入名称并保存">
@@ -60,7 +60,7 @@ RAW 输入需要另行安装 [Adobe DNG Converter](https://helpx.adobe.com/camer
   <img src="docs/images/quick-start-02-auto-crop.png" width="640" alt="顶部工具栏中的自动裁剪入口">
 </p>
 
-若有待检查照片，拖动裁框或微调角度，再点击“确认并下一张”。完成后也可以按 `R` 随时调整当前照片的裁剪。
+若有待检查照片，拖动裁框或微调角度（快捷键 `W、A、S、D、Q、E`），再点击“确认并下一张”。完成后也可以按 `R` 随时调整当前照片的裁剪。
 
 <p align="center">
   <img src="docs/images/quick-start-03-review-crop.png" width="640" alt="检查自动裁剪结果，调整裁框后点击确认并下一张">
@@ -68,7 +68,7 @@ RAW 输入需要另行安装 [Adobe DNG Converter](https://helpx.adobe.com/camer
 
 ### 3. 框选片基
 
-先确认右侧 CMOS 和密度矩阵适合自己的翻拍设备，再点击“框选片基”。在照片边缘选取一块未曝光、干净且均匀的区域，避开齿孔、文字、灰尘和漏光；成功后进入处理预览，这份校准作用于整卷。
+点击“框选片基”。在照片边缘选取一块未曝光、干净且均匀的区域，避开齿孔、文字、灰尘；
 
 <p align="center">
   <img src="docs/images/quick-start-04-film-base.png" width="300" alt="右侧调色面板中的矩阵设置与框选片基按钮">
@@ -76,7 +76,7 @@ RAW 输入需要另行安装 [Adobe DNG Converter](https://helpx.adobe.com/camer
 
 ### 4. 分析整卷色罩
 
-点击顶部“色罩分析”，完成后选择“应用到整卷”，获得一组基础调色参数。可选的“自动曝光”默认关闭；夜景或刻意压暗的照片建议留到逐张精调。若已有手动调色，应用前可勾选“保留已调色”。
+点击顶部“色罩分析”，完成后选择“应用到整卷”，获得一组基础调色参数。可选“自动曝光”调整逐张曝光，否则整卷曝光保持一致。
 
 <p align="center">
   <img src="docs/images/quick-start-05-color-analysis.png" width="640" alt="顶部工具栏中的色罩分析入口">
@@ -84,9 +84,9 @@ RAW 输入需要另行安装 [Adobe DNG Converter](https://helpx.adobe.com/camer
 
 ### 5. 逐张精调并导出
 
-用 `←` / `→` 切换照片，在简易模式中调整曝光、色温和色调，再按需要调整反差或选择 LUT。有合适的中性区域时，按 `I` 开启吸管辅助校色。
+用 `←` / `→` 切换照片，在简易模式中调整曝光、色温和色调，再按需要调整反差。有合适的中性区域时，按 `I` 开启吸管辅助校色。
 
-完成后点击“导出”，选择所选照片或整卷，再设置格式和色彩空间；单选时即可导出当前照片。编辑设置自动保存在底片文件夹的 `.printroom.json` 中，下次打开可以继续。
+完成后点击“导出”，再设置格式和色彩空间；单选时即可导出当前照片。
 
 完整操作、支持格式、快捷键和调色原理见 **[使用指南](docs/user-guide.md)**。
 

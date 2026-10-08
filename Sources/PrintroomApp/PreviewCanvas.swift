@@ -10,14 +10,18 @@ struct PreviewCanvas: NSViewRepresentable {
     return view
   }
   func updateNSView(_ view: CanvasView, context: Context) {
-    if model.cropPreviewTransition == nil && (view.frameID != model.activeFrame?.id
-      || view.orientation != model.orientation || view.cropViewportToken != model.cropViewportToken) {
-      view.resetViewport()
+    if model.cropPreviewTransition == nil {
+      if view.frameID != model.activeFrame?.id || view.orientation != model.orientation
+        || view.cropViewportToken != model.cropViewportToken {
+        view.resetViewport()
+      }
+      view.orientation = model.orientation
+      view.cropViewportToken = model.cropViewportToken
+      view.frameID = model.activeFrame?.id
+    } else {
+      view.cancelGesture()
     }
     if !model.sampling { view.selectionRect = nil }
-    view.orientation = model.orientation
-    if model.cropPreviewTransition == nil { view.cropViewportToken = model.cropViewportToken }
-    view.frameID = model.activeFrame?.id
     view.model = model
     view.needsDisplay = true
     view.constrainPan()
@@ -212,6 +216,7 @@ struct PreviewCanvas: NSViewRepresentable {
     let p = convert(event.locationInWindow, from: nil)
     guard bounds.contains(p), model?.previewImage != nil, model?.cropPreviewTransition == nil else { return }
     window?.makeFirstResponder(self)
+    if let model, (model.sampling || model.isCropping) && !model.hasImage { return }
     if (model?.sampling == true || model?.neutralPicking == true) && !imageRect.contains(p) { return }
     start = p
     previous = p
@@ -264,6 +269,7 @@ struct PreviewCanvas: NSViewRepresentable {
       needsDisplay = true
     }
     guard start != nil, let model, model.cropPreviewTransition == nil, model.sourceWidth > 0, model.sourceHeight > 0 else { return }
+    guard (!model.sampling && !model.isCropping) || model.hasImage else { return }
     let p = convert(event.locationInWindow, from: nil)
     if let gesture = cropGesture {
       if !bounds.contains(p), model.isCropping {
@@ -351,7 +357,9 @@ struct PreviewCanvas: NSViewRepresentable {
     // SwiftUI may route non-interactive background hits through to the canvas.
     // The panel's actual laid-out bounds also exclude its chart and padding.
     if isOverHistogram(point) { return .arrow }
-    guard bounds.contains(point), let model, model.previewImage != nil else { return .arrow }
+    guard bounds.contains(point), let model, model.previewImage != nil,
+      model.cropPreviewTransition == nil else { return .arrow }
+    if (model.sampling || model.isCropping) && !model.hasImage { return .arrow }
     if model.sampling { return .crosshair }
     if model.neutralPicking { return Self.neutralCursor }
     if model.isCropping, cropGesture?.handle == .rotate { return rotationCursor(at: point) }

@@ -29,9 +29,9 @@ actor ImageService {
   private let cacheLimitBytes: Int
   private let cacheLimitEntries: Int
 
-  // Twelve 1600×1600 Float32 RGBA previews fit even for square scans.
+  // Forty 1600×1600 Float32 RGBA previews fit even for square scans.
   // Entries allocate on demand and remain subject to both LRU limits.
-  init(cacheLimitBytes: Int = 512 * 1024 * 1024, cacheLimitEntries: Int = 12) {
+  init(cacheLimitBytes: Int = 1664 * 1024 * 1024, cacheLimitEntries: Int = 40) {
     self.cacheLimitBytes = max(0, cacheLimitBytes)
     self.cacheLimitEntries = max(0, cacheLimitEntries)
   }

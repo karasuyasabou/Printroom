@@ -231,7 +231,7 @@ struct CropEditingTests {
     let frames = try #require(model.project?.frames)
     for index in frames.indices {
       model.select(frames[index].id)
-      try await until("target loaded", { !model.isLoading && model.histogram != nil })
+      try await until("target loaded", { !model.isLoading && !model.isRendering && model.histogram != nil })
       model.edit { $0.timing.red = 11 + index; $0.contrast.blue = 1 + Float(index) * 0.1 }
       if index == 1 { model.changeOrientation(.rotateClockwise) }
       if index == 2 { model.changeOrientation(.flipHorizontal) }
@@ -240,7 +240,7 @@ struct CropEditingTests {
       model.commitCrop()
     }
     model.select(frames[0].id)
-    try await until("sync source loaded", { !model.isLoading && model.histogram != nil })
+    try await until("sync source loaded", { !model.isLoading && !model.isRendering && model.histogram != nil })
     model.selectAll()
     model.beginCrop()
     model.updateCropDraft(FrameCrop(aspect: .sevenSix, width: 0.7, angleDegrees: 2.3))

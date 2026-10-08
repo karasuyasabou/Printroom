@@ -164,8 +164,8 @@ struct EditorRefinementTests {
     #expect(model.flushSave())
   }
 
-  @Test func switchingWaitsForFullPreviewAndReturningUsesCachedPreview() async throws {
-    let model = EditorModel(), folder: URL
+  @Test func switchingRetainsPreviewAndReturningRestoresCachedHistogram() async throws {
+    let model = EditorModel(previewWarmupEnabled: false), folder: URL
     folder = try fixture(model)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
@@ -175,15 +175,17 @@ struct EditorRefinementTests {
     try await until("thumbnails") { model.thumbnails.count == 2 }
     let frames = try #require(model.project?.frames)
     let original = try #require(model.previewImage)
+    let originalHistogram = try #require(model.histogram)
     model.select(frames[1].id)
-    #expect(model.previewImage == nil)
-    #expect(!model.isPreviewPlaceholder && model.isLoading)
+    #expect(model.previewImage === original && model.histogram == originalHistogram)
+    #expect(model.isPreviewPlaceholder && model.isLoading && model.cropPreviewTransition != nil)
     #expect(!model.hasImage && !model.canPickNeutral)
     try await settled(model)
     #expect(!model.isPreviewPlaceholder && model.hasImage)
     model.select(frames[0].id)
     #expect(model.previewImage === original)
-    #expect(model.isPreviewPlaceholder)
+    #expect(model.isPreviewPlaceholder && model.cropPreviewTransition == nil)
+    #expect(model.histogram == originalHistogram && !model.canPickNeutral)
     // A Final thumbnail cannot masquerade as a density-stage preview.
     model.stage = .d2
     #expect(model.previewImage == nil)
@@ -193,7 +195,7 @@ struct EditorRefinementTests {
   }
 
   @Test func modifiedSourceCannotReuseDisplaySnapshot() async throws {
-    let model = EditorModel(), folder: URL
+    let model = EditorModel(previewWarmupEnabled: false), folder: URL
     folder = try fixture(model)
     defer { try? FileManager.default.removeItem(at: folder) }
     model.open(folder)
@@ -204,10 +206,12 @@ struct EditorRefinementTests {
     let frames = try #require(model.project?.frames)
     model.select(frames[1].id)
     try await settled(model)
+    let previous = try #require(model.previewImage)
     let first = folder.appendingPathComponent(frames[0].filename)
     try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: 5)], ofItemAtPath: first.path)
     model.select(frames[0].id)
-    #expect(model.previewImage == nil && !model.isPreviewPlaceholder)
+    #expect(model.previewImage === previous && model.isPreviewPlaceholder)
+    #expect(model.cropPreviewTransition != nil && !model.hasImage)
     try await settled(model)
     #expect(model.flushSave())
   }

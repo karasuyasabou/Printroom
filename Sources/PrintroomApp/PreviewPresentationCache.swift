@@ -20,15 +20,21 @@ struct PreviewPresentationCache {
     let image: CGImage
     let sourceWidth: Int
     let sourceHeight: Int
-    var bytes: Int { image.bytesPerRow * image.height }
+    var histogram: HistogramStatistics? = nil
+    var bytes: Int {
+      image.bytesPerRow * image.height + (histogram.map { stats in
+        stats.channels.count * MemoryLayout<HistogramChannel>.stride
+          + stats.channels.reduce(0) { $0 + $1.bins.count * MemoryLayout<UInt64>.stride }
+      } ?? 0)
+    }
   }
   private(set) var entries: [Entry] = []
   let byteLimit: Int
   let countLimit: Int
   var bytes: Int { entries.reduce(0) { $0 + $1.bytes } }
 
-  // Match the input cache's twelve frames, including 1600×1600 UInt16 RGBA images.
-  init(byteLimit: Int = 256 * 1024 * 1024, countLimit: Int = 12) {
+  // Forty square UInt16 RGBA previews and their histograms fit in this budget.
+  init(byteLimit: Int = 832 * 1024 * 1024, countLimit: Int = 40) {
     self.byteLimit = max(0, byteLimit)
     self.countLimit = max(0, countLimit)
   }
@@ -40,7 +46,16 @@ struct PreviewPresentationCache {
     return hit
   }
 
+  func contains(_ key: PreviewPresentationKey, histogramStage: PipelineStage?) -> Bool {
+    entries.contains { $0.key == key && (histogramStage == nil || $0.histogram?.stage == histogramStage) }
+  }
+
   mutating func store(_ entry: Entry) {
+    var entry = entry
+    // Crop editing does not compute statistics, but may share the same full-image key.
+    if entry.histogram == nil, let previous = entries.first(where: { $0.key == entry.key }) {
+      entry.histogram = previous.histogram
+    }
     // Keep at most one displayed revision of each frame/stage.
     entries.removeAll { $0.key.frameID == entry.key.frameID && $0.key.stage == entry.key.stage }
     guard countLimit > 0, entry.bytes <= byteLimit else { return }

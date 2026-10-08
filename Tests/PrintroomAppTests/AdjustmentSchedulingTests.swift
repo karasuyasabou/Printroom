@@ -198,7 +198,7 @@ struct AdjustmentSchedulingTests {
   }
 
   @Test func revisitingEvictedTIFFAndEditingDuringLoadNeverPublishesThumbnailResolution() async throws {
-    let model = EditorModel()
+    let model = EditorModel(previewWarmupEnabled: false)
     let assets = try #require(model.assets)
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent("PrintroomProxySwitch-\(UUID())")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -207,7 +207,7 @@ struct AdjustmentSchedulingTests {
     try TIFFCodec.write(url: original, width: width, height: height, profile: assets.profile, compression: .deflate) { rows in
       (rows.lowerBound * width * 3..<rows.upperBound * width * 3).map { UInt16(truncatingIfNeeded: $0 * 97) }
     }
-    let frameCount = 13
+    let frameCount = 41
     for index in 1..<frameCount { try FileManager.default.copyItem(at: original, to: folder.appendingPathComponent("\(index).tiff")) }
     model.open(folder)
     try await waitForProxyImport(model)
@@ -219,13 +219,15 @@ struct AdjustmentSchedulingTests {
       if let image { widths.append(image.width) }
     }
     defer { subscription.cancel() }
-    // Thirteen frames exceed both twelve-entry caches regardless of aspect ratio.
+    // Forty-one frames exceed both forty-entry caches regardless of aspect ratio.
     for frame in frames.dropFirst() {
       model.select(frame.id)
       try await settled(model, thumbnails: frameCount)
     }
+    let previous = try #require(model.previewImage)
     model.select(frames[0].id)
-    #expect(model.isLoading && model.previewImage == nil)
+    #expect(model.isLoading && model.previewImage === previous)
+    #expect(model.isPreviewPlaceholder && model.cropPreviewTransition != nil && !model.hasImage)
     model.beginAdjustment()
     model.edit { $0.timing.red = 73 }
     model.endAdjustment()

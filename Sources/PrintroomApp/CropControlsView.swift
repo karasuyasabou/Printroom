@@ -79,7 +79,7 @@ struct CropControlsView: View {
         ? "保存当前裁剪、清除待检查标记并前往下一张 · Enter"
         : "保存当前照片裁剪 · Enter")
     }
-    .disabled(model.isLoading || model.sourceWidth == 0 || model.sourceHeight == 0)
+    .disabled(!model.canEditCrop)
     .font(.system(size: 11))
     .controlSize(.small)
     .padding(.horizontal, 8).frame(height: 38)
