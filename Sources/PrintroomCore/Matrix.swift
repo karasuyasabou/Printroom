@@ -156,7 +156,7 @@ public enum CMOSCalibration {
   public static func make(sources: [URL]) throws -> CMOSCalibrationResult {
     guard sources.count == 3, Set(sources.map { $0.standardizedFileURL.resolvingSymlinksInPath() }).count == 3,
       sources.allSatisfy(SourceImageIO.isSupportedSource) else {
-      throw PrintroomError.invalid("请选择三张不同的 RGB 光源 TIFF 或 ARW 照片。")
+      throw PrintroomError.invalid("请选择三张不同的 RGB 光源 TIFF 或受支持的 RAW 照片。")
     }
     return try solve(means: sampleMeans(sources: sources))
   }

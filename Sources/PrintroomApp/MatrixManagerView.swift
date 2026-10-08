@@ -179,12 +179,12 @@ struct MatrixManagerView: View {
   }
   private func selectSources() {
     let panel = NSOpenPanel()
-    panel.title = "选择红、绿、蓝光源的三张 TIFF / ARW"
-    panel.allowedContentTypes = [.tiff, UTType(filenameExtension: "arw") ?? .rawImage]
+    panel.title = "选择红、绿、蓝光源的三张 TIFF / RAW"
+    panel.allowedContentTypes = SourceImageIO.supportedContentTypes
     panel.canChooseDirectories = false; panel.allowsMultipleSelection = true
     guard panel.runModal() == .OK else { return }
     let urls = panel.urls
-    guard urls.count == 3 else { failure = "请选择恰好三张 TIFF / ARW 照片。"; return }
+    guard urls.count == 3 else { failure = "请选择恰好三张 TIFF / RAW 照片。"; return }
     busy = true; failure = nil; message = ""; identification = []
     calibrationTask = Task {
       let worker = Task.detached(priority: .userInitiated) { try CMOSCalibration.make(sources: urls) }

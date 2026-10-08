@@ -252,7 +252,7 @@ targetRGB = (ICC.TRC.encode(y), 同左, 同左)
 
 ## 16. CMOS 标定与双矩阵
 
-**用户确认**：L0→CMOS→L1→Gain→L2→D0→密度矩阵→D1；矩阵均为卷级。矩阵应用自动联动片基对齐，具体规则以§6为准。CMOS制作支持三张TIFF／ARW或混合选择；ARW使用代理代表值。借鉴 LightSourceDecouple 功能思路，不要求与其裁切/截断的中间 TIFF 逐像素相同。
+**用户确认**：L0→CMOS→L1→Gain→L2→D0→密度矩阵→D1；矩阵均为卷级。矩阵应用自动联动片基对齐，具体规则以§6为准。CMOS制作支持三张TIFF／RAW或混合选择；RAW使用代理代表值。借鉴 LightSourceDecouple 功能思路，不要求与其裁切/截断的中间 TIFF 逐像素相同。
 
 CMOS 标定工程实现：三张分别仅开启R/G/B光源的照片。经SourceImageIO保持样本值读取，按 orientation 校正后的中心宽高各 20% 区域计算 Double RGB 算术均值（整数尺寸向下取整；尺寸≤10 的轴取全轴）。每个相机通道在三张图中的最大均值确定光源角色，必须一一对应。令均值列向量构成 `A=[vR vG vB]`，`B=inverse(A)`，`CMOS[i,j]=B[i,j]/sum_j(B[i,j])`。行归一化仅用于此 CMOS 求解，保持等值 RGB；结果转为 Float32，允许负系数。
 
@@ -265,7 +265,7 @@ CMOS 标定工程实现：三张分别仅开启R/G/B光源的照片。经SourceI
 
 ## RAW 输入契约
 
-RAW 策略独立版本为 `adobe-linear-camera-rgb-v1`。输入开放ARW；真实验收范围为 Sony ILCE-7CM2 的八张样片。仅 Adobe DNG Converter 执行去马赛克：单遍参数 `-u -l -p0 -dng1.1`，禁止加入 `-cr5.4`，转换失败不能改用其他去马赛克后端。读取真正主图并验证 uncompressed UInt16、三通道、LinearRaw (34892)、无 CFA filters；DNGVersion 不必等于 BackwardVersion。
+RAW 策略独立版本为 `adobe-linear-camera-rgb-v1`。输入开放常见品牌 RAW 和 DNG，扩展名由 SourceImageIO.rawFileExtensions 统一定义，格式列表见 [使用指南](user-guide.md#raw-格式)；开放扩展名不等于每个机型或压缩模式均已验收。真实验收范围仍为 Sony ILCE-7CM2 的八张样片。仅 Adobe DNG Converter 执行去马赛克：单遍参数 `-u -l -p0 -dng1.1`，禁止加入 `-cr5.4`，转换失败不能改用其他去马赛克后端。所有 RAW（含输入 DNG）均通过该流程准备；具体机型须由本机转换器支持，并通过后续读取验证。读取真正主图并验证 uncompressed UInt16、三通道、LinearRaw (34892)、无 CFA filters；DNGVersion 不必等于 BackwardVersion。此次开放格式不修改转换参数、算法版本、代理版本或旧项目数值。
 
 静态构建 LibRaw 0.22.1 执行 `open_file → adjust_to_raw_inset_crop(3,0) → unpack → dcraw_process → copy_mem_image`。固定 `user_mul=[1,1,1,1]`、`output_color=0`、`user_flip=0`、`highlight=1`、`output_bps=16`、`no_auto_bright=1`、`user_qual=3`、`gamm=[1,1]`、`adjust_maximum_thr=0`、`use_camera_matrix=0`。不再做黑位归一化、相机白平衡、自动亮度、ICC 转换或 Gamma。有效裁剪/黑位来自实际 DNG 和 LibRaw，不硬编码机型尺寸。
 
@@ -275,7 +275,7 @@ RAW 策略独立版本为 `adobe-linear-camera-rgb-v1`。输入开放ARW；真�
 
 ## CMOS 标定 RAW 接口补充
 
-三张标定图允许 TIFF、ARW 或混合选择。ARW 使用既有 SourceImageIO 线性转换，原片中心 ROI 映射到代理参与标定；读取冻结 RAW 处理身份并检查源文件变化。求解、曝光拒绝和中性归一化沿用 §16。Sony A7C II 内置系数直接来自用户 NPY，仅转换为管线 Float32，不转置、不再次归一化；阶段顺序与算法版本不变。
+三张标定图允许 TIFF、受支持的 RAW 或混合选择。RAW 使用既有 SourceImageIO 线性转换，原片中心 ROI 映射到代理参与标定；读取冻结 RAW 处理身份并检查源文件变化。求解、曝光拒绝和中性归一化沿用 §16。Sony A7C II 内置系数直接来自用户 NPY，仅转换为管线 Float32，不转置、不再次归一化；阶段顺序与算法版本不变。
 
 ## BigTIFF 输入
 

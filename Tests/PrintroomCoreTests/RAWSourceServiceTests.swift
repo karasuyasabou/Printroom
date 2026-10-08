@@ -64,17 +64,48 @@ private final class RAWFixture: @unchecked Sendable {
 }
 
 final class RAWSourceServiceTests: XCTestCase, @unchecked Sendable {
-  private func fixture() throws -> (URL, URL, RAWFixture, SourceProxyService) {
+  private func fixture(rawExtension: String = "ARW") throws -> (URL, URL, RAWFixture, SourceProxyService) {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("raw-service-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
-    let source = directory.appendingPathComponent("negative.ARW")
+    let source = directory.appendingPathComponent("negative.\(rawExtension)")
     try Data("original RAW".utf8).write(to: source)
     let backend = RAWFixture()
     let service = SourceProxyService(cacheRoot: directory.appendingPathComponent("cache"),
                                   byteLimit: 1_000_000_000, dependencies: backend.dependencies())
     addTeardownBlock { service.waitForMaintenance() }
     return (directory, source, backend, service)
+  }
+  func testMultiBrandSourcesUseAdobeProxiesAndFullDecodeWithoutChangingOriginals() throws {
+    for ext in ["CR2", "cr3", "NEF", "NRW", "RAF", "ORF", "RW2", "PEF", "RWL", "SRW", "3FR", "IIQ", "DNG"] {
+      let (directory, source, backend, service) = try fixture(rawExtension: ext)
+      var dependencies = backend.dependencies()
+      dependencies.readTIFFPreview = { _, _, _ in
+        XCTFail("RAW \(ext) must not enter the TIFF source reader")
+        throw PrintroomError.invalid("Wrong source reader")
+      }
+      let checked = SourceProxyService(cacheRoot: directory.appendingPathComponent("checked-cache"),
+        byteLimit: 1_000_000_000, dependencies: dependencies)
+      defer { checked.waitForMaintenance(); service.waitForMaintenance() }
+      let frozen = try checked.identity(url: source)
+      let metadata = try checked.metadata(url: source)
+      XCTAssertEqual(metadata.width, backend.image.width, ext)
+      XCTAssertEqual(metadata.height, backend.image.height, ext)
+      let preview = try checked.preview(url: source, expectedIdentity: frozen)
+      XCTAssertEqual(preview.width, 1600, ext)
+      XCTAssertEqual(try checked.preview(url: source, maxDimension: 240).width, 240, ext)
+      let roi = try checked.region(url: source, rect: PixelRect(x: 51, y: 2, width: 11, height: 7),
+        expectedIdentity: frozen)
+      XCTAssertEqual(roi.pixel(x: 4, y: 3), preview.pixel(
+        x: 55 * preview.width / metadata.width, y: 5 * preview.height / metadata.height), ext)
+      XCTAssertEqual(backend.count(), 1, "Editing must reuse the proxy for \(ext)")
+      XCTAssertEqual(try checked.read(url: source, expectedIdentity: frozen).samples, backend.image.samples, ext)
+      XCTAssertEqual(backend.count(), 2, "Full export must convert again for \(ext)")
+      XCTAssertEqual(try Data(contentsOf: source), Data("original RAW".utf8), ext)
+      XCTAssertFalse(try FileManager.default.subpathsOfDirectory(atPath: directory.path).contains {
+        $0.hasSuffix("source.dng") || $0.hasSuffix("full.tiff") || $0.contains(".preparing-")
+      }, ext)
+    }
   }
   private func waitForStart(_ backend: RAWFixture) async throws {
     for _ in 0..<200 {
@@ -347,15 +378,17 @@ final class RAWSourceServiceTests: XCTestCase, @unchecked Sendable {
   }
 
   func testFailuresNeverFallbackOrPublish() throws {
-    for failure in ["missing", "convert", "cfa", "mutate"] {
-      let (directory, source, backend, service) = try fixture()
-      backend.update { $0.failure = failure }
-      XCTAssertThrowsError(try service.preview(url: source), failure)
-      if failure != "mutate" { XCTAssertEqual(try Data(contentsOf: source), Data("original RAW".utf8)) }
-      let paths = try FileManager.default.subpathsOfDirectory(atPath: directory.path)
-      XCTAssertFalse(paths.contains { $0.hasSuffix("manifest.json") || $0.contains(".preparing-") }, failure)
-      backend.lock.lock(); let decodes = backend.decodes; backend.lock.unlock()
-      if failure != "mutate" { XCTAssertEqual(decodes, 0, failure) }
+    for ext in ["ARW", "CR3", "RAF", "DNG"] {
+      for failure in ["missing", "convert", "cfa", "mutate"] {
+        let (directory, source, backend, service) = try fixture(rawExtension: ext)
+        backend.update { $0.failure = failure }
+        XCTAssertThrowsError(try service.preview(url: source), failure)
+        if failure != "mutate" { XCTAssertEqual(try Data(contentsOf: source), Data("original RAW".utf8)) }
+        let paths = try FileManager.default.subpathsOfDirectory(atPath: directory.path)
+        XCTAssertFalse(paths.contains { $0.hasSuffix("manifest.json") || $0.contains(".preparing-") }, failure)
+        backend.lock.lock(); let decodes = backend.decodes; backend.lock.unlock()
+        if failure != "mutate" { XCTAssertEqual(decodes, 0, failure) }
+      }
     }
   }
   func testCorruptedProxyRebuildAndCacheLimit() throws {

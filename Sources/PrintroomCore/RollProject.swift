@@ -437,7 +437,7 @@ public enum ProjectStore {
     guard sourceURL.isFileURL,
       sourceURL.standardizedFileURL.deletingLastPathComponent().resolvingSymlinksInPath() == folder,
       let index = project.frames.firstIndex(where: { $0.id == frameID })
-    else { throw ProjectStoreError.invalidProject("重新定位目标必须是当前卷内的 TIFF 或 ARW") }
+    else { throw ProjectStoreError.invalidProject("重新定位目标必须是当前卷内的 TIFF 或受支持的 RAW") }
     try validateFilename(sourceURL.lastPathComponent)
     guard let source = sourceRecord(url: sourceURL, folder: folder) else {
       throw ProjectStoreError.unavailableFrame(sourceURL.lastPathComponent)
@@ -568,7 +568,7 @@ public enum ProjectStore {
     guard !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains("\\"),
       !name.contains("\0"), isSupportedSource(name)
     else {
-      throw ProjectStoreError.invalidProject("必须使用卷内 TIFF 或 ARW 相对文件名")
+      throw ProjectStoreError.invalidProject("必须使用卷内 TIFF 或受支持的 RAW 相对文件名")
     }
   }
 
@@ -655,7 +655,7 @@ public enum ProjectStore {
   }
 
   private static func isSupportedSource(_ name: String) -> Bool {
-    ["tif", "tiff", "arw"].contains((name as NSString).pathExtension.lowercased())
+    SourceImageIO.isSupportedSource(URL(fileURLWithPath: name))
   }
 
   private static func naturalLess(_ lhs: String, _ rhs: String) -> Bool {

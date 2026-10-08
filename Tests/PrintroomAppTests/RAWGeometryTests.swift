@@ -5,10 +5,10 @@ import Testing
 
 @Suite(.serialized) @MainActor
 struct RAWGeometryTests {
-  private func fixture() throws -> (EditorModel, URL) {
+  private func fixture(rawExtension: String = "ARW") throws -> (EditorModel, URL) {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("raw-geometry-\(UUID())")
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-    for name in ["A.ARW", "B.ARW"] { try Data([1]).write(to: root.appendingPathComponent(name)) }
+    for name in ["A.\(rawExtension)", "B.\(rawExtension)"] { try Data([1]).write(to: root.appendingPathComponent(name)) }
     let tiff = root.appendingPathComponent(".metadata.tif")
     try TIFFCodec.write(url: tiff, width: 120, height: 80, profile: nil) { rows in
       [UInt16](repeating: 100, count: rows.count * 120 * 3)
@@ -28,8 +28,9 @@ struct RAWGeometryTests {
     return (model, root)
   }
 
-  @Test func rawCropSyncPreparesOffMainAndCommitsOneTransaction() async throws {
-    let (model, root) = try fixture()
+  @Test(arguments: ["ARW", "CR3", "NEF", "RAF", "DNG"])
+  func rawCropSyncPreparesOffMainAndCommitsOneTransaction(rawExtension: String) async throws {
+    let (model, root) = try fixture(rawExtension: rawExtension)
     defer { try? FileManager.default.removeItem(at: root) }
     let previous = try #require(model.project)
     let read = model.rawGeometryMetadataLoader

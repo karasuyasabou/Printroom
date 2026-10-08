@@ -1943,8 +1943,8 @@ import UniformTypeIdentifiers
   func relocatePanel(_ frameID: UUID) {
     guard let frame = project?.frames.first(where: { $0.id == frameID }), frame.isMissing else { return }
     let panel = NSOpenPanel()
-    panel.title = "重新定位 \(frame.filename) · 选择本卷中的 TIFF 或 ARW"
-    panel.allowedContentTypes = [.tiff, UTType(filenameExtension: "arw") ?? .rawImage]
+    panel.title = "重新定位 \(frame.filename) · 选择本卷中的 TIFF 或 RAW"
+    panel.allowedContentTypes = SourceImageIO.supportedContentTypes
     panel.directoryURL = folder
     panel.allowsMultipleSelection = false
     guard panel.runModal() == .OK, let url = panel.url else { return }

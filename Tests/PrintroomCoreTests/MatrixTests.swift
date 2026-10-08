@@ -66,22 +66,25 @@ final class MatrixTests: XCTestCase {
     XCTAssertEqual(try CMOSCalibration.sampleMeans(sources: [tiff]).count, 1)
   }
   func testRAWExportRequestsPreserveSourceIdentityAndMatrix() throws {
-    let root = try folder(), source = root.appendingPathComponent("source.ARW")
-    // Request creation freezes identity only; it must not decode or invoke Adobe.
-    try Data([1,2,3]).write(to: source)
-    var project = try ProjectStore.open(folder: root)
-    project.calibration.cmosMatrix = .sonyA7CII
-    let destination = root.appendingPathComponent("out.tiff")
-    let single = try ExportRequest(source: source, destination: destination,
-      calibration: project.calibration, adjustments: .init())
-    let roll = try ExportRequest(project: project, targetIDs: Set(project.frames.map(\.id)),
-      destinationDirectory: root)
-    for request in [single, roll] {
-      XCTAssertEqual(request.calibration.cmosMatrix, .sonyA7CII)
-      XCTAssertEqual(request.protectedSourceURLs, [source])
-      XCTAssertEqual(request.frames.count, 1)
+    for ext in SourceImageIO.rawFileExtensions {
+      let root = try folder(), source = root.appendingPathComponent("source.\(ext.uppercased())")
+      // Request creation freezes identity only; it must not decode or invoke Adobe.
+      try Data([1,2,3]).write(to: source)
+      var project = try ProjectStore.open(folder: root)
+      project.calibration.cmosMatrix = .sonyA7CII
+      let destination = root.appendingPathComponent("out.tiff")
+      let single = try ExportRequest(source: source, destination: destination,
+        calibration: project.calibration, adjustments: .init())
+      let roll = try ExportRequest(project: project, targetIDs: Set(project.frames.map(\.id)),
+        destinationDirectory: root)
+      for request in [single, roll] {
+        XCTAssertEqual(request.calibration.cmosMatrix, .sonyA7CII)
+        XCTAssertEqual(request.protectedSourceURLs, [source])
+        XCTAssertEqual(request.frames.count, 1)
+        XCTAssertNotNil(request.frames[0].rawProcessing, ext)
+      }
+      XCTAssertEqual(try Data(contentsOf: source), Data([1,2,3]))
     }
-    XCTAssertEqual(try Data(contentsOf: source), Data([1,2,3]))
   }
   func testCMOSSolverDecouplesColumnsAndPreservesNeutralAndExposureScaling() throws {
     let means = [SIMD3<Double>(0.6,0.05,0.03), SIMD3(0.02,0.5,0.04), SIMD3(0.01,0.02,0.4)]

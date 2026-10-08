@@ -29,7 +29,8 @@ struct RollImportTests {
         try TIFFCodec.write(url: folder.appendingPathComponent("\(index).tiff"), width: 8, height: 6,
           profile: nil) { rows in Array(repeating: UInt16(32768), count: rows.count * 8 * 3) }
       } else {
-        try Data([1, 2, 3]).write(to: folder.appendingPathComponent("\(index).ARW"))
+        let ext = kind == "multiBrand" ? ["CR3", "NEF", "RAF", "DNG", "PEF"][index] : "ARW"
+        try Data([1, 2, 3]).write(to: folder.appendingPathComponent("\(index).\(ext)"))
       }
     }
     if saved {
@@ -45,7 +46,7 @@ struct RollImportTests {
     try #require(ready())
   }
 
-  @Test(arguments: [false, true], ["raw", "tiff", "mixed"])
+  @Test(arguments: [false, true], ["raw", "tiff", "mixed", "multiBrand"])
   func newAndSavedRollsWaitForEveryProxy(saved: Bool, kind: String) async throws {
     let folder = try fixture(saved: saved, kind: kind)
     defer { try? FileManager.default.removeItem(at: folder) }
@@ -74,7 +75,7 @@ struct RollImportTests {
     model.returnHome()
   }
 
-  @Test(arguments: ["raw", "tiff", "mixed"]) func failureStaysOnImportPageAndRetryRechecksSavedRoll(kind: String) async throws {
+  @Test(arguments: ["raw", "tiff", "mixed", "multiBrand"]) func failureStaysOnImportPageAndRetryRechecksSavedRoll(kind: String) async throws {
     let folder = try fixture(saved: true, kind: kind)
     defer { try? FileManager.default.removeItem(at: folder) }
     let original = try Data(contentsOf: folder.appendingPathComponent(".printroom.json"))

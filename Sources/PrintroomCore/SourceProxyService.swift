@@ -30,7 +30,21 @@ public struct RAWProcessingIdentity: Codable, Hashable, Sendable {
 
 /// All source reads pass through this boundary; TIFF sample interpretation is unchanged.
 public enum SourceImageIO {
-  public static func isRAW(_ url: URL) -> Bool { url.pathExtension.lowercased() == "arw" }
+  /// Recognized source containers; actual camera compatibility is checked by Adobe
+  /// conversion and the validated UInt16 RGB Linear DNG reader.
+  public static let rawFileExtensions = [
+    "arw", "srf", "sr2",                         // Sony
+    "crw", "cr2", "cr3",                         // Canon
+    "nef", "nrw", "raf", "orf", "rw2",           // Nikon, Fujifilm, Olympus/OM, Panasonic
+    "pef", "ptx", "rwl", "srw",                  // Pentax, Leica, Samsung
+    "3fr", "fff", "iiq", "mos",                  // Hasselblad, Phase One, Leaf
+    "erf", "mrw", "mef", "dcr", "kdc", "rdc",    // Epson, Minolta, Mamiya, Kodak, Ricoh
+    "x3f", "bay", "raw", "dng",                  // Sigma, Casio, generic RAW / DNG
+  ]
+  private static let rawExtensionSet = Set(rawFileExtensions)
+  public static func isRAW(_ url: URL) -> Bool {
+    rawExtensionSet.contains(url.pathExtension.lowercased())
+  }
   public static func isSupportedSource(_ url: URL) -> Bool {
     isRAW(url) || ["tif", "tiff"].contains(url.pathExtension.lowercased())
   }
@@ -209,7 +223,7 @@ public final class SourceProxyService: @unchecked Sendable {
   private func prepare(url: URL, expectedIdentity: RAWProcessingIdentity? = nil,
                        cancelled: @escaping @Sendable () -> Bool) throws -> Entry {
     try check(cancelled)
-    guard SourceImageIO.isSupportedSource(url), url.isFileURL else { throw Self.invalid("代理输入只支持本地 TIFF 和 ARW 文件。") }
+    guard SourceImageIO.isSupportedSource(url), url.isFileURL else { throw Self.invalid("代理输入只支持本地 TIFF 和受支持的 RAW 文件。") }
     // Always detect the actual dependency, including on a cache hit. Never silently
     // combine samples made by an unavailable/changed converter with a new full image.
     let raw = SourceImageIO.isRAW(url)

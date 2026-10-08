@@ -2,12 +2,14 @@
 
 ## 环境与构建
 
-使用 Apple Silicon Mac、Xcode 和 Swift 6 工具链。部署目标为 macOS 14+；Intel 暂不支持。已记录的构建环境为 Apple M4、macOS 26.6.2、Xcode 26.6、Swift 6.3.3，这不代表已验证全部部署系统。
+使用 Mac、Xcode 和 Swift 6 工具链。部署目标为 macOS 14+，提供 arm64 与 x86_64 构建。已记录的构建环境为 Apple M4、macOS 26.6.2、Xcode 26.6、Swift 6.3.3，这不代表已验证全部部署系统。
 
 项目使用 SwiftPM，LibRaw 0.22.1 源码随仓库提供，正常构建无需下载第三方依赖：
 
 ```sh
 scripts/build-app.sh
+# 指定目标架构（交叉编译不运行目标应用）
+scripts/build-app.sh --arch x86_64
 ```
 
 脚本生成 `output/Printroom.app`，验证成功后替换旧包。当前使用本地 ad-hoc 签名；运行包内资源检查需要可用的 Metal 设备。
@@ -17,10 +19,12 @@ scripts/build-app.sh
 在仓库根目录运行默认回归：
 
 ```sh
-scripts/test.sh --build-system native --no-parallel
+scripts/test.sh --build-system native --no-parallel --skip 'NativeDialogTests|PreviewCanvasTests'
+scripts/test.sh --build-system native --no-parallel --filter NativeDialogTests
+scripts/test.sh --build-system native --no-parallel --filter PreviewCanvasTests
 ```
 
-测试包含 AppKit／Metal 集成，使用串行执行以避免套件争用；应在可用的本机图形环境运行。默认测试不要求私人参考照片，需额外素材或环境的测试会跳过。提交说明中列出实际运行和跳过的项目。
+测试包含 AppKit／Metal 集成；原生对话框与预览画布分进程运行，其余测试串行执行以避免套件争用；应在可用的本机图形环境运行。默认测试不要求私人参考照片，需额外素材或环境的测试会跳过。提交说明中列出实际运行和跳过的项目。
 
 以下是按需执行的现有入口，不要求每次修改全部运行：
 

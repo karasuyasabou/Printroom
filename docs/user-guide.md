@@ -6,9 +6,32 @@
 
 TIFF 支持无压缩、LZW 和 ZIP（Deflate）的 16-bit RGB 条带文件，包括 BigTIFF。
 
-ARW 需要 Adobe DNG Converter。打开时会先准备整卷代理，完成后进入编辑器；加载失败时可以重试或返回主页。日常 RAW 编辑和放大查看使用代理，全尺寸处理在导出时进行。
+RAW（含 DNG）需要 Adobe DNG Converter。打开时会先准备整卷代理，完成后进入编辑器；加载失败时可以重试或返回主页。日常 RAW 编辑和放大查看使用代理，全尺寸处理在导出时进行。
 
 新卷加载完成后自动弹出“命名胶卷”，取消时沿用文件夹名；已有项目重开不再提示。点击底部缩略图栏数量左侧、卷名旁的铅笔可重命名胶卷，只改变显示名称，不修改原片或文件夹名称。旁边的文件夹图标可在 Finder 中打开底片文件夹。
+
+### RAW 格式
+
+打开文件夹、重新定位原片和 CMOS 标定共用以下格式，扩展名不区分大小写，也可以与 TIFF 混合使用。
+
+| 品牌／类型 | 扩展名 |
+| --- | --- |
+| Sony | ARW、SRF、SR2 |
+| Canon | CRW、CR2、CR3 |
+| Nikon | NEF、NRW |
+| Fujifilm | RAF |
+| Olympus／OM System | ORF |
+| Panasonic | RW2、RAW |
+| Pentax | PEF、PTX |
+| Leica | RWL、RAW、DNG |
+| Samsung | SRW |
+| Hasselblad | 3FR、FFF |
+| Phase One／Leaf | IIQ、MOS |
+| Epson／Minolta／Mamiya | ERF、MRW、MEF |
+| Kodak／Ricoh／Sigma／Casio | DCR、KDC、RDC、X3F、BAY |
+| 通用 RAW／DNG | RAW、DNG |
+
+这些格式已开放导入；具体机型和压缩模式还须由本机 Adobe DNG Converter 成功转换，并生成符合 Printroom 输入契约的线性 DNG。新机型可能需要更新转换器。转换或读取失败会显示错误，不切换其他解码流程；DNG 也统一经过 Adobe 准备，并非任意 DNG 都保证兼容。现有真实样片数值验收覆盖 Sony A7C II，其他机型的实际解码和色彩外观仍待验证。RAW 数值处理契约见 [算法与色彩管线](pipeline.md#raw-输入契约)。
 
 ## 校准与调色
 
@@ -73,18 +96,22 @@ ARW 需要 Adobe DNG Converter。打开时会先准备整卷代理，完成后�
 
 | 按键 | 操作 |
 | --- | --- |
-| `←` / `→` | 上一张／下一张 |
 | `W` / `S` | 简易曝光增加／减少；RGB 模式 Master 增加／减少 |
 | `Q` / `E` | 简易冷／暖；RGB 模式 Red 减少／增加 |
 | `A` / `D` | 简易绿／洋红；RGB 模式 Green 减少／增加 |
 | `Z` / `C` | RGB 模式 Blue 减少／增加 |
 | `⌥` + 调色键 | 调整对应反差 |
 | `I` | 开启／取消中性点吸管 |
-| `R`、`Enter`、`Esc` | 进入／完成／取消裁剪 |
-| 裁剪中 `Q` / `E` | 角度减少／增加 0.1° |
-| `⌘C` / `⌘V` | 复制／粘贴调色 |
-| `⌘Z` / `⌘⇧Z` | 撤销／重做 |
+| `[` / `]` | 向左／向右旋转 90° |
+| `⌘F` | 水平翻转 |
 | `⌘⇧E` | 导出当前照片 |
-| `⌘⇧/` | 打开完整快捷键帮助 |
+
+裁剪快捷键：
+
+| 按键 | 操作 |
+| --- | --- |
+| `R` | 进入裁剪 |
+| `W` / `S` / `A` / `D` | 裁框向上／下／左／右移动 |
+| `Q` / `E` | 角度减少／增加 0.1° |
 
 在文本框中输入时保留文字编辑快捷键。浅色／深色可从 PRINTROOM 旁的太阳／月亮开关切换。

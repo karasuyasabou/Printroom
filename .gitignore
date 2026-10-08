@@ -41,3 +41,11 @@ xcuserdata/
 /docs/raw-*.md
 /docs/*.json
 /docs/local/
+
+# Historical local experiments; not required to build or run regression tests.
+/scripts/raw-adobe-study/
+/scripts/raw-lowres-study/
+/scripts/autocrop-study/
+/scripts/archive/white-compensation/
+**/__pycache__/
+*.pyc
