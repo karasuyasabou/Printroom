@@ -19,6 +19,7 @@ import PrintroomCore
   }
 
   func save(_ project: RollProject, folder: URL) throws {
+    let trace = PerformanceTrace.begin(); defer { PerformanceTrace.end("project.save", trace) }
     cancel()
     expectedModification = try ProjectStore.save(project, folder: folder,
       expectedModification: expectedModification)

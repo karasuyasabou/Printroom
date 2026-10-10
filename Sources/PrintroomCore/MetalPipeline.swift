@@ -20,7 +20,7 @@ public final class MetalPipeline: @unchecked Sendable {
     } else {
       options.fastMathEnabled = false
     }
-    let library = try device.makeLibrary(source: Self.shader, options: options)
+    let library = try PerformanceTrace.measure("metal.library_compile") { try device.makeLibrary(source: Self.shader, options: options) }
     guard let function = library.makeFunction(name: "printroomPipeline") else {
       throw PrintroomError.invalid("Metal 管线函数缺失")
     }
@@ -141,6 +141,7 @@ public final class MetalPipeline: @unchecked Sendable {
           cachedSource = nil
           cachedDensity = nil
         }
+        let uploadTrace = PerformanceTrace.begin()
         let src = try buffer(&source, length: bytes)
         let dst = try buffer(&destination, length: bytes)
         if !sourceIsCached {
@@ -157,6 +158,8 @@ public final class MetalPipeline: @unchecked Sendable {
           cachedLUT = lut
           counters.lutUploads += 1
         }
+        PerformanceTrace.end("metal.buffer_allocate_upload", uploadTrace)
+        let encodeTrace = PerformanceTrace.begin()
         let t = adjustments.timing
         let c = adjustments.contrast
         var params = Parameters(
@@ -229,18 +232,26 @@ public final class MetalPipeline: @unchecked Sendable {
             threadsPerThreadgroup: MTLSize(width: min(whiteningState.maxTotalThreadsPerThreadgroup, 256), height: 1, depth: 1))
         }
         encoder.endEncoding()
+        PerformanceTrace.end("metal.command_encode", encodeTrace)
+        let waitTrace = PerformanceTrace.begin()
         command.commit()
         command.waitUntilCompleted()
+        PerformanceTrace.end("metal.submit_wait", waitTrace)
+        if PerformanceTrace.enabled, command.gpuEndTime >= command.gpuStartTime {
+          PerformanceTrace.observe("metal.gpu_execution", seconds: command.gpuEndTime - command.gpuStartTime)
+        }
         if let error = command.error {
           cachedDensity = nil
           throw error
         }
+        let readbackTrace = PerformanceTrace.begin()
         let output = Array(UnsafeBufferPointer(
           start: outputBuffer.contents().bindMemory(to: SIMD4<Float>.self, capacity: count), count: count))
         guard output.allSatisfy({ $0.x.isFinite && $0.y.isFinite && $0.z.isFinite }) else {
           cachedDensity = nil
           throw PrintroomError.invalid("Metal 计算产生非有限数值")
         }
+        PerformanceTrace.end("metal.readback_validate", readbackTrace)
         if let pendingDensity { cachedDensity = pendingDensity }
         return PixelBuffer(width: input.width, height: input.height, pixels: output)
       }

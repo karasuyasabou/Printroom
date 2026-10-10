@@ -351,6 +351,40 @@ final class TIFFCodecTests: XCTestCase {
     }
   }
 
+  func testDeflateReusedBufferAcrossStripsWithIndependentDecode() throws {
+    try inTemporaryDirectory { directory in
+      let width = 17, height = 67
+      let samples = (0..<(width * height * 3)).map { UInt16(truncatingIfNeeded: $0 &* 7919) }
+      let profile = try Data(contentsOf: root.appendingPathComponent("ICC/DCIP3_D65.icc"))
+      let url = directory.appendingPathComponent("deflate.tiff")
+      try TIFFCodec.write(url: url, width: width, height: height, profile: profile, compression: .deflate) {
+        Array(samples[($0.lowerBound * width * 3)..<($0.upperBound * width * 3)])
+      }
+      XCTAssertEqual(try TIFFCodec.read(url: url).samples, samples)
+      let tags = inspect(try Data(contentsOf: url))
+      XCTAssertEqual(tags[34675]?.bytes, profile)
+      XCTAssertEqual(tags[259]?.values, [8])
+      XCTAssertEqual(tags[274]?.values, [1])
+      XCTAssertEqual(tags[273]?.values.count, 3)
+      XCTAssertEqual(tags[279]?.values.count, 3)
+      let source = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
+      let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+      XCTAssertEqual(image.width, width)
+      XCTAssertEqual(image.height, height)
+      XCTAssertEqual(image.bitsPerComponent, 16)
+      XCTAssertEqual(image.bitsPerPixel, 48)
+      let data = try XCTUnwrap(image.dataProvider?.data) as Data
+      let little = image.bitmapInfo.intersection(.byteOrderMask) == .byteOrder16Little
+      for y in 0..<height {
+        for x in 0..<(width * 3) {
+          let offset = y * image.bytesPerRow + x * 2
+          let raw = UInt16(data[offset]) | UInt16(data[offset + 1]) << 8
+          XCTAssertEqual(little ? raw : raw.byteSwapped, samples[y * width * 3 + x])
+        }
+      }
+    }
+  }
+
   func testChunkedRowsAndShortInlineICC() throws {
     try inTemporaryDirectory { directory in
       let url = directory.appendingPathComponent("chunks.tiff")
@@ -413,7 +447,7 @@ final class TIFFCodecTests: XCTestCase {
       let url = directory.appendingPathComponent("cancelled.tiff")
       var calls = 0
       XCTAssertThrowsError(
-        try TIFFCodec.write(url: url, width: 3, height: 130, profile: Data([1])) { range in
+        try TIFFCodec.write(url: url, width: 3, height: 130, profile: Data([1]), compression: .deflate) { range in
           calls += 1
           if calls == 2 { throw CancellationError() }
           return [UInt16](repeating: 0, count: range.count * 9)

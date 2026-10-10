@@ -260,6 +260,31 @@ final class AutoCropTests: XCTestCase {
     XCTAssertEqual(result.crop, refit.crop)
   }
 
+  func testCoarseAngleRefinementAcrossBothSignsAndGridBoundaries() throws {
+    let w = 800, h = 533
+    for degrees in [-2.8, -1.45, -0.15, 0.15, 1.45, 2.8] {
+      let angle = degrees * Double.pi / 180, c = cos(angle), s = sin(angle)
+      var samples = [UInt16](repeating: 44000, count: w * h * 3)
+      for y in 0..<h { for x in 0..<w {
+        let dx = Double(x) - 400, dy = Double(y) - 266.5
+        let u = c * dx + s * dy, v = -s * dx + c * dy
+        if abs(u - 3) < 355 && abs(v + 2) < 239 {
+          for channel in 0..<3 { samples[(y * w + x) * 3 + channel] = 6500 }
+        }
+      } }
+      let analysis = try AutoCropAnalyzer.prepare(LinearImage(width: w, height: h, samples: samples))
+      let template = try AutoCropAnalyzer.template(from: [analysis])
+      let fit = try AutoCropAnalyzer.fit(analysis, template: template, sourceWidth: w, sourceHeight: h,
+        requiresAllEdges: true)
+      XCTAssertFalse(fit.needsReview, "angle \(degrees)")
+      XCTAssertEqual(fit.crop.angleDegrees, -degrees, accuracy: 0.12)
+      XCTAssertEqual(fit.crop.centerX * 800, 403, accuracy: 1.5)
+      XCTAssertEqual(fit.crop.centerY * 533, 264.5, accuracy: 1.5)
+      XCTAssertEqual(template.width, 710, accuracy: 2)
+      XCTAssertEqual(template.height, 478, accuracy: 2)
+    }
+  }
+
   func testFlatImageRemainsReviewable() throws {
     let analysis = try AutoCropAnalyzer.prepare(LinearImage(width: 800, height: 533,
       samples: [UInt16](repeating: 30000, count: 800 * 533 * 3)))

@@ -284,7 +284,7 @@ private actor ExportWorker {
         destination: nil, status: .notStarted, error: "取消后未开始")
     }
     let converter = try OutputColorConverter(p3Profile: p3Profile, output: request.settings.profile)
-    if !useCPUReference && gpu == nil { gpu = try MetalPipeline() }
+    if !useCPUReference && gpu == nil { gpu = try PerformanceTrace.measure("export.worker_pipeline_init") { try MetalPipeline() } }
     progress(0)
     do {
       let selectedLUT: CubeLUT
@@ -315,7 +315,7 @@ private actor ExportWorker {
     if let explicit = request.explicitDestination {
       try protect(explicit, request: request)
     }
-    let image = try SourceImageIO.read(url: frame.sourceURL, expectedIdentity: frame.rawProcessing)
+    let image = try PerformanceTrace.measure("export.full_input_read") { try SourceImageIO.read(url: frame.sourceURL, expectedIdentity: frame.rawProcessing) }
     try validateSource(frame)
     let geometry = try CropGeometry(crop: request.settings.applyCrop ? frame.crop : nil, sourceWidth: image.width,
                                     sourceHeight: image.height, orientation: frame.orientation)
@@ -356,7 +356,7 @@ private actor ExportWorker {
       do {
         let renderRows: (Range<Int>) throws -> PixelBuffer = { rows in
           try Task.checkCancellation()
-          let input = try geometry.renderRows(image, rows: rows)
+          let input = try PerformanceTrace.measure("export.geometry") { try geometry.renderRows(image, rows: rows) }
           let whitening: SprocketWhiteningContext?
           if !request.settings.applyCrop, request.sprocketWhitening.enabled,
             request.calibration.isCalibrated, let crop = frame.crop {
@@ -367,9 +367,9 @@ private actor ExportWorker {
           } else { whitening = nil }
           let final: PixelBuffer
           if let gpu = self.gpu {
-            final = try gpu.render(
+            final = try PerformanceTrace.measure("export.metal_render_inclusive") { try gpu.render(
               input, calibration: request.calibration,
-              adjustments: frame.adjustments, lut: lut, stage: .final, sprocketWhitening: whitening)
+              adjustments: frame.adjustments, lut: lut, stage: .final, sprocketWhitening: whitening) }
           } else {
             final = try Pipeline.render(
               input, calibration: request.calibration,
@@ -377,7 +377,7 @@ private actor ExportWorker {
           }
           try Task.checkCancellation()
           progress(0.08 + 0.90 * Double(rows.upperBound) / Double(size.height))
-          var converted = try converter.convert(final)
+          var converted = try PerformanceTrace.measure("export.icc") { try converter.convert(final) }
           if let whitening {
             // Preserve preview-equivalent edge colors through ICC; opaque holes
             // become the exact destination white, including fixed-point ICC rounding.
@@ -389,12 +389,14 @@ private actor ExportWorker {
         if request.settings.format == .jpeg {
           try JPEGCodec.write(url: writeURL, width: size.width, height: size.height,
             profile: converter.outputProfile) { rows in
-              try OutputColorConverter.quantize8(renderRows(rows))
+              let converted = try renderRows(rows)
+              return try PerformanceTrace.measure("export.quantize8") { try OutputColorConverter.quantize8(converted) }
             }
         } else {
           try TIFFCodec.write(url: writeURL, width: size.width, height: size.height,
             profile: converter.outputProfile, compression: request.settings.compression) { rows in
-              try OutputColorConverter.quantize16(renderRows(rows))
+              let converted = try renderRows(rows)
+              return try PerformanceTrace.measure("export.quantize16") { try OutputColorConverter.quantize16(converted) }
             }
         }
         if overwrite {

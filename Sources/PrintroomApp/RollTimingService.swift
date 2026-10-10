@@ -16,7 +16,12 @@ enum RollTimingService {
       }
       // Use roll order, including a missing first frame's stored LUT selection.
       let lut = assets.lut(for: firstFrame.adjustments.cineonLogLUT)
-      let frames = project.frames.filter { !$0.isMissing }
+      // Exclude physical roll ends before filtering missing files.
+      let analysisIDs = Set(project.frames.dropFirst().dropLast().filter { !$0.isMissing }.map(\.id))
+      guard !analysisIDs.isEmpty else {
+        throw PrintroomError.invalid("跳过首尾张后没有可分析的照片，请确保胶卷至少有三张且中间照片可用。")
+      }
+      let frames = project.frames.filter { !$0.isMissing && (autoExposure || analysisIDs.contains($0.id)) }
       var samples: [RollTiming.Frame] = [], sources: [SourceStamp] = []
       for (i, frame) in frames.enumerated() {
         try Task.checkCancellation()
@@ -36,7 +41,10 @@ enum RollTimingService {
         sources.append(stamp)
       }
       await progress("正在计算…")
-      let timing = try RollTiming.solve(samples, profile: assets.profile)
+      let analysisSamples = zip(frames, samples).compactMap { frame, sample in
+        analysisIDs.contains(frame.id) ? sample : nil
+      }
+      let timing = try RollTiming.solve(analysisSamples, profile: assets.profile)
       var masters: [UUID: Int] = [:]
       if autoExposure {
         await progress("正在计算自动曝光…")

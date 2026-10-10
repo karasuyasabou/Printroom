@@ -1,3 +1,4 @@
+import CLibDeflate
 import Darwin
 import Foundation
 import zlib
@@ -90,6 +91,10 @@ public enum TIFFCodec {
     guard end <= UInt64(UInt32.max) else {
       throw invalid("输出超过 classic TIFF 的 4 GiB 限制。")
     }
+    // One compressor and bounded output buffer per writer, never shared across exports.
+    let deflater = compression == .deflate
+      ? try StripDeflater(capacity: rowsPerStrip * Int(rowBytes)) : nil
+    defer { withExtendedLifetime(deflater) {} }
     var offsets = [UInt32](repeating: 0, count: stripCount)
     let header = try makeHeader(entries)
     let temporary = url.deletingLastPathComponent()
@@ -117,15 +122,21 @@ public enum TIFFCodec {
         if UInt16(littleEndian: 1) != 1 {
           for i in samples.indices { samples[i] = samples[i].littleEndian }
         }
-        let bytes = samples.withUnsafeBytes { Data($0) }
-        let encoded = compression == .none ? bytes : try deflateStrip(bytes)
+        let encoded: Data
+        if let deflater {
+          encoded = try PerformanceTrace.measure("tiff.deflate") {
+            try samples.withUnsafeBytes { try deflater.compress($0) }
+          }
+        } else {
+          encoded = PerformanceTrace.measure("tiff.pack_bytes") { samples.withUnsafeBytes { Data($0) } }
+        }
         let offset = try handle.offset()
         guard offset + UInt64(encoded.count) <= UInt64(UInt32.max) else {
           throw invalid("输出超过 classic TIFF 的 4 GiB 限制。")
         }
         offsets[strip] = UInt32(offset)
         byteCounts[strip] = UInt32(encoded.count)
-        try handle.write(contentsOf: encoded)
+        try PerformanceTrace.measure("tiff.file_write") { try handle.write(contentsOf: encoded) }
       }
     }
     entries[5] = .longs(273, offsets)
@@ -133,6 +144,7 @@ public enum TIFFCodec {
     try handle.seek(toOffset: 0)
     try handle.write(contentsOf: makeHeader(entries))
     try Task.checkCancellation()
+    let publishTrace = PerformanceTrace.begin()
     try handle.synchronize()
     try handle.close()
     try Task.checkCancellation()
@@ -143,6 +155,7 @@ public enum TIFFCodec {
         renamex_np(source!, destination!, UInt32(RENAME_EXCL))
       }
     }
+    PerformanceTrace.end("tiff.sync_publish", publishTrace)
     guard result == 0 else {
       if errno == EEXIST { throw TIFFWriteError.destinationExists(url.lastPathComponent) }
       throw fileError("无法发布 TIFF（目标可能已存在）", code: errno)
@@ -156,19 +169,56 @@ public enum TIFFCodec {
     if errno != ENOENT { throw fileError("无法检查 TIFF 目标", code: errno) }
   }
 
-  private static func deflateStrip(_ bytes: Data) throws -> Data {
-    var count = compressBound(uLong(bytes.count))
-    var output = Data(count: Int(count))
-    let status = output.withUnsafeMutableBytes { target in
-      bytes.withUnsafeBytes { source in
-        compress2(
-          target.bindMemory(to: Bytef.self).baseAddress!, &count,
-          source.bindMemory(to: Bytef.self).baseAddress!, uLong(bytes.count), 6)
+  private final class StripDeflater {
+    private let compressor: OpaquePointer
+    private let output: UnsafeMutableRawPointer
+    private let capacity: Int
+    #if PRINTROOM_PERFORMANCE_TRACE
+    private let zlibLevel: Int32?
+    #endif
+
+    init(capacity inputCapacity: Int) throws {
+      var level: Int32 = 1
+      #if PRINTROOM_PERFORMANCE_TRACE
+      let choice = ProcessInfo.processInfo.environment["PRINTROOM_DEFLATE_BENCH"] ?? "libdeflate1"
+      zlibLevel = choice.hasPrefix("zlib") ? Int32(choice.dropFirst(4)) : nil
+      if choice.hasPrefix("libdeflate"), let selected = Int32(choice.dropFirst(10)),
+        (1...12).contains(selected) { level = selected }
+      #endif
+      guard let compressor = libdeflate_alloc_compressor(level) else {
+        throw invalid("无法创建 TIFF Deflate 压缩器。")
       }
+      self.compressor = compressor
+      capacity = max(Int(libdeflate_zlib_compress_bound(compressor, inputCapacity)),
+        Int(compressBound(uLong(inputCapacity))))
+      output = .allocate(byteCount: capacity, alignment: 64)
     }
-    guard status == Z_OK else { throw invalid("TIFF Deflate 压缩失败 (zlib \(status))。") }
-    output.count = Int(count)
-    return output
+
+    deinit {
+      output.deallocate()
+      libdeflate_free_compressor(compressor)
+    }
+
+    func compress(_ bytes: UnsafeRawBufferPointer) throws -> Data {
+      let count: Int
+      #if PRINTROOM_PERFORMANCE_TRACE
+      if let level = zlibLevel {
+        var length = uLongf(capacity)
+        let status = compress2(output.assumingMemoryBound(to: Bytef.self), &length,
+          bytes.bindMemory(to: Bytef.self).baseAddress!, uLong(bytes.count), level)
+        guard status == Z_OK else { throw invalid("TIFF Deflate 压缩失败 (zlib \(status))。") }
+        count = Int(length)
+      } else {
+        count = libdeflate_zlib_compress(compressor, bytes.baseAddress!, bytes.count, output, capacity)
+      }
+      #else
+      count = libdeflate_zlib_compress(compressor, bytes.baseAddress!, bytes.count, output, capacity)
+      #endif
+      guard count > 0 else { throw invalid("TIFF Deflate 压缩缓冲不足。") }
+      // FileHandle.write consumes this view synchronously before the next strip.
+      // The writer retains this object until all strip views have been consumed.
+      return Data(bytesNoCopy: output, count: count, deallocator: .none)
+    }
   }
 
   private static func makeHeader(_ entries: [TIFFWriteEntry]) throws -> Data {
@@ -435,12 +485,14 @@ private final class TIFFReader {
           let firstRow = strip * info.rowsPerStrip
           let rowCount = min(info.rowsPerStrip, info.height - firstRow)
           let expected = rowCount * info.width * 6
-          var bytes = try readBytes(at: UInt64(info.offsets[strip]), count: info.counts[strip])
+          var bytes = try PerformanceTrace.measure("tiff.strip_read") { try readBytes(at: UInt64(info.offsets[strip]), count: info.counts[strip]) }
           switch info.compression {
-          case 5: bytes = try decodeLZWStrip(bytes, expected: expected, cancelled: cancelled)
-          case 8, 32946: bytes = try inflateStrip(bytes, expected: expected)
+          case 5: bytes = try PerformanceTrace.measure("tiff.lzw_decode") { try decodeLZWStrip(bytes, expected: expected, cancelled: cancelled) }
+          case 8, 32946: bytes = try PerformanceTrace.measure("tiff.inflate") { try inflateStrip(bytes, expected: expected) }
           default: break
           }
+          let samplingTrace = PerformanceTrace.begin()
+          defer { PerformanceTrace.end("tiff.sample_copy_predictor", samplingTrace) }
           if info.orientation == 1, info.predictor == 1, little,
             region.x == 0, region.y == 0, outputWidth == info.width,
             outputHeight == info.height

@@ -23,6 +23,7 @@ cp assets/AppIcon/Printroom.icns "$app/Contents/Resources/Printroom.icns"
 mkdir -p "$app/Contents/Resources/ThirdParty"
 cp LICENSE THIRD_PARTY_NOTICES.md "$app/Contents/Resources/"
 cp -R ThirdParty/LibRaw "$app/Contents/Resources/ThirdParty/LibRaw"
+cp -R ThirdParty/libdeflate "$app/Contents/Resources/ThirdParty/libdeflate"
 cp -R "$bin_dir/Printroom_PrintroomCore.bundle" "$app/Contents/Resources/"
 cp ICC/DCIP3_D65.icc "$app/Contents/Resources/Assets/ICC/"
 mkdir -p "$app/Contents/Resources/Assets/assets/DerivedLUTs"
@@ -37,7 +38,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>Printroom</string>
 <key>CFBundleIconFile</key><string>Printroom</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>1.0.1</string>
+<key>CFBundleShortVersionString</key><string>1.0.2</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSHighResolutionCapable</key><true/>

@@ -324,6 +324,13 @@ import UniformTypeIdentifiers
   private var loadTask: Task<Void, Never>?
   private var renderTask: Task<Void, Never>?
   private var thumbnailTask: Task<Void, Never>?
+  #if PRINTROOM_PERFORMANCE_TRACE
+  // Read-only completion probe for the opt-in benchmark; preserves publication/store ordering.
+  func performanceWaitForThumbnails() async -> Bool {
+    await thumbnailTask?.value
+    return pendingThumbnailIDs.isEmpty
+  }
+  #endif
   private var exportTask: Task<Void, Never>?
   private let persistence = ProjectPersistence()
   private var loadRevision = 0
@@ -1490,6 +1497,7 @@ import UniformTypeIdentifiers
   }
   @discardableResult
   func syncCurrentSettings() -> Bool {
+    let syncTrace = PerformanceTrace.begin(); defer { PerformanceTrace.end("sync.command_inclusive", syncTrace) }
     guard canSync, hasSyncSelection, let source = activeFrame,
       let old = project, let folder else { return false }
     let targets = syncTargetIDs
@@ -1528,6 +1536,7 @@ import UniformTypeIdentifiers
       registerUndo(old: old, name: "同步到其余 \(targets.count) 张")
       project = next
       dirty = true
+      PerformanceTrace.end("sync.transaction", syncTrace)
       refreshThumbnails(affectedIDs: targets)
       scheduleSave(immediate: true)
       showSync = false
@@ -1952,7 +1961,7 @@ import UniformTypeIdentifiers
               guard let self, self.exportGeneration == generation, self.isExporting,
                 progress.fraction >= self.exportProgress else { return }
               self.exportProgress = progress.fraction
-              self.exportDetail = "\(progress.processedCount)/\(progress.totalCount) · \(progress.currentName ?? "")"
+              self.exportDetail = "\(progress.processedCount)/\(progress.totalCount)"
               self.exportDialog?.showProgress(fraction: progress.fraction, detail: self.exportDetail)
             }
           }
@@ -2005,7 +2014,11 @@ import UniformTypeIdentifiers
     let frames = project.frames.filter { pendingThumbnailIDs.contains($0.id) }
       .sorted { $0.id == selection.activeFrameID && $1.id != selection.activeFrameID }
     let cache = DiskThumbnailCache.forRoll(folder: folder, projectID: project.id)
+    let queuedTrace = PerformanceTrace.begin()
     thumbnailTask = Task {
+      PerformanceTrace.end("thumbnail.initial_queue_wait", queuedTrace)
+      let rollTrace = PerformanceTrace.begin()
+      defer { PerformanceTrace.end("thumbnail.roll_refresh_inclusive", rollTrace) }
       defer {
         if generation == thumbnailGeneration {
           thumbnailTask = nil
@@ -2016,7 +2029,10 @@ import UniformTypeIdentifiers
         try? await cache.migrateLegacy(from: folder)
         _ = try? await cache.maintain()
       }
+      await cache.beginMaintenanceBatch()
+      defer { cache.endMaintenanceBatch() }
       for frame in frames {
+        PerformanceTrace.end("thumbnail.frame_queue_delay_inclusive", queuedTrace)
         guard !Task.isCancelled, generation == thumbnailGeneration else { return }
         do {
           let sourceURL = folder.appendingPathComponent(frame.filename)
@@ -2043,13 +2059,19 @@ import UniformTypeIdentifiers
               presentationVersion: DisplayImage.presentationVersion,
               rawProcessing: stamp.rawProcessing))
           let key = SHA256.hash(data: keyData).map { String(format: "%02x", $0) }.joined()
-          if let cg = try? await cache.image(for: key) {
+          let cacheTrace = PerformanceTrace.begin()
+          let cachedImage = try? await cache.image(for: key)
+          PerformanceTrace.end("thumbnail.cache_lookup", cacheTrace)
+          if let cg = cachedImage {
             guard !Task.isCancelled, generation == thumbnailGeneration else { return }
             publishThumbnail(cg, key: presentationKey)
             pendingThumbnailIDs.remove(frame.id)
             continue
           }
+          let readTrace = PerformanceTrace.begin()
           let source = try await thumbnailService.thumbnailSource(sourceURL)
+          PerformanceTrace.end("thumbnail.source_read", readTrace)
+          let renderTrace = PerformanceTrace.begin()
           let output = try await thumbnailRenderer.render(source.0,
             calibration: project.calibration, adjustments: frame.adjustments,
             assets: assets, original: !project.calibration.isCalibrated,
@@ -2058,6 +2080,7 @@ import UniformTypeIdentifiers
             sprocketWhitening: project.sprocketWhitening,
             protectedCrop: frame.crop)
           guard !Task.isCancelled, generation == thumbnailGeneration else { return }
+          PerformanceTrace.end("thumbnail.render_display_inclusive", renderTrace)
           publishThumbnail(output.image, key: presentationKey)
           // Expendable disk cache failures never prevent editing or project save.
           try? await cache.store(output.image, for: key)

@@ -14,6 +14,15 @@ LibRaw 中 dcraw、DCB/FBDD、X3F 和 Adobe DNG SDK 片段的原始声明均保�
 
 静态链接分发需要提供让接收者修改库并重新构建应用所需的对应源码及构建材料。本仓库保留应用源码、库源码、资源和构建脚本；未来发布二进制时应提供匹配版本的源码。
 
+## libdeflate 1.24
+
+Copyright 2016 Eric Biggers；Copyright 2024 Google LLC。采用 MIT 许可，源码和声明保持原样，SwiftPM 静态构建，不依赖用户安装的库。
+
+- [来源与构建说明](ThirdParty/libdeflate/ORIGIN.md)
+- [MIT 许可全文](ThirdParty/libdeflate/COPYING)
+
+应用分发脚本随包保留该组件源码与许可。压缩输出为标准 zlib 包装的 TIFF Deflate 条带。
+
 ## Adobe DNG Converter
 
 Adobe DNG Converter 是用户另行安装的外部应用，不包含在 Printroom 仓库或应用包中，使用受 Adobe 自身条款约束。

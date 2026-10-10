@@ -23,6 +23,10 @@ actor DiskThumbnailCache {
   let maximumBytes: Int64
   let maximumAge: TimeInterval
   private let managedRoot: URL?
+  private var maintenanceBatchDepth = 0
+  private var deferredWrites = 0
+  private var urgentMaintenanceScheduled = false
+  private var maintenanceFallback: Task<Void, Never>?
   private var usesManagedPolicy: Bool { managedRoot == DiskCachePolicy.root.appendingPathComponent("thumbnails-v1", isDirectory: true).standardizedFileURL }
 
   init(
@@ -37,8 +41,7 @@ actor DiskThumbnailCache {
 
   /// Path and project identity isolate copied rolls, including equal inode numbers on different volumes.
   static func forRoll(folder: URL, projectID: UUID, cacheRoot: URL? = nil) -> DiskThumbnailCache {
-    let root = (cacheRoot ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-      .appendingPathComponent("studio.printroom.local.v3.3/thumbnails-v1", isDirectory: true)).standardizedFileURL
+    let root = (cacheRoot ?? DiskCachePolicy.root.appendingPathComponent("thumbnails-v1", isDirectory: true)).standardizedFileURL
     let identity = projectID.uuidString + "\n" + folder.standardizedFileURL.path
     let key = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
     return DiskThumbnailCache(directory: root.appendingPathComponent(key, isDirectory: true)
@@ -89,7 +92,49 @@ actor DiskThumbnailCache {
     return image
   }
 
+  func beginMaintenanceBatch() { maintenanceBatchDepth += 1 }
+
+  /// Unstructured, uncancelled cleanup also runs when the refresh exits early.
+  @discardableResult nonisolated func endMaintenanceBatch() -> Task<Void, Never> {
+    Task.detached(priority: .utility) { await self.completeMaintenanceBatch() }
+  }
+
+  private func completeMaintenanceBatch() {
+    maintenanceBatchDepth = max(0, maintenanceBatchDepth - 1)
+    if maintenanceBatchDepth == 0 { flushDeferredMaintenance() }
+  }
+
+  private func deferMaintenanceAfterWrite() {
+    deferredWrites += 1
+    if maintenanceFallback == nil {
+      // Fixed deadline, never reset by later writes or a replacement refresh.
+      maintenanceFallback = Task.detached(priority: .utility) {
+        do { try await Task.sleep(for: .seconds(1)) } catch { return }
+        await self.flushDeferredMaintenance()
+      }
+    }
+    if deferredWrites >= 64 && !urgentMaintenanceScheduled {
+      urgentMaintenanceScheduled = true
+      Task.detached(priority: .utility) { await self.flushDeferredMaintenance() }
+    }
+  }
+
+  private func flushDeferredMaintenance() {
+    guard deferredWrites > 0 else { return }
+    deferredWrites = 0
+    urgentMaintenanceScheduled = false
+    let fallback = maintenanceFallback
+    maintenanceFallback = nil
+    // The deadline task may be the caller; don't cancel it before maintain's checkpoints.
+    defer { fallback?.cancel() }
+    do { _ = try maintain() } catch {
+      // Local enumeration failure must not suppress the managed policy's opportunity.
+      if usesManagedPolicy { SourceProxyService.shared.scheduleMaintenance() }
+    }
+  }
+
   func store(_ image: CGImage, for key: String) throws {
+    let trace = PerformanceTrace.begin(); defer { PerformanceTrace.end("thumbnail.store_inclusive", trace) }
     try Task.checkCancellation()
     try validateDirectory(create: true)
     let file = try fileURL(key)
@@ -99,10 +144,13 @@ actor DiskThumbnailCache {
     guard let destination = CGImageDestinationCreateWithURL(
       temporary as CFURL, UTType.png.identifier as CFString, 1, nil)
     else { throw PrintroomError.invalid("无法创建缩略图缓存") }
+    let encodeTrace = PerformanceTrace.begin()
     CGImageDestinationAddImage(destination, image, nil)
     guard CGImageDestinationFinalize(destination) else {
       throw PrintroomError.invalid("无法完成缩略图缓存")
     }
+    PerformanceTrace.end("thumbnail.png_encode_write", encodeTrace)
+    let publishTrace = PerformanceTrace.begin()
     try Task.checkCancellation()
     if FileManager.default.fileExists(atPath: file.path) {
       // Cache is disposable, but never follow a substituted symbolic link.
@@ -114,10 +162,13 @@ actor DiskThumbnailCache {
     } else {
       try FileManager.default.moveItem(at: temporary, to: file)
     }
-    _ = try maintain()
+    PerformanceTrace.end("thumbnail.publish", publishTrace)
+    if maintenanceBatchDepth > 0 { deferMaintenanceAfterWrite() }
+    else { _ = try maintain() }
   }
 
   @discardableResult func maintain(now: Date = Date()) throws -> MaintenanceResult {
+    let trace = PerformanceTrace.begin(); defer { PerformanceTrace.end("thumbnail.maintenance", trace) }
     try Task.checkCancellation()
     try validateDirectory(create: false)
     guard FileManager.default.fileExists(atPath: directory.path) else {

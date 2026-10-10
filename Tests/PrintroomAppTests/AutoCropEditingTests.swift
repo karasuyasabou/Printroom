@@ -49,6 +49,16 @@ struct AutoCropEditingTests {
     let stamps = try inputs.map { try SourceStamp(url: $0.url) }
     let result = try await AutoCropService.run(inputs: inputs, targets: Set(inputs.map(\.id)),
       aspectRatio: 1.5, progress: { _ in })
+    // Force both complete eviction and a budget holding just the first map.
+    // Cached and seed-only paths must preserve crops, review and source stamps.
+    for budget in [0, 800 * 533 * MemoryLayout<Float>.stride] {
+      let fallback = try await AutoCropService.run(inputs: inputs, targets: Set(inputs.map(\.id)),
+        aspectRatio: 1.5, analysisCacheByteLimit: budget, progress: { _ in })
+      #expect(fallback.count == result.count)
+      for (a, b) in zip(result, fallback) {
+        #expect(a.id == b.id && a.crop == b.crop && a.needsReview == b.needsReview && a.source == b.source)
+      }
+    }
     #expect(result.count == inputs.count)
     for (index, output) in result.enumerated() {
       let (width, height, left, top) = scans[index]

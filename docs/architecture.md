@@ -1,6 +1,6 @@
 # 架构与项目数据
 
-当前契约：0.3.69。Swift Package 包含 Core、SwiftUI/AppKit 应用、LibRaw/CRawBridge 和测试；`scripts/build-app.sh` 生成固定 `output/Printroom.app`。公式仅见 [pipeline.md](pipeline.md)，用户交互仅见 [interaction.md](interaction.md)。历史过程与逐版验收由维护者在本地保留。
+当前契约：0.3.69。Swift Package 包含 Core、SwiftUI/AppKit 应用、LibRaw/CRawBridge、CLibDeflate 和测试；`scripts/build-app.sh` 生成固定 `output/Printroom.app`。公式仅见 [pipeline.md](pipeline.md)，用户交互仅见 [interaction.md](interaction.md)。历史过程与逐版验收由维护者在本地保留。
 
 ## 当前模块与所有权
 
@@ -14,6 +14,7 @@
 | SourceStamp / ImageService | 共用新鲜源属性与 RAW 处理身份；有界未调色缓存、区域读取、片基与中性点取样 |
 | PreviewRenderService / PreviewPresentationCache | 主预览与缩略图通道的渲染与显示准备、几何/D1复用、有界显示占位缓存 |
 | DiskThumbnailCache / ManagedDiskCache | 可再生 Final PNG 与统一磁盘预算；代理维护先清旧RAW中间文件，生产容量统计仅由统一管理器执行 |
+| AutoCropService / AutoCropAnalyzer | 两阶段卷级分析、128 MiB目标密度图缓存、超限seed回退、逐帧拟合与全卷来源校验 |
 | Pipeline / MetalPipeline | 独立 CPU 数值参考与遵循相同契约的 GPU 实现；不能为了消除重复而共用同一计算实现 |
 | ExportEngine / TIFFCodec / JPEGCodec | 不可变导出快照、最多四路完整帧任务、真实 ICC 转换、编码与冲突发布 |
 
@@ -59,7 +60,7 @@ ImageService 不再提供旧全图读取、单像素或导出包装。全图读�
 
 重名通过当前冲突回调询问覆盖、重命名或取消。覆盖先完整写入同目录私有临时目录，取消及原片保护检查通过才原子替换；拒绝覆盖才使用递增后缀。非交互调用仍采用无覆盖重命名。编码失败保留旧文件，结果按提交顺序返回。应用层保留结果数据用于汇总，ExportDialogController管理同一个原生设置sheet的草稿、运行与结束状态，ExportOptionsView底部原位显示进度和结果，不另开逐张结果面板。
 
-随包只含两份当前派生电影LUT及必要ICC；仓库原始LUT与项目资产身份保留。LibRaw按LGPL 2.1选项保留源码与许可证，应用原创部分采用GPL-3.0-only；见[第三方说明](../THIRD_PARTY_NOTICES.md)。旧项目和几何迁移继续保留。
+随包只含两份当前派生电影LUT及必要ICC；仓库原始LUT与项目资产身份保留。LibRaw按LGPL 2.1选项保留源码与许可证，libdeflate 1.24按MIT许可内置源码静态构建（arm64/x86_64无需安装额外库），每个TIFF writer独占并复用压缩器与有界输出缓冲；应用原创部分采用GPL-3.0-only；见[第三方说明](../THIRD_PARTY_NOTICES.md)。旧项目和几何迁移继续保留。
 
 ## 旧项目兼容
 

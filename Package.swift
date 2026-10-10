@@ -10,6 +10,11 @@ let package = Package(
   ],
   targets: [
     .target(
+      name: "CLibDeflate", path: "ThirdParty/libdeflate",
+      exclude: ["COPYING", "README.md", "ORIGIN.md"],
+      sources: ["lib"], publicHeadersPath: "include",
+      cSettings: [.headerSearchPath(".")]),
+    .target(
       name: "LibRaw", path: "ThirdParty/LibRaw",
       exclude: [
         "COPYRIGHT", "LICENSE.CDDL", "LICENSE.LGPL", "ORIGIN.md", "src/Makefile",
@@ -23,7 +28,7 @@ let package = Package(
         .define("LIBRAW_NO_LCMS"), .define("LIBRAW_NO_JPEG"),
       ]),
     .target(name: "CRawBridge", dependencies: ["LibRaw"], cxxSettings: [.headerSearchPath("../../ThirdParty/LibRaw")]),
-    .target(name: "PrintroomCore", dependencies: ["CRawBridge"], resources: [.process("Resources")]),
+    .target(name: "PrintroomCore", dependencies: ["CRawBridge", "CLibDeflate"], resources: [.process("Resources")]),
     .executableTarget(name: "PrintroomApp", dependencies: ["PrintroomCore"]),
     .testTarget(name: "PrintroomCoreTests", dependencies: ["PrintroomCore"]),
     .testTarget(name: "PrintroomAppTests", dependencies: ["PrintroomApp", "PrintroomCore"]),

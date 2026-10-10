@@ -36,17 +36,21 @@ public enum JPEGCodec {
         provider: provider, decode: nil, shouldInterpolate: false, intent: .relativeColorimetric),
       let destination = CGImageDestinationCreateWithURL(temporary as CFURL, UTType.jpeg.identifier as CFString, 1, nil)
     else { throw PrintroomError.invalid("无法创建 JPG 编码器。") }
+    let encodeTrace = PerformanceTrace.begin()
     CGImageDestinationAddImage(destination, image, [
       kCGImageDestinationLossyCompressionQuality: 1.0,
       kCGImagePropertyOrientation: 1,
     ] as CFDictionary)
     guard CGImageDestinationFinalize(destination) else { throw PrintroomError.invalid("JPG 编码失败。") }
+    PerformanceTrace.end("jpeg.encode_write", encodeTrace)
     try Task.checkCancellation()
+    let publishTrace = PerformanceTrace.begin()
     let result = temporary.withUnsafeFileSystemRepresentation { source in
       url.withUnsafeFileSystemRepresentation { target in
         renamex_np(source!, target!, UInt32(RENAME_EXCL))
       }
     }
+    PerformanceTrace.end("jpeg.publish", publishTrace)
     guard result == 0 else {
       if errno == EEXIST { throw TIFFWriteError.destinationExists(url.lastPathComponent) }
       throw PrintroomError.invalid("无法发布 JPG：\(String(cString: strerror(errno)))")

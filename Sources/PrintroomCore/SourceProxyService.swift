@@ -128,8 +128,7 @@ public final class SourceProxyService: @unchecked Sendable {
     self.init(cacheRoot: cacheRoot, byteLimit: byteLimit, dependencies: SourceProxyDependencies())
   }
   init(cacheRoot: URL?, byteLimit: Int64, dependencies: SourceProxyDependencies) {
-    root = cacheRoot ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-      .appendingPathComponent("studio.printroom.local.v3.3/raw-v1", isDirectory: true)
+    root = cacheRoot ?? DiskCachePolicy.root.appendingPathComponent("raw-v1", isDirectory: true)
     usesManagedPolicy = cacheRoot == nil
     limit = max(0, byteLimit)
     self.dependencies = dependencies
@@ -251,7 +250,7 @@ public final class SourceProxyService: @unchecked Sendable {
     }
     // Old cache keys lack path isolation under the relaxed revision contract.
     // Rebuild on first use; ordinary cache maintenance retires old entries.
-    let sourceHash = try digest(url, cancelled: cancelled)
+    let sourceHash = try PerformanceTrace.measure("proxy.source_read_hash") { try digest(url, cancelled: cancelled) }
     try check(cancelled)
     // Only this worker uses the owned directory; stale/corrupt entries are rebuilt.
     if FileManager.default.fileExists(atPath: destination.path) { try FileManager.default.removeItem(at: destination) }
@@ -264,10 +263,10 @@ public final class SourceProxyService: @unchecked Sendable {
     let profileName: String?
     if let adobe {
       let dng = temporary.appendingPathComponent("source.dng")
-      try dependencies.convert(adobe, url, dng, cancelled)
+      try PerformanceTrace.measure("raw.adobe_convert") { try dependencies.convert(adobe, url, dng, cancelled) }
       try check(cancelled)
       size = try dependencies.inspect(dng) // Reject CFA before LibRaw processing.
-      let image = try dependencies.decode(dng, cancelled)
+      let image = try PerformanceTrace.measure("raw.libraw_decode") { try dependencies.decode(dng, cancelled) }
       guard image.width == size.0, image.height == size.1,
         image.samples.count == image.width * image.height * 3 else {
         throw Self.invalid("RAW 解码尺寸与有效主图不一致。")
@@ -283,7 +282,7 @@ public final class SourceProxyService: @unchecked Sendable {
       // Each grid samples the original TIFF independently, with bounded strip memory.
       for (dimension, destination) in [(1600, proxy), (240, thumbnail)] {
         try check(cancelled)
-        let image = try dependencies.readTIFFPreview(url, dimension, cancelled)
+        let image = try PerformanceTrace.measure("proxy.tiff_read_resample.\(dimension)") { try dependencies.readTIFFPreview(url, dimension, cancelled) }
         try writeProxy(image, to: destination, maxDimension: dimension, cancelled: cancelled)
       }
     }
@@ -303,6 +302,7 @@ public final class SourceProxyService: @unchecked Sendable {
 
   private func cachedEntry(at directory: URL, identity: RAWProcessingIdentity?, tiffRevision: String?,
                            cancelled: @escaping @Sendable () -> Bool) throws -> Entry? {
+    let trace = PerformanceTrace.begin(); defer { PerformanceTrace.end("proxy.cache_validation", trace) }
     try check(cancelled)
     let manifestURL = directory.appendingPathComponent("manifest.json")
     guard Self.isDirectory(directory), (try? FileRevision(manifestURL)) != nil,
@@ -330,10 +330,10 @@ public final class SourceProxyService: @unchecked Sendable {
     guard adobe.version == identity.adobeVersion else {
       throw Self.invalid("Adobe 版本已改变，请重新提交导出。")
     }
-    try dependencies.convert(adobe, url, dng, cancelled)
+    try PerformanceTrace.measure("raw.adobe_convert") { try dependencies.convert(adobe, url, dng, cancelled) }
     try check(cancelled)
     let size = try dependencies.inspect(dng)
-    let image = try dependencies.decode(dng, cancelled)
+    let image = try PerformanceTrace.measure("raw.libraw_decode") { try dependencies.decode(dng, cancelled) }
     guard image.width == size.0, image.height == size.1,
           image.samples.count == image.width * image.height * 3 else {
       throw Self.invalid("RAW 全尺寸结果与代理尺寸不一致。")
@@ -367,6 +367,7 @@ public final class SourceProxyService: @unchecked Sendable {
   }
 
   private func writeProxy(_ image: LinearImage, to url: URL, maxDimension: Int, cancelled: @escaping @Sendable () -> Bool) throws {
+    let trace = PerformanceTrace.begin(); defer { PerformanceTrace.end("proxy.generate_encode.\(maxDimension)", trace) }
     let scale = min(1, Double(maxDimension) / Double(max(image.width, image.height)))
     let width = max(1, Int(Double(image.width) * scale))
     let height = max(1, Int(Double(image.height) * scale))
@@ -435,7 +436,9 @@ public final class SourceProxyService: @unchecked Sendable {
     } else {
       job = ProxyJob<T>()
       jobs[jobKey] = job
+      let queued = PerformanceTrace.begin()
       queue.async {
+        PerformanceTrace.end("proxy.dispatch_queue_wait", queued)
         let result = Result {
           let cancelled: @Sendable () -> Bool = {
           guard job.isAbandoned else { return false }
@@ -472,13 +475,14 @@ public final class SourceProxyService: @unchecked Sendable {
     }
     lock.unlock()
     defer { job.detach() }
-    let value = try job.wait()
+    let value = try PerformanceTrace.measure("proxy.consumer_wait_inclusive") { try job.wait() }
     if let startingRevision, startingRevision != (try Self.revisionKey(url)) {
       throw Self.invalid("原片在读取期间改变，请重试。")
     }
     return value
   }
   public func scheduleMaintenance() {
+    PerformanceTrace.observe("proxy.maintenance_request", seconds: 0)
     maintenanceLock.lock()
     maintenanceRequested = true
     guard !maintenanceScheduled else { maintenanceLock.unlock(); return }
@@ -554,6 +558,7 @@ public final class SourceProxyService: @unchecked Sendable {
   /// Called under the exclusive cache lock, after all shared readers have drained.
   /// This process owns only 64-hex entry directories; arbitrary files are untouched.
   private func trimCache() {
+    let trace = PerformanceTrace.begin(); defer { PerformanceTrace.end("proxy.maintenance", trace) }
     dependencies.didMaintain()
     let fm = FileManager.default
     guard let urls = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
@@ -609,6 +614,7 @@ public final class SourceProxyService: @unchecked Sendable {
 
   private func acquireNamedLock(_ name: String, mode: Int32,
                                 cancelled: @escaping @Sendable () -> Bool) throws -> Int32 {
+    let trace = PerformanceTrace.begin(); defer { PerformanceTrace.end(name == ".lock" ? (mode == LOCK_SH ? "proxy.cache_read_lock_wait" : "proxy.cache_maintenance_lock_wait") : "proxy.source_lock_wait", trace) }
     let fd = try openLockFile(name)
     do {
       while flock(fd, mode | LOCK_NB) != 0 {
@@ -622,6 +628,7 @@ public final class SourceProxyService: @unchecked Sendable {
   }
 
   private func acquirePreparationSlot(cancelled: @escaping @Sendable () -> Bool) throws -> Int32 {
+    let trace = PerformanceTrace.begin(); defer { PerformanceTrace.end("proxy.slot_wait", trace) }
     var descriptors: [Int32] = []
     do {
       for slot in 0..<Self.preparationConcurrency { descriptors.append(try openLockFile(".slot-\(slot).lock")) }

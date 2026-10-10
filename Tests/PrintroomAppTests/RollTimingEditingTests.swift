@@ -68,10 +68,11 @@ struct RollTimingEditingTests {
     defer { try? FileManager.default.removeItem(at: folder) }
     let assets = try #require(model.assets)
     var p = try #require(model.project)
-    let levels: [UInt16] = [22000, 11000, 5500]
+    p.frames.append(FrameRecord(filename: "3.tif"))
+    let levels: [UInt16] = [22000, 11000, 5500, 44000]
     for (i, frame) in p.frames.enumerated() {
       let url = folder.appendingPathComponent(frame.filename)
-      try FileManager.default.removeItem(at: url)
+      if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
       try TIFFCodec.write(url: url, width: 32, height: 32, profile: assets.profile) {
         [UInt16](repeating: levels[i], count: $0.count * 32 * 3)
       }
@@ -81,11 +82,11 @@ struct RollTimingEditingTests {
     let result = try await RollTimingService.run(project: p, folder: folder, assets: assets, autoExposure: true) { _ in }
     let plain = try await RollTimingService.run(project: p, folder: folder, assets: assets) { _ in }
     #expect(result.timing == plain.timing)
-    #expect(result.masters.count == 2)
+    #expect(result.masters.count == 3)
     #expect(result.masters[p.frames[1].id] == nil)
     let t = result.timing
     let shift = Double(t.red + t.green + t.blue) / 3
-    for i in [0, 2] {
+    for i in [0, 2, 3] {
       let cv = 95 - 500 * log10(Double(levels[i]) / 22000)
       let expected = Int(min(512, max(0, (685 - cv - shift).rounded())))
       #expect(result.masters[p.frames[i].id] == expected)
@@ -188,22 +189,26 @@ struct RollTimingEditingTests {
     try TIFFCodec.write(url: url, width: 100,height: 100,profile: assets.profile) { rows in
       Array(raw[(rows.lowerBound * 300)..<(rows.upperBound * 300)])
     }
+    try FileManager.default.copyItem(at: url, to: folder.appendingPathComponent("first.tif"))
+    try FileManager.default.copyItem(at: url, to: folder.appendingPathComponent("last.tif"))
     var p = try ProjectStore.open(folder: folder)
+    // Keep crop.tif as the middle frame independently of filename sorting.
+    p.frames.sort { ["first.tif", "crop.tif", "last.tif"].firstIndex(of: $0.filename)! < ["first.tif", "crop.tif", "last.tif"].firstIndex(of: $1.filename)! }
     p.calibration = try Pipeline.calibrate(image: LinearImage(width: 100,height: 100,samples: raw),
       rect: .init(x: 0,y: 0,width: 4,height: 4), matrix: .identity, sourceFrameID: p.frames[0].id)
-    p.frames[0].crop = FrameCrop(aspect: .free, width: 0.5, freeRatio: 1)
+    p.frames[1].crop = FrameCrop(aspect: .free, width: 0.5, freeRatio: 1)
     let result = try await RollTimingService.run(project: p, folder: folder, assets: assets) { _ in }
     // Independent density from the crop interior, including calibrated 95 CV base.
     let cv = 95 - 500 * log10(Double(6554) / Double(49151))
     let t = result.timing
     #expect(abs(cv + Double(t.red+t.green+t.blue)/3 - 685) <= 1.0/6 + 0.001)
-    p.frames[0].adjustments.timing.master = 99
-    p.frames[0].adjustments.contrast.red = 1.5
+    p.frames[1].adjustments.timing.master = 99
+    p.frames[1].adjustments.contrast.red = 1.5
     let again = try await RollTimingService.run(project: p, folder: folder, assets: assets) { _ in }
     #expect(again.timing == t)
     let exposed = try await RollTimingService.run(project: p, folder: folder, assets: assets, autoExposure: true) { _ in }
     #expect(exposed.timing == t)
-    #expect(exposed.masters[p.frames[0].id] == 0)
+    #expect(exposed.masters[p.frames[1].id] == 0)
     #expect(result.masters.isEmpty)
     #expect(result.sources.count == 1)
   }
@@ -236,7 +241,57 @@ struct RollTimingEditingTests {
     p.frames[0].isMissing = true
     let missing = try await RollTimingService.run(project: p, folder: folder, assets: assets) { _ in }
     #expect(missing.timing == uniform.timing)
-    #expect(missing.sources.count == 2)
+    #expect(missing.sources.count == 1)
+  }
+
+  @Test func unstableRollEndsDoNotChangeSharedTiming() async throws {
+    let (model, folder) = try await fixture()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let assets = try #require(model.assets)
+    let p = try #require(model.project)
+    let middleURL = folder.appendingPathComponent(p.frames[1].filename)
+    try FileManager.default.removeItem(at: middleURL)
+    try TIFFCodec.write(url: middleURL, width: 32, height: 32, profile: assets.profile) {
+      [UInt16](repeating: 11000, count: $0.count * 32 * 3)
+    }
+    let baseline = try await RollTimingService.run(project: p, folder: folder, assets: assets) { _ in }
+    for (index, rgb) in [(0, [UInt16(2000), 10000, 30000]), (2, [UInt16(45000), 25000, 8000])] {
+      let url = folder.appendingPathComponent(p.frames[index].filename)
+      try FileManager.default.removeItem(at: url)
+      try TIFFCodec.write(url: url, width: 32, height: 32, profile: assets.profile) { rows in
+        (0..<(rows.count * 32)).flatMap { _ in rgb }
+      }
+    }
+    let plain = try await RollTimingService.run(project: p, folder: folder, assets: assets) { _ in }
+    let exposed = try await RollTimingService.run(project: p, folder: folder, assets: assets, autoExposure: true) { _ in }
+    #expect(plain.timing == baseline.timing)
+    #expect(exposed.timing == baseline.timing)
+    #expect(plain.sources.map { $0.url.lastPathComponent } == [p.frames[1].filename])
+    #expect(Set(exposed.masters.keys) == Set(p.frames.map(\.id)))
+    #expect(exposed.sources.count == 3)
+  }
+
+  @Test func noInteriorFramesFailsWithoutFallbackToRollEnds() async throws {
+    let (model, folder) = try await fixture()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let assets = try #require(model.assets)
+    let p = try #require(model.project)
+    for count in 0...2 {
+      var short = p
+      short.frames = Array(p.frames.prefix(count))
+      do {
+        _ = try await RollTimingService.run(project: short, folder: folder, assets: assets) { _ in }
+        Issue.record("A roll with fewer than three frames must fail analysis")
+      } catch { #expect(error is PrintroomError) }
+    }
+    var missing = p
+    missing.frames[1].isMissing = true
+    for autoExposure in [false, true] {
+      do {
+        _ = try await RollTimingService.run(project: missing, folder: folder, assets: assets, autoExposure: autoExposure) { _ in }
+        Issue.record("Missing interior frames must not make roll ends contribute")
+      } catch { #expect(error.localizedDescription.contains("跳过首尾张")) }
+    }
   }
 
 }

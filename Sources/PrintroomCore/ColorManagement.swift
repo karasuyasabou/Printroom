@@ -77,13 +77,17 @@ public enum TIFFCompression: String, Codable, CaseIterable, Sendable {
 /// Deliberately evaluate the ICC definitions rather than Apple's Float32 CMM:
 /// the latter linearizes pure-gamma dark values (P3 .02 becomes .02 in ProPhoto,
 /// instead of 16 * .02^2.600006 = .000612051). Double precision avoids reducing
-/// Float32 pipeline precision; quantization occurs once, after this conversion.
+/// Float32 pipeline precision. High-resolution relative-domain TRC interpolation
+/// replaces per-pixel powers; boundary/out-of-domain values use the analytic curve.
+/// Quantization occurs once, after this conversion.
 public final class OutputColorConverter {
   public let outputProfile: Data
   public let profile: OutputColorProfile
   private let source: MatrixICCProfile
   private let destination: MatrixICCProfile
   private let matrix: simd_double3x3
+  private let decodeTables: [FastICCCurve]
+  private let encodeTables: [FastICCCurve]
 
   public init(p3Profile: Data, output: OutputColorProfile) throws {
     let sourceData = try nativeLUTProfile(p3Profile)
@@ -94,9 +98,41 @@ public final class OutputColorConverter {
     source = from
     destination = to
     matrix = to.colorants.inverse * from.colorants
+    // Array storage is shared for identical RGB curves; converters remain immutable.
+    func tables(_ curves: [ICCToneCurve], inverse: Bool) -> [FastICCCurve] {
+      var result: [FastICCCurve] = []
+      for i in curves.indices {
+        if let previous = (0..<i).first(where: { curves[$0] == curves[i] }) {
+          result.append(result[previous])
+        } else { result.append(FastICCCurve(curves[i], inverse: inverse)) }
+      }
+      return result
+    }
+    #if PRINTROOM_PERFORMANCE_TRACE
+    if ProcessInfo.processInfo.environment["PRINTROOM_ICC_REFERENCE"] == "1" {
+      decodeTables = []; encodeTables = []
+      return
+    }
+    #endif
+    decodeTables = tables(from.curves, inverse: false)
+    encodeTables = tables(to.curves, inverse: true)
   }
 
   public func convert(_ final: PixelBuffer) throws -> PixelBuffer {
+    #if PRINTROOM_PERFORMANCE_TRACE
+    if ProcessInfo.processInfo.environment["PRINTROOM_ICC_REFERENCE"] == "1" {
+      return try convertReference(final)
+    }
+    #endif
+    return try convertImpl(final, accelerated: true)
+  }
+
+  /// Analytic oracle retained for numerical verification and opt-in Release A/B.
+  func convertReference(_ final: PixelBuffer) throws -> PixelBuffer {
+    try convertImpl(final, accelerated: false)
+  }
+
+  private func convertImpl(_ final: PixelBuffer, accelerated: Bool) throws -> PixelBuffer {
     guard final.width > 0, final.height > 0,
       final.width <= Int.max / final.height,
       final.pixels.count == final.width * final.height,
@@ -107,13 +143,13 @@ public final class OutputColorConverter {
     for (index, pixel) in final.pixels.enumerated() {
       if index % 16384 == 0 { try Task.checkCancellation() }
       let linear = SIMD3(
-        source.curves[0].decode(Double(pixel.x)),
-        source.curves[1].decode(Double(pixel.y)), source.curves[2].decode(Double(pixel.z)))
+        accelerated ? decodeTables[0].evaluate(Double(pixel.x)) : source.curves[0].decode(Double(pixel.x)),
+        accelerated ? decodeTables[1].evaluate(Double(pixel.y)) : source.curves[1].decode(Double(pixel.y)), accelerated ? decodeTables[2].evaluate(Double(pixel.z)) : source.curves[2].decode(Double(pixel.z)))
       let converted = matrix * linear
       let encoded = SIMD4(
-        Float(destination.curves[0].encode(converted.x)),
-        Float(destination.curves[1].encode(converted.y)),
-        Float(destination.curves[2].encode(converted.z)), 1)
+        Float(accelerated ? encodeTables[0].evaluate(converted.x) : destination.curves[0].encode(converted.x)),
+        Float(accelerated ? encodeTables[1].evaluate(converted.y) : destination.curves[1].encode(converted.y)),
+        Float(accelerated ? encodeTables[2].evaluate(converted.z) : destination.curves[2].encode(converted.z)), 1)
       guard encoded.x.isFinite, encoded.y.isFinite, encoded.z.isFinite else {
         throw PrintroomError.invalid("ICC 输出转换产生非有限数值。")
       }
@@ -128,9 +164,15 @@ public final class OutputColorConverter {
 
   public static func quantize8(_ converted: PixelBuffer) throws -> [UInt8] {
     try validateConverted(converted)
-    return converted.pixels.flatMap { pixel in
-      (0..<3).map { UInt8(floor(min(1, max(0, pixel[$0])) * 255 + 0.5)) }
+    var samples = [UInt8](repeating: 0, count: converted.pixels.count * 3)
+    var offset = 0
+    for pixel in converted.pixels {
+      for channel in 0..<3 {
+        samples[offset] = UInt8(floor(min(1, max(0, pixel[channel])) * 255 + 0.5))
+        offset += 1
+      }
     }
+    return samples
   }
 
   /// The only output clamp/quantization. No dithering or transfer function here.
@@ -195,7 +237,7 @@ struct FinalColorimetry {
   }
 }
 
-private struct MatrixICCProfile {
+struct MatrixICCProfile {
   let colorants: simd_double3x3
   let curves: [ICCToneCurve]
 
@@ -235,7 +277,7 @@ private struct MatrixICCProfile {
   }
 }
 
-private enum ICCToneCurve {
+enum ICCToneCurve: Equatable {
   case gamma(Double)
   case piecewise(gamma: Double, a: Double, b: Double, c: Double, d: Double)
   case table([Double])
@@ -312,6 +354,48 @@ private enum ICCToneCurve {
       let fraction = delta > 0 ? (linear - entries[lower]) / delta : 0
       return (Double(lower) + fraction) / Double(entries.count - 1)
     }
+  }
+}
+
+/// 4096 linear intervals per binary octave, covering 2^-32 ... 2.
+/// Bit indexing is exact for Double and needs neither log nor pow in the hot path.
+/// Unlike a uniform linear-light table, relative resolution remains dense at black.
+private struct FastICCCurve {
+  private static let firstBits = Double(0x1p-32).bitPattern
+  private static let shift: UInt64 = 40
+  private let values: [Double]
+  private let curve: ICCToneCurve
+  private let inverse: Bool
+  private let boundary: Double?
+
+  init(_ curve: ICCToneCurve, inverse: Bool) {
+    self.curve = curve
+    self.inverse = inverse
+    if case .piecewise(_, _, _, let c, let d) = curve {
+      boundary = inverse ? c * d : d
+    } else { boundary = nil }
+    let count = Int((Double(2).bitPattern - Self.firstBits) >> Self.shift)
+    values = (0...count).map { index in
+      let x = Double(bitPattern: Self.firstBits + (UInt64(index) << Self.shift))
+      return inverse ? curve.encode(x) : curve.decode(x)
+    }
+  }
+
+  @inline(__always) func evaluate(_ x: Double) -> Double {
+    guard x >= 0x1p-32, x < 2 else {
+      return inverse ? curve.encode(x) : curve.decode(x)
+    }
+    let bits = x.bitPattern
+    let index = Int((bits - Self.firstBits) >> Self.shift)
+    let lowerBits = bits & ~((1 << Self.shift) - 1)
+    let lower = Double(bitPattern: lowerBits)
+    let upper = Double(bitPattern: lowerBits + (1 << Self.shift))
+    // Never interpolate across a parametric TRC discontinuity.
+    if let boundary, lower < boundary, upper >= boundary {
+      return inverse ? curve.encode(x) : curve.decode(x)
+    }
+    let fraction = (x - lower) / (upper - lower)
+    return values[index] + (values[index + 1] - values[index]) * fraction
   }
 }
 

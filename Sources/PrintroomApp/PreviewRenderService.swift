@@ -74,8 +74,8 @@ actor PreviewRenderService {
       let oriented = crop == nil
         ? try orientation.transform(output, cancelled: { Task.isCancelled }) : output
       try Task.checkCancellation()
-      let image = try DisplayImage.make(
-        oriented, profile: assets.profile, diagnostic: stage != .final, original: original)
+      let image = try PerformanceTrace.measure("preview.display_prepare") { try DisplayImage.make(
+        oriented, profile: assets.profile, diagnostic: stage != .final, original: original) }
       try Task.checkCancellation()
       var histogram: HistogramStatistics?
       if includeHistogram && !original {

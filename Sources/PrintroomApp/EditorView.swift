@@ -124,7 +124,7 @@ struct EditorView: View {
       cancel: { model.showMissingFilmBaseDialog = false }) { EmptyView() }
     .nativeDialog(isPresented: model.showRollTimingConfirmation || model.showRollTimingDialog,
       title: model.showRollTimingConfirmation ? "色罩分析" : (model.isAnalyzingRollTiming ? "色罩分析" : (model.rollTimingError == nil ? "分析成功" : "分析未完成")),
-      message: model.showRollTimingConfirmation ? "将开始整卷色罩分析，请确认已完成有效画幅裁剪和片基框选" : (model.rollTimingError ?? ""),
+      message: model.showRollTimingConfirmation ? "色罩分析将跳过首尾张，请确认已完成有效画幅裁剪和片基框选" : (model.rollTimingError ?? ""),
       primaryTitle: model.showRollTimingConfirmation ? "开始分析" : (!model.isAnalyzingRollTiming && model.rollTimingError == nil ? "应用到整卷" : nil),
       cancelTitle: model.isAnalyzingRollTiming ? "取消分析" : "取消",
       primary: {

@@ -3,7 +3,7 @@ import Foundation
 public struct DiskCachePolicy: Sendable, Equatable {
   public var limitGB: Double
   public var retentionDays: Int
-  public static let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+  public static let root = PerformanceTrace.isolatedCacheRoot ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
     .appendingPathComponent("studio.printroom.local.v3.3", isDirectory: true)
   public init(limitGB: Double = 8, retentionDays: Int = 30) {
     self.limitGB = limitGB.isFinite && (0.1...100_000).contains(limitGB) ? limitGB : 8

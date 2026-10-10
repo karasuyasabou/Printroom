@@ -58,7 +58,7 @@ public struct AutoCropResult: Sendable {
 /// All frames share one aperture size in source pixels, independently of scan borders.
 /// Size and position share film-base evidence; review retains the original contract.
 public enum AutoCropAnalyzer {
-  public static let version = "roll-edge-v5"
+  public static let version = "roll-edge-v6"
   public static func prepare(_ image: LinearImage, seed: AutoCropSeed? = nil,
                             sourceWidth: Int? = nil, sourceHeight: Int? = nil) throws -> AutoCropAnalysis {
     guard image.width > 0, image.height > 0,
@@ -72,6 +72,7 @@ public enum AutoCropAnalyzer {
     }
     let w = 800, h = max(1, Int((800 * Double(image.height) / Double(image.width)).rounded()))
     guard h <= 6400 else { throw PrintroomError.invalid("自动裁剪不支持此图像尺寸。") }
+    let densityStart = PerformanceTrace.begin()
     // Area averaging happens in linear samples, before logarithmic density.
     let xs = areaWeights(source: image.width, target: w)
     let ys = areaWeights(source: image.height, target: h)
@@ -88,6 +89,7 @@ public enum AutoCropAnalyzer {
       }
     }
     d = blur(d, width: w, height: h)
+    PerformanceTrace.end(seed == nil ? "autocrop.density.first" : "autocrop.density.second", densityStart)
     if let seed {
       guard seed.width == w, seed.height == h,
         sourceWidth == nil || (seed.sourceWidth == sourceWidth && seed.sourceHeight == sourceHeight) else {
@@ -98,11 +100,14 @@ public enum AutoCropAnalyzer {
         sourceAspect: seed.sourceAspect, baseDensity: seed.baseDensity,
         sourceWidth: seed.sourceWidth, sourceHeight: seed.sourceHeight)
     }
+    let searchStart = PerformanceTrace.begin()
+    defer { PerformanceTrace.end("autocrop.search", searchStart) }
     let ranges = [(Double(w) * 0.025, Double(w) * 0.18), (Double(w) * 0.82, Double(w) * 0.99),
                   (Double(h) * 0.015, Double(h) * 0.14), (Double(h) * 0.86, Double(h) * 0.995)]
     var best = AutoCropAnalysis(width: w, height: h, density: d, seedAngle: 0, seedEdges: [], seedEvidence: [0,0,0,0])
-    var bestScore = -Double.infinity
-    for step in 0...60 {
+    var evaluated: [Int: AutoCropAnalysis] = [:]
+    func evaluate(_ step: Int) throws {
+      guard evaluated[step] == nil else { return }
       try Task.checkCancellation()
       let angle = -3 + Double(step) * 0.1
       var edges = [Double](), evidence = [Double]()
@@ -115,6 +120,22 @@ public enum AutoCropAnalyzer {
         edges.append(position); evidence.append(winner)
       }
       let candidate = AutoCropAnalysis(width: w, height: h, density: d, seedAngle: angle, seedEdges: edges, seedEvidence: evidence)
+      evaluated[step] = candidate
+    }
+    // Keep the original position grid and full along-edge support. Refine the
+    // three strongest coarse angles on the original 0.1-degree grid, retaining
+    // nearby competing peaks rather than committing to a single coarse winner.
+    for step in stride(from: 0, through: 60, by: 3) { try evaluate(step) }
+    let finalists = evaluated.keys.sorted {
+      let a = evaluated[$0]!.seedScore, b = evaluated[$1]!.seedScore
+      return a == b ? $0 < $1 : a > b
+    }.prefix(3)
+    for step in finalists {
+      for fine in max(0, step - 2)...min(60, step + 2) { try evaluate(fine) }
+    }
+    var bestScore = -Double.infinity
+    for step in evaluated.keys.sorted() {
+      let candidate = evaluated[step]!
       if candidate.seedScore > bestScore { best = candidate; bestScore = candidate.seedScore }
     }
     let detected = try edgeCandidates(d, width: w, height: h, angle: best.seedAngle, ranges: ranges)
@@ -131,6 +152,8 @@ public enum AutoCropAnalyzer {
   }
 
   public static func template(fromSeeds inputSeeds: [AutoCropSeed], aspectRatio: Double? = nil) throws -> AutoCropTemplate {
+    let templateStart = PerformanceTrace.begin()
+    defer { PerformanceTrace.end("autocrop.template", templateStart) }
     guard let first = inputSeeds.max(by: {
       let a = ($0.sourceWidth ?? $0.width, $0.sourceHeight ?? $0.height)
       let b = ($1.sourceWidth ?? $1.width, $1.sourceHeight ?? $1.height)
@@ -276,20 +299,24 @@ public enum AutoCropAnalyzer {
     let nx = vertical ? c : -s, ny = vertical ? s : c
     let midX = Double(width) / 2, midY = Double(height) / 2
     var outside = [Double](), spreads = [Double](), rise = 0.0
+    outside.reserveCapacity(count * 3)
+    spreads.reserveCapacity(count)
     d.withUnsafeBufferPointer { pixels in
       for i in 0..<count {
         let along = -extent + 2 * extent * Double(i) / Double(count - 1)
         let u = vertical ? position - midX : along
         let v = vertical ? along : position - midY
         let x = midX + c * u - s * v, y = midY + s * u + c * v
-        var outer = [Double](), inner = [Double]()
-        for offset in [4.0, 6.0, 8.0] {
-          outer.append(Double(sample(pixels, width, height, x - sign * nx * offset, y - sign * ny * offset)))
-          inner.append(Double(sample(pixels, width, height, x + sign * nx * offset, y + sign * ny * offset)))
-        }
-        outside.append(contentsOf: outer)
-        spreads.append(outer.max()! - outer.min()!)
-        rise += min(1, max(0, (median(inner) - median(outer)) / 0.22))
+        let ox = sign * nx, oy = sign * ny
+        let o4 = Double(sample(pixels, width, height, x - ox * 4, y - oy * 4))
+        let o6 = Double(sample(pixels, width, height, x - ox * 6, y - oy * 6))
+        let o8 = Double(sample(pixels, width, height, x - ox * 8, y - oy * 8))
+        let i4 = Double(sample(pixels, width, height, x + ox * 4, y + oy * 4))
+        let i6 = Double(sample(pixels, width, height, x + ox * 6, y + oy * 6))
+        let i8 = Double(sample(pixels, width, height, x + ox * 8, y + oy * 8))
+        outside.append(o4); outside.append(o6); outside.append(o8)
+        spreads.append(max(o4, o6, o8) - min(o4, o6, o8))
+        rise += min(1, max(0, (median3(i4, i6, i8) - median3(o4, o6, o8)) / 0.22))
       }
     }
     let strength = support ?? profile(d, width: width, height: height, angle: angle, side: side, position: position)
@@ -334,6 +361,8 @@ public enum AutoCropAnalyzer {
   public static func fit(_ analysis: AutoCropAnalysis, template: AutoCropTemplate,
                          sourceWidth: Int, sourceHeight: Int,
                          requiresAllEdges: Bool = false) throws -> AutoCropResult {
+    let fitStart = PerformanceTrace.begin()
+    defer { PerformanceTrace.end("autocrop.fit", fitStart) }
     guard sourceWidth > 0, sourceHeight > 0,
       analysis.sourceWidth == nil || (analysis.sourceWidth == sourceWidth && analysis.sourceHeight == sourceHeight),
       template.analysisWidth > 0, template.analysisHeight > 0,
@@ -488,6 +517,10 @@ public enum AutoCropAnalyzer {
     let jx = min(w - 1, ix + 1), jy = min(h - 1, iy + 1)
     return d[iy * w + ix] * (1 - fx) * (1 - fy) + d[iy * w + jx] * fx * (1 - fy)
       + d[jy * w + ix] * (1 - fx) * fy + d[jy * w + jx] * fx * fy
+  }
+
+  @inline(__always) private static func median3(_ a: Double, _ b: Double, _ c: Double) -> Double {
+    max(min(a, b), min(max(a, b), c))
   }
 
   private static func median(_ values: [Double]) -> Double {
