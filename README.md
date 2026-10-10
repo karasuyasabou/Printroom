@@ -26,10 +26,10 @@
 
 要求 **macOS 14 或更新版本**。
 
-[下载 Printroom v1.0.1](https://github.com/karasuyasabou/Printroom/releases/tag/v1.0.1)
+[下载 Printroom v1.0.2](https://github.com/karasuyasabou/Printroom/releases/tag/v1.0.2)
 
-- **Apple Silicon（M 系列）**：下载 `Printroom-v1.0.1-macOS-arm64.zip`。
-- **Intel**：下载 `Printroom-v1.0.1-macOS-x86_64.zip`。
+- **Apple Silicon（M 系列）**：下载 `Printroom-v1.0.2-macOS-arm64.zip`。
+- **Intel**：下载 `Printroom-v1.0.2-macOS-x86_64.zip`。
 
 解压后将 `Printroom.app` 拖入“应用程序”。应用未使用 Developer ID 签名或 Apple 公证；首次打开若被 macOS 拦截，请在尝试打开后前往“系统设置 → 隐私与安全性”，找到 Printroom 并选择“仍要打开”。
 
