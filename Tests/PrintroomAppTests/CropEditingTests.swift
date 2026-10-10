@@ -90,6 +90,7 @@ struct CropEditingTests {
     }
     model.open(folder)
     try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     try await until("loaded", { model.histogram != nil })
     model.copyParameters()
     var project = try #require(model.project)

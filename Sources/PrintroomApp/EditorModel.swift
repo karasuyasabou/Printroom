@@ -1,5 +1,4 @@
 import AppKit
-import CryptoKit
 import ImageIO
 import PrintroomCore
 import SwiftUI
@@ -279,8 +278,7 @@ import UniformTypeIdentifiers
   let undoManager = UndoManager()
   let imageService = ImageService()
   private let previewRenderer = PreviewRenderService()
-  private let thumbnailRenderer = PreviewRenderService()
-  private let thumbnailService = ImageService(cacheLimitBytes: 16 * 1024 * 1024, cacheLimitEntries: 12)
+  private let thumbnailCoordinator = ThumbnailCoordinator()
   var assets: AppAssets?
   private var previewInput: PixelBuffer?
   private var previewInputIdentity = UUID()
@@ -307,7 +305,6 @@ import UniformTypeIdentifiers
   private var previewContext: PreviewContext?
   private var pendingPreview: PreviewRequest?
   private var renderGeneration = UUID()
-  private var pendingThumbnailIDs: Set<UUID> = []
   private var sampleTask: Task<Void, Never>?
   private var sampleRevision = 0
   private var neutralTask: Task<Void, Never>?
@@ -323,12 +320,10 @@ import UniformTypeIdentifiers
   private var previewWarmupGeneration = UUID()
   private var loadTask: Task<Void, Never>?
   private var renderTask: Task<Void, Never>?
-  private var thumbnailTask: Task<Void, Never>?
   #if PRINTROOM_PERFORMANCE_TRACE
   // Read-only completion probe for the opt-in benchmark; preserves publication/store ordering.
   func performanceWaitForThumbnails() async -> Bool {
-    await thumbnailTask?.value
-    return pendingThumbnailIDs.isEmpty
+    await thumbnailCoordinator.waitForCompletion()
   }
   #endif
   private var exportTask: Task<Void, Never>?
@@ -336,7 +331,6 @@ import UniformTypeIdentifiers
   private var loadRevision = 0
   private var renderRevision = 0
   private var gestureBefore: RollProject?
-  private var thumbnailGeneration = UUID()
   var activeFrame: FrameRecord? { project?.frames.first { $0.id == selection.activeFrameID } }
   var adjustments: FrameAdjustments { activeFrame?.adjustments ?? .init() }
   var canApply: Bool { hasFilmBase && snapshot != nil && !selection.selectedFrameIDs.isEmpty }
@@ -441,10 +435,9 @@ import UniformTypeIdentifiers
     if folder != targetFolder { snapshot = nil }
     thumbnails = [:]
     presentationCache.clear()
-    pendingThumbnailIDs = []
     loadTask?.cancel()
     renderTask?.cancel()
-    thumbnailTask?.cancel()
+    thumbnailCoordinator.reset()
     persistence.cancel()
     folder = targetFolder
     project = roll
@@ -488,9 +481,7 @@ import UniformTypeIdentifiers
     selection = SelectionState()
     snapshot = nil
     loadActive()
-    thumbnailTask?.cancel()
-    thumbnailGeneration = UUID()
-    pendingThumbnailIDs = []
+    thumbnailCoordinator.reset()
     thumbnails = [:]
     presentationCache.clear()
     preparedGeometryMetadata = [:]
@@ -724,7 +715,7 @@ import UniformTypeIdentifiers
       && !isImporting && !isLoading && !isRendering && !isExporting && !isCropping
       && !sampling && !neutralPicking && !isNeutralSampling && !isAutoCropping
       && !isAnalyzingRollTiming && !isPreparingGeometry && pendingMatrixCalibration == nil
-      && gestureBefore == nil && thumbnailTask == nil
+      && gestureBefore == nil && !thumbnailCoordinator.isRunning
   }
   private func cancelPreviewWarmup() {
     previewWarmupTask?.cancel()
@@ -813,10 +804,6 @@ import UniformTypeIdentifiers
       previewImage = entry.image
       isPreviewPlaceholder = true
     }
-  }
-  private func publishThumbnail(_ image: CGImage, key: PreviewPresentationKey) {
-    guard (try? SourceStamp(url: key.source.url)) == key.source else { return }
-    thumbnails[key.frameID] = image
   }
   func render(preservingHistogram: Bool = false) {
     cancelPreviewWarmup()
@@ -1505,30 +1492,10 @@ import UniformTypeIdentifiers
       .map { folder.appendingPathComponent($0.filename) }
     if syncCrop, prepareGeometryIfNeeded(urls, then: { _ = self.syncCurrentSettings() }) { return false }
     do {
-      guard targets.isSubset(of: Set(old.frames.filter { !$0.isMissing }.map(\.id))),
-        !source.isMissing else { throw PrintroomError.invalid("同步包含不可用照片") }
-      var crop: FrameCrop?
-      if syncCrop, let savedCrop = source.crop {
-        let metadata = try geometryMetadata(folder.appendingPathComponent(source.filename))
-        crop = try savedCrop.sourceCoordinates(sourceWidth: metadata.width,
-          sourceHeight: metadata.height, orientation: source.orientation)
-      }
-      var next = old
-      if syncTiming || syncContrast || syncLUT {
-        next = try ParameterSnapshot(frame: source).applying(to: old, targets: targets,
-          timing: syncTiming, contrast: syncContrast, lut: syncLUT)
-      }
-      for index in next.frames.indices where targets.contains(next.frames[index].id) {
-        let url = folder.appendingPathComponent(next.frames[index].filename)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-          throw PrintroomError.invalid("目标文件已丢失：\(url.lastPathComponent)")
-        }
-        if syncCrop {
-          let metadata = try geometryMetadata(url)
-          try next.frames[index].applyManualCrop(crop,
-            sourceWidth: metadata.width, sourceHeight: metadata.height)
-        }
-      }
+      let next = try BatchEditTransaction.synchronize(project: old, source: source,
+        targets: targets, folder: folder,
+        options: .init(timing: syncTiming, contrast: syncContrast, lut: syncLUT, crop: syncCrop),
+        metadata: geometryMetadata)
       guard next.frames != old.frames else {
         showSync = false
         return true
@@ -1555,12 +1522,8 @@ import UniformTypeIdentifiers
     guard let snapshot, let project, !selection.selectedFrameIDs.isEmpty, let folder else { return }
     do {
       let targets = selection.selectedFrameIDs
-      for frame in project.frames where targets.contains(frame.id) {
-        guard
-          FileManager.default.fileExists(atPath: folder.appendingPathComponent(frame.filename).path)
-        else { throw PrintroomError.invalid("目标文件已丢失：\(frame.filename)") }
-      }
-      let next = try snapshot.applying(to: project, targets: targets)
+      let next = try BatchEditTransaction.applying(snapshot, to: project,
+        targets: targets, folder: folder)
       guard next.frames != project.frames else {
         return
       }
@@ -2003,95 +1966,26 @@ import UniformTypeIdentifiers
     guard let project, let folder, let assets else { return }
     cancelPreviewWarmup()
     let available = Set(project.frames.filter { !$0.isMissing }.map(\.id))
-    pendingThumbnailIDs.formUnion(affectedIDs ?? available)
-    pendingThumbnailIDs.formIntersection(available)
     if thumbnails.keys.contains(where: { !available.contains($0) }) {
       thumbnails = thumbnails.filter { available.contains($0.key) }
     }
-    thumbnailTask?.cancel()
-    thumbnailGeneration = UUID()
-    let generation = thumbnailGeneration
-    let frames = project.frames.filter { pendingThumbnailIDs.contains($0.id) }
-      .sorted { $0.id == selection.activeFrameID && $1.id != selection.activeFrameID }
-    let cache = DiskThumbnailCache.forRoll(folder: folder, projectID: project.id)
-    let queuedTrace = PerformanceTrace.begin()
-    thumbnailTask = Task {
-      PerformanceTrace.end("thumbnail.initial_queue_wait", queuedTrace)
-      let rollTrace = PerformanceTrace.begin()
-      defer { PerformanceTrace.end("thumbnail.roll_refresh_inclusive", rollTrace) }
-      defer {
-        if generation == thumbnailGeneration {
-          thumbnailTask = nil
-          schedulePreviewWarmup()
-        }
-      }
-      if affectedIDs == nil {
-        try? await cache.migrateLegacy(from: folder)
-        _ = try? await cache.maintain()
-      }
-      await cache.beginMaintenanceBatch()
-      defer { cache.endMaintenanceBatch() }
-      for frame in frames {
-        PerformanceTrace.end("thumbnail.frame_queue_delay_inclusive", queuedTrace)
-        guard !Task.isCancelled, generation == thumbnailGeneration else { return }
-        do {
-          let sourceURL = folder.appendingPathComponent(frame.filename)
-          let stamp = try SourceStamp(url: sourceURL)
-          let presentationKey = PreviewPresentationKey(source: stamp, frameID: frame.id,
-            calibration: project.calibration, adjustments: frame.adjustments,
-            orientation: frame.orientation, crop: frame.crop, stage: .final,
-            sprocketWhitening: project.sprocketWhitening,
-            protectedCrop: frame.crop)
-          let encoder = JSONEncoder()
-          encoder.outputFormatting = .sortedKeys
-          let keyData = try encoder.encode(
-            ThumbnailKey(
-              filename: frame.filename,
-              modified: stamp.modified?.timeIntervalSince1970 ?? 0,
-              size: stamp.size,
-              inode: stamp.inode,
-              calibration: project.calibration, adjustments: frame.adjustments,
-              orientation: frame.orientation,
-              crop: frame.crop,
-              sprocketWhitening: project.sprocketWhitening,
-              algorithm: algorithmVersion, icc: ProjectAssetIdentity.expectedICCSHA256,
-              lut: frame.adjustments.cineonLogLUT.sha256, dimension: 240,
-              presentationVersion: DisplayImage.presentationVersion,
-              rawProcessing: stamp.rawProcessing))
-          let key = SHA256.hash(data: keyData).map { String(format: "%02x", $0) }.joined()
-          let cacheTrace = PerformanceTrace.begin()
-          let cachedImage = try? await cache.image(for: key)
-          PerformanceTrace.end("thumbnail.cache_lookup", cacheTrace)
-          if let cg = cachedImage {
-            guard !Task.isCancelled, generation == thumbnailGeneration else { return }
-            publishThumbnail(cg, key: presentationKey)
-            pendingThumbnailIDs.remove(frame.id)
-            continue
-          }
-          let readTrace = PerformanceTrace.begin()
-          let source = try await thumbnailService.thumbnailSource(sourceURL)
-          PerformanceTrace.end("thumbnail.source_read", readTrace)
-          let renderTrace = PerformanceTrace.begin()
-          let output = try await thumbnailRenderer.render(source.0,
-            calibration: project.calibration, adjustments: frame.adjustments,
-            assets: assets, original: !project.calibration.isCalibrated,
-            orientation: frame.orientation, crop: frame.crop,
-            sourceWidth: source.1, sourceHeight: source.2,
-            sprocketWhitening: project.sprocketWhitening,
-            protectedCrop: frame.crop)
-          guard !Task.isCancelled, generation == thumbnailGeneration else { return }
-          PerformanceTrace.end("thumbnail.render_display_inclusive", renderTrace)
-          publishThumbnail(output.image, key: presentationKey)
-          // Expendable disk cache failures never prevent editing or project save.
-          try? await cache.store(output.image, for: key)
-          guard !Task.isCancelled, generation == thumbnailGeneration else { return }
-          pendingThumbnailIDs.remove(frame.id)
-        } catch {
-          // Keep the frame pending for a later refresh; disposable thumbnails
-          // must not interrupt editing or replace the main preview's error.
-        }
-      }
-    }
+    thumbnailCoordinator.refresh(project: project, folder: folder, assets: assets,
+      activeFrameID: selection.activeFrameID, affectedIDs: affectedIDs,
+      publish: { [weak self] image, key in
+        guard let self, self.folder == folder, let current = self.project,
+          current.id == project.id, current.calibration == key.calibration,
+          current.sprocketWhitening == key.sprocketWhitening,
+          let frame = current.frames.first(where: { $0.id == key.frameID }),
+          !frame.isMissing,
+          frame.filename == project.frames.first(where: { $0.id == key.frameID })?.filename,
+          frame.adjustments == key.adjustments, frame.orientation == key.orientation,
+          frame.crop == key.crop else { return false }
+        // loadActive may fill in saved RAW metadata while this image is being
+        // rendered. Only pixel-affecting state invalidates publication; the
+        // coordinator separately checks the live SourceStamp (including RAW identity).
+        self.thumbnails[key.frameID] = image
+        return true
+      }, finished: { [weak self] in self?.schedulePreviewWarmup() })
   }
   func relocatePanel(_ frameID: UUID) {
     guard let frame = project?.frames.first(where: { $0.id == frameID }), frame.isMissing else { return }
@@ -2160,23 +2054,6 @@ import UniformTypeIdentifiers
     project?.exportSettings = settings
     dirty = true
     scheduleSave(immediate: true)
-  }
-  private struct ThumbnailKey: Codable {
-    let filename: String
-    let modified: Double
-    let size: Int64
-    let inode: UInt64
-    let calibration: FilmCalibration
-    let adjustments: FrameAdjustments
-    let orientation: FrameOrientation
-    let crop: FrameCrop?
-    let sprocketWhitening: SprocketWhiteningSettings
-    let algorithm: String
-    let icc: String
-    let lut: String
-    let dimension: Int
-    let presentationVersion: String
-    let rawProcessing: RAWProcessingIdentity?
   }
   let adjustmentKeyboard = AdjustmentKeyboard()
 }
