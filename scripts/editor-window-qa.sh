@@ -21,6 +21,7 @@ for argument in "$@"; do
     --sprocket) qa_arguments+=(--sprocket --appearance) ;;
     --roll-name) qa_arguments+=(--roll-name --appearance) ;;
     --toolbar-alignment) qa_arguments+=(--toolbar-alignment --appearance) ;;
+    --updates) qa_arguments+=(--updates --appearance) ;;
     --roll-timing) qa_arguments+=(--roll-timing) ;;
     --appearance) qa_arguments+=(--appearance) ;;
     --histogram) qa_arguments+=(--histogram) ;;

@@ -145,6 +145,7 @@ public struct ProjectExportSettings: Codable, Equatable, Sendable {
     didSet { profileSHA256 = profile.profileSHA256 }
   }
   public var applyCrop = true
+  public var overwriteExisting = false
   public var compression: TIFFCompression = .deflate
   public var profileSHA256 = OutputColorProfile.displayP3.profileSHA256
   public var bitsPerSample = 16
@@ -164,7 +165,7 @@ public struct ProjectExportSettings: Codable, Equatable, Sendable {
   }
 
   private enum CodingKeys: String, CodingKey {
-    case applyCrop, profile, compression, profileSHA256, bitsPerSample, embedsICC, dithering, destinationPath, filenamePrefix
+    case applyCrop, overwriteExisting, profile, compression, profileSHA256, bitsPerSample, embedsICC, dithering, destinationPath, filenamePrefix
   }
 
   public init(from decoder: Decoder) throws {
@@ -188,6 +189,7 @@ public struct ProjectExportSettings: Codable, Equatable, Sendable {
     embedsICC = try values.decode(Bool.self, forKey: .embedsICC)
     dithering = try values.decode(Bool.self, forKey: .dithering)
     applyCrop = try values.decodeIfPresent(Bool.self, forKey: .applyCrop) ?? true
+    overwriteExisting = try values.decodeIfPresent(Bool.self, forKey: .overwriteExisting) ?? false
     destinationPath = try values.decodeIfPresent(String.self, forKey: .destinationPath)
     filenamePrefix = try values.decodeIfPresent(String.self, forKey: .filenamePrefix)
   }

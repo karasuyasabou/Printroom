@@ -70,7 +70,11 @@ import SwiftUI
     window.toolbarStyle = .unified
     let histogramDefaults = UserDefaults(suiteName: "Printroom.EditorWindowQA.\(UUID())")!
     histogramDefaults.set(true, forKey: "histogramExpanded")
-    let controller = NSHostingController(rootView: EditorView(model: model).defaultAppStorage(histogramDefaults))
+    let updates = AppUpdateChecker(currentVersion: "1.0.2") { _ in
+      (Data(#"{"tag_name":"v1.0.3","draft":false,"prerelease":false}"#.utf8),
+       HTTPURLResponse(url: AppUpdateChecker.endpoint, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+    }
+    let controller = NSHostingController(rootView: EditorView(model: model, updates: updates).defaultAppStorage(histogramDefaults))
     window.contentViewController = controller
     let host = controller.view
     window.orderFront(nil)
@@ -100,6 +104,25 @@ import SwiftUI
       process.waitUntilExit()
       guard process.terminationStatus == 0 else { throw PrintroomError.invalid("Screenshot failed") }
       print("Saved \(name): \(host.bounds.size)")
+    }
+    if CommandLine.arguments.contains("--updates") {
+      for available in [false, true] {
+        if available { await updates.checkOnce() }
+        for appearance in [AppAppearance.light, .dark] {
+          appearance.apply()
+          for width in [1060, 1360] {
+            window.setContentSize(NSSize(width: width, height: 720))
+            try await capture("updates-\(available)-\(appearance.rawValue)-\(width)")
+          }
+          model.project = nil
+          model.previewImage = nil
+          try await capture("updates-\(available)-\(appearance.rawValue)-home")
+          model.project = project
+          model.previewImage = preview
+        }
+      }
+      print("UPDATE UI CAPTURES: light/dark, 1060/1360, home/editor, hidden/available; mocked release, no browser opened")
+      return
     }
     if CommandLine.arguments.contains("--toolbar-alignment") {
       for appearance in [AppAppearance.light, .dark] {

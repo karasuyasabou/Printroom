@@ -369,6 +369,35 @@ final class RAWSourceServiceTests: XCTestCase, @unchecked Sendable {
     XCTAssertFalse(paths.contains { $0.hasSuffix("source.dng") || $0.hasSuffix("full.tiff") || $0.contains(".preparing-") })
   }
 
+  func testCurrentExportIgnoresSavedAndInFlightRAWChangesButRefreshesPreview() throws {
+    let (directory, source, backend, service) = try fixture()
+    let identity = try service.identity(url: source)
+    _ = try service.preview(url: source)
+    var frame = FrameRecord(filename: source.lastPathComponent, sourceSize: 1, sourceModified: 0)
+    frame.rawProcessing = identity
+    try Data("replacement RAW with different size".utf8).write(to: source)
+    backend.update { $0.adobeVersion = "test-adobe-2"; $0.failure = "mutate" }
+    // Building an export must not consult the old identity or installed Adobe version.
+    XCTAssertNoThrow(try ExportFrameSnapshot(frame: frame, folder: directory))
+    XCTAssertEqual(try service.readCurrentForExport(url: source).samples, backend.image.samples)
+    XCTAssertEqual(backend.count(), 2) // no timestamp retry after successful decode
+    backend.update { $0.failure = nil }
+    _ = try service.preview(url: source)
+    XCTAssertEqual(backend.count(), 3) // changed originals still invalidate cached previews
+    let paths = try FileManager.default.subpathsOfDirectory(atPath: directory.path)
+    XCTAssertFalse(paths.contains { $0.hasSuffix(".dng") || $0.contains(".preparing-") })
+  }
+
+  func testCurrentExportStillReportsDecodeFailureAndCanRetry() throws {
+    let (_, source, backend, service) = try fixture()
+    backend.update { $0.failure = "cfa" }
+    XCTAssertThrowsError(try service.readCurrentForExport(url: source))
+    backend.update { $0.failure = nil }
+    XCTAssertEqual(try service.readCurrentForExport(url: source).samples, backend.image.samples)
+    try FileManager.default.removeItem(at: source)
+    XCTAssertThrowsError(try service.readCurrentForExport(url: source))
+  }
+
   func testColdExportConvertsOnlyOnceAndLeavesNoImageCache() throws {
     let (directory, source, backend, service) = try fixture()
     XCTAssertEqual(try service.read(url: source).samples, backend.image.samples)

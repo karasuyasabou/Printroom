@@ -68,6 +68,11 @@ public enum SourceImageIO {
     if !isRAW(url) { return try TIFFCodec.readRegion(url: url, rect: rect) }
     return try SourceProxyService.shared.region(url: url, rect: rect, expectedIdentity: expectedIdentity)
   }
+  /// Export uses the current RAW bytes without comparing saved or in-flight revisions.
+  public static func readForExport(url: URL) throws -> LinearImage {
+    if !isRAW(url) { return try TIFFCodec.read(url: url) }
+    return try SourceProxyService.shared.readCurrentForExport(url: url)
+  }
   public static func read(url: URL, expectedIdentity: RAWProcessingIdentity? = nil) throws -> LinearImage {
     if !isRAW(url) { return try TIFFCodec.read(url: url) }
     return try SourceProxyService.shared.read(url: url, expectedIdentity: expectedIdentity)
@@ -172,6 +177,11 @@ public final class SourceProxyService: @unchecked Sendable {
       let image = try self.decodeForExport(identity: identity, url: url, cancelled: cancelled)
       try self.verifySource(url, identity: identity, cancelled: cancelled)
       return image
+    }
+  }
+  func readCurrentForExport(url: URL) throws -> LinearImage {
+    try operationOnce(url: url, key: "current-export", verifyRevision: false) { cancelled in
+      try self.decodeForExport(identity: nil, url: url, cancelled: cancelled)
     }
   }
   /// RAW proxy sampling; SourceImageIO keeps TIFF calibration on original samples.
@@ -320,14 +330,14 @@ public final class SourceProxyService: @unchecked Sendable {
   }
 
   /// Export-only full resolution. Never publishes a full TIFF or retains the DNG.
-  private func decodeForExport(identity: RAWProcessingIdentity, url: URL,
+  private func decodeForExport(identity: RAWProcessingIdentity?, url: URL,
                                cancelled: @escaping @Sendable () -> Bool) throws -> LinearImage {
     let temporary = root.appendingPathComponent(".preparing-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: false)
     defer { try? FileManager.default.removeItem(at: temporary) }
     let dng = temporary.appendingPathComponent("source.dng")
     let adobe = try dependencies.installation()
-    guard adobe.version == identity.adobeVersion else {
+    guard identity == nil || adobe.version == identity?.adobeVersion else {
       throw Self.invalid("Adobe 版本已改变，请重新提交导出。")
     }
     try PerformanceTrace.measure("raw.adobe_convert") { try dependencies.convert(adobe, url, dng, cancelled) }
@@ -338,7 +348,7 @@ public final class SourceProxyService: @unchecked Sendable {
           image.samples.count == image.width * image.height * 3 else {
       throw Self.invalid("RAW 全尺寸结果与代理尺寸不一致。")
     }
-    try verifySource(url, identity: identity, cancelled: cancelled)
+    if let identity { try verifySource(url, identity: identity, cancelled: cancelled) }
     return image
   }
 
@@ -424,7 +434,7 @@ public final class SourceProxyService: @unchecked Sendable {
     }
   }
 
-  private func operationOnce<T: Sendable>(url: URL, key: String,
+  private func operationOnce<T: Sendable>(url: URL, key: String, verifyRevision: Bool = true,
     body: @escaping @Sendable (@escaping @Sendable () -> Bool) throws -> T) throws -> T {
     try Task.checkCancellation()
     let startingRevision = SourceImageIO.isSupportedSource(url) ? try Self.revisionKey(url) : nil
@@ -476,7 +486,7 @@ public final class SourceProxyService: @unchecked Sendable {
     lock.unlock()
     defer { job.detach() }
     let value = try PerformanceTrace.measure("proxy.consumer_wait_inclusive") { try job.wait() }
-    if let startingRevision, startingRevision != (try Self.revisionKey(url)) {
+    if verifyRevision, let startingRevision, startingRevision != (try Self.revisionKey(url)) {
       throw Self.invalid("原片在读取期间改变，请重试。")
     }
     return value

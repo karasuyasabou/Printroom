@@ -667,12 +667,16 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
         resolveConflict: { url in XCTAssertEqual(url, target); return .cancel })
       XCTAssertTrue(cancelled.wasCancelled)
       XCTAssertEqual(try Data(contentsOf: target), original)
-      let renamed = try await engine.run(request, lut: identityLUT(), p3Profile: p3(),
-        resolveConflict: { _ in .rename })
+      let renamed = try await engine.run(request, lut: identityLUT(), p3Profile: p3())
       XCTAssertEqual(renamed.results.first?.destination?.lastPathComponent, "chosen-1." + format.fileExtension)
       XCTAssertEqual(try Data(contentsOf: target), original)
-      let replaced = try await engine.run(request, lut: identityLUT(), p3Profile: p3(),
-        resolveConflict: { _ in .overwrite })
+      let renamedAgain = try await engine.run(request, lut: identityLUT(), p3Profile: p3())
+      XCTAssertEqual(renamedAgain.results.first?.destination?.lastPathComponent, "chosen-2." + format.fileExtension)
+      project.exportSettings.overwriteExisting = true
+      let replacement = try ExportRequest(project: project, targetIDs: [project.frames[0].id],
+        destinationDirectory: folder, explicitDestination: target)
+      project.exportSettings.overwriteExisting = false // The request retains the submitted choice.
+      let replaced = try await engine.run(replacement, lut: identityLUT(), p3Profile: p3())
       XCTAssertEqual(replaced.completedCount, 1)
       XCTAssertEqual(replaced.results.first?.destination, target)
       XCTAssertEqual(try Data(contentsOf: target), try Data(contentsOf: XCTUnwrap(renamed.results.first?.destination)))

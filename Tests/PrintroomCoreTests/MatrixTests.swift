@@ -65,10 +65,10 @@ final class MatrixTests: XCTestCase {
     }
     XCTAssertEqual(try CMOSCalibration.sampleMeans(sources: [tiff]).count, 1)
   }
-  func testRAWExportRequestsPreserveSourceIdentityAndMatrix() throws {
+  func testRAWExportRequestsPreserveSourcePathAndMatrix() throws {
     for ext in SourceImageIO.rawFileExtensions {
       let root = try folder(), source = root.appendingPathComponent("source.\(ext.uppercased())")
-      // Request creation freezes identity only; it must not decode or invoke Adobe.
+      // Request creation preserves the path without inspecting RAW identity or invoking Adobe.
       try Data([1,2,3]).write(to: source)
       var project = try ProjectStore.open(folder: root)
       project.calibration.cmosMatrix = .sonyA7CII
@@ -81,7 +81,7 @@ final class MatrixTests: XCTestCase {
         XCTAssertEqual(request.calibration.cmosMatrix, .sonyA7CII)
         XCTAssertEqual(request.protectedSourceURLs, [source])
         XCTAssertEqual(request.frames.count, 1)
-        XCTAssertNotNil(request.frames[0].rawProcessing, ext)
+        XCTAssertEqual(request.frames[0].sourceURL, source, ext)
       }
       XCTAssertEqual(try Data(contentsOf: source), Data([1,2,3]))
     }

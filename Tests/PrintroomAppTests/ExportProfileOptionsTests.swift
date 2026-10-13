@@ -73,6 +73,9 @@ struct ExportProfileOptionsTests {
     #expect(draft.compressionCheckbox.state == .on)
     #expect(draft.applyCropCheckbox.state == .on)
     draft.compressionCheckbox.state = .off
+    #expect(draft.overwriteCheckbox.state == .off)
+    draft.overwriteCheckbox.state = .on
+    #expect(!initial.overwriteExisting)
     draft.applyCropCheckbox.state = .off
     #expect(initial.compression == .deflate)
     #expect(initial.applyCrop)
@@ -81,15 +84,22 @@ struct ExportProfileOptionsTests {
     let reopened = ExportOptionsView(settings: decoded)
     #expect(reopened.compressionCheckbox.state == .off)
     #expect(reopened.applyCropCheckbox.state == .off)
+    #expect(reopened.overwriteCheckbox.state == .on)
+    reopened.setExporting(true)
+    #expect(!reopened.overwriteCheckbox.isEnabled)
+    reopened.setExporting(false)
+    #expect(reopened.overwriteCheckbox.isEnabled)
     reopened.formatPopUp.selectItem(at: 1)
     reopened.formatChanged()
     #expect(reopened.applyCropCheckbox.isEnabled)
     #expect(!reopened.settings.applyCrop)
     var legacy = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(decoded)) as? [String: Any])
     legacy.removeValue(forKey: "applyCrop")
+    legacy.removeValue(forKey: "overwriteExisting")
     let restored = try JSONDecoder().decode(ProjectExportSettings.self,
       from: JSONSerialization.data(withJSONObject: legacy))
     #expect(restored.applyCrop)
+    #expect(!restored.overwriteExisting)
   }
 
 }

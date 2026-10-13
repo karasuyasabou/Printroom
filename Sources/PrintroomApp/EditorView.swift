@@ -5,6 +5,7 @@ import SwiftUI
 struct EditorView: View {
   @Environment(\.openWindow) private var openWindow
   @ObservedObject var model: EditorModel
+  @ObservedObject var updates = AppUpdateChecker()
   @State private var showPreviewLoadingHint = false
   @State private var showAutoCropDialog = false
   @State private var showSprocketWhitening = false
@@ -182,7 +183,26 @@ struct EditorView: View {
       Image(systemName: "square.stack.3d.down.right").font(.title2).foregroundStyle(accent)
       Text("PRINTROOM").font(.system(size: 15, weight: .semibold, design: .monospaced))
         .tracking(3)
+      Text(updates.currentVersion.map { "v\($0)" } ?? "开发版")
+        .font(.system(size: 11, weight: .regular))
+        .foregroundStyle(InterfaceColors.secondaryText)
+        .accessibilityIdentifier("app-version")
       AppearanceToggle()
+      if let version = updates.availableVersion {
+        Button {
+          NSWorkspace.shared.open(AppUpdateChecker.latestReleaseURL)
+        } label: {
+          Image(systemName: "arrow.down.circle")
+            .font(.system(size: 16, weight: .regular))
+            .foregroundStyle(accent)
+            .frame(width: 28, height: 30)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("发现新版本 \(version)，点击前往下载")
+        .accessibilityLabel("下载新版本 \(version)")
+        .accessibilityIdentifier("app-update")
+      }
     }.fixedSize()
   }
   private var filmstripRollTitle: some View {

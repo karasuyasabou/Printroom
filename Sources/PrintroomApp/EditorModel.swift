@@ -1890,7 +1890,7 @@ import UniformTypeIdentifiers
   func startExport(targetIDs: Set<UUID>, directory: URL, explicitDestination: URL? = nil, filenamePrefix: String? = nil) {
     guard let project, let assets, !isExporting else { return }
     do {
-      // Captures targets, source identities, calibration, frame edits, orientation, and output settings now.
+      // Captures targets, TIFF identities, calibration and edits; RAW pixels are read at export time.
       let request = try ExportRequest(project: project, targetIDs: targetIDs,
         destinationDirectory: directory, explicitDestination: explicitDestination, filenamePrefix: filenamePrefix)
       exportGeneration = UUID()
@@ -1902,24 +1902,7 @@ import UniformTypeIdentifiers
       exportDialog?.showProgress(fraction: 0, detail: exportDetail)
       exportTask = Task {
         do {
-          let summary = try await exportEngine.run(request, lut: assets.lut, p3Profile: assets.profile, fujifilmLUT: assets.fujifilmLUT,
-            resolveConflict: { destination in
-              try Task.checkCancellation()
-              return await MainActor.run {
-                guard !Task.isCancelled else { return .cancel }
-                let alert = NSAlert()
-                alert.messageText = "文件已存在，是否覆盖？"
-                alert.informativeText = destination.lastPathComponent
-                alert.addButton(withTitle: "是，覆盖")
-                alert.addButton(withTitle: "否，自动重命名")
-                alert.addButton(withTitle: "取消导出")
-                switch alert.runModal() {
-                case .alertFirstButtonReturn: return .overwrite
-                case .alertSecondButtonReturn: return .rename
-                default: return .cancel
-                }
-              }
-            }) { progress in
+          let summary = try await exportEngine.run(request, lut: assets.lut, p3Profile: assets.profile, fujifilmLUT: assets.fujifilmLUT) { progress in
             Task { @MainActor [weak self] in
               guard let self, self.exportGeneration == generation, self.isExporting,
                 progress.fraction >= self.exportProgress else { return }

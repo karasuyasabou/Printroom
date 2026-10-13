@@ -7,6 +7,7 @@ import PrintroomCore
   let formatPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
   let compressionCheckbox = NSButton(checkboxWithTitle: "ZIP 压缩", target: nil, action: nil)
   let applyCropCheckbox = NSButton(checkboxWithTitle: "应用裁剪", target: nil, action: nil)
+  let overwriteCheckbox = NSButton(checkboxWithTitle: "覆盖重名", target: nil, action: nil)
   let prefixField = NSTextField(string: "")
   let progressIndicator = NSProgressIndicator()
   let statusField = NSTextField(labelWithString: "")
@@ -59,6 +60,7 @@ import PrintroomCore
     { value.profile = profile }
     value.compression = compressionCheckbox.state == .on ? .deflate : .none
     value.applyCrop = applyCropCheckbox.state == .on
+    value.overwriteExisting = overwriteCheckbox.state == .on
     value.format = ExportFormat(rawValue: formatPopUp.selectedItem?.representedObject as? String ?? "") ?? .tiff
     value.destinationPath = destinationURL?.path
     value.filenamePrefix = customPrefix ? filenamePrefix : nil
@@ -83,6 +85,8 @@ import PrintroomCore
     compressionCheckbox.state = settings.compression == .deflate ? .on : .off
     applyCropCheckbox.setAccessibilityIdentifier("export-apply-crop")
     applyCropCheckbox.state = settings.applyCrop ? .on : .off
+    overwriteCheckbox.setAccessibilityIdentifier("export-overwrite")
+    overwriteCheckbox.state = settings.overwriteExisting ? .on : .off
 
     for profile in OutputColorProfile.selectable {
       profilePopUp.addItem(withTitle: profile.label)
@@ -110,13 +114,16 @@ import PrintroomCore
     let destinationRow = NSStackView(views: [destinationField, choose])
     destinationRow.spacing = 8
     prefixField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    let cropRow = NSStackView(views: [applyCropCheckbox, overwriteCheckbox])
+    cropRow.orientation = .horizontal
+    cropRow.spacing = 16
     grid = NSGridView(views: [
       [NSTextField(labelWithString: "目的地"), destinationRow],
       [NSTextField(labelWithString: "文件名前缀"), prefixField],
       [NSTextField(labelWithString: "格式"), formatPopUp],
       [NSTextField(labelWithString: "色彩空间"), profilePopUp],
       [NSTextField(labelWithString: ""), compressionCheckbox],
-      [NSTextField(labelWithString: ""), applyCropCheckbox],
+      [NSTextField(labelWithString: ""), cropRow],
     ])
     formatChanged()
     grid.columnSpacing = 12
@@ -165,7 +172,7 @@ import PrintroomCore
   }
 
   func setExporting(_ exporting: Bool) {
-    for control in [prefixField, formatPopUp, profilePopUp, compressionCheckbox, applyCropCheckbox, choose] as [NSControl] {
+    for control in [prefixField, formatPopUp, profilePopUp, compressionCheckbox, applyCropCheckbox, overwriteCheckbox, choose] as [NSControl] {
       control.isEnabled = !exporting
     }
     if !exporting { formatChanged() }

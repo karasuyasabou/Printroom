@@ -5,7 +5,7 @@ printroom_native_link_args() {
   local native_build_root="$1" native_scratch_root="$2"
   local native_filelist="$native_scratch_root/native-raw-objects.txt"
   mkdir -p "$native_scratch_root"
-  find "$native_build_root/LibRaw.build" "$native_build_root/CRawBridge.build" \
+  find "$native_build_root/LibRaw.build" "$native_build_root/CRawBridge.build" "$native_build_root/CLibDeflate.build" \
     -type f -name '*.o' ! -name '*_ph.cpp.o' > "$native_filelist"
   if [[ ! -s "$native_filelist" ]]; then
     echo 'Missing native RAW objects; rebuild with SwiftPM first.' >&2
@@ -13,5 +13,6 @@ printroom_native_link_args() {
   fi
   native_raw_flags=(-I "$PWD/Sources/CRawBridge/include" \
     -Xcc "-fmodule-map-file=$native_build_root/CRawBridge.build/module.modulemap" \
+    -Xcc "-fmodule-map-file=$native_build_root/CLibDeflate.build/module.modulemap" \
     -Xlinker -filelist -Xlinker "$native_filelist" -lc++)
 }

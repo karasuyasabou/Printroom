@@ -6,6 +6,7 @@ import SwiftUI
   @AppStorage(AppAppearance.defaultsKey) private var appearance: AppAppearance = .dark
   @StateObject private var history: RecentRolls
   @StateObject private var model: EditorModel
+  @StateObject private var updates = AppUpdateChecker()
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
   init() {
     let history = RecentRolls()
@@ -39,8 +40,9 @@ import SwiftUI
   }
   var body: some Scene {
     Window("Printroom", id: "editor") {
-      EditorView(model: model)
+      EditorView(model: model, updates: updates)
         .background(EditorWindowCloseHandler())
+        .task { await updates.checkOnce() }
         .onAppear { delegate.model = model; appearance.apply() }
         .onChange(of: appearance) { _, value in value.apply() }
     }.defaultSize(width: 1360, height: 900)

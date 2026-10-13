@@ -11,17 +11,12 @@ public struct ExportFrameSnapshot: Sendable {
   public let crop: FrameCrop?
   public let sourceSize: Int64
   public let sourceModified: Double
-  public let rawProcessing: RAWProcessingIdentity?
 
   public init(frame: FrameRecord, folder: URL, rollNumber: Int = 1) throws {
     self.rollNumber = rollNumber
     id = frame.id
     sourceName = frame.filename
     sourceURL = folder.appendingPathComponent(frame.filename)
-    rawProcessing = try SourceImageIO.processingIdentity(url: sourceURL)
-    if let previous = frame.rawProcessing, previous != rawProcessing {
-      throw PrintroomError.invalid("RAW 处理版本已改变，请重新载入照片后导出。")
-    }
     adjustments = frame.adjustments
     orientation = frame.orientation
     crop = frame.crop
@@ -154,13 +149,13 @@ public actor ExportEngine {
     }
   }
 
-  /// Noninteractive callers retain their explicit no-replacement export behavior.
+  /// Resolve collisions from the frozen export settings without interrupting the queue.
   public func run(
     _ request: ExportRequest, lut: CubeLUT, p3Profile: Data, fujifilmLUT: CubeLUT? = nil,
     progress: @Sendable @escaping (ExportProgress) -> Void = { _ in }
   ) async throws -> ExportSummary {
     try await run(request, lut: lut, p3Profile: p3Profile, fujifilmLUT: fujifilmLUT,
-      resolveConflict: { _ in .rename }, progress: progress)
+      resolveConflict: { _ in request.settings.overwriteExisting ? .overwrite : .rename }, progress: progress)
   }
 
   public func run(
@@ -315,7 +310,7 @@ private actor ExportWorker {
     if let explicit = request.explicitDestination {
       try protect(explicit, request: request)
     }
-    let image = try PerformanceTrace.measure("export.full_input_read") { try SourceImageIO.read(url: frame.sourceURL, expectedIdentity: frame.rawProcessing) }
+    let image = try PerformanceTrace.measure("export.full_input_read") { try SourceImageIO.readForExport(url: frame.sourceURL) }
     try validateSource(frame)
     let geometry = try CropGeometry(crop: request.settings.applyCrop ? frame.crop : nil, sourceWidth: image.width,
                                     sourceHeight: image.height, orientation: frame.orientation)
@@ -329,7 +324,7 @@ private actor ExportWorker {
           ?? (frame.sourceName as NSString).deletingPathExtension + "-Printroom." + fileExtension)
     let basename = initial.deletingPathExtension().lastPathComponent
     let ext = initial.pathExtension.isEmpty ? fileExtension : initial.pathExtension
-    // Once the user declines replacement, reserve a free suffixed name atomically.
+    // When replacement is disabled, reserve a free suffixed name atomically.
     var allowRename = false
     var suffix = 0
     while suffix < 100_000 {
@@ -411,7 +406,7 @@ private actor ExportWorker {
         }
         return destination
       } catch is TIFFWriteError {
-        // A file appeared during encoding: ask before replacing or renaming it.
+        // A file appeared during encoding: retry collision handling.
         continue
       }
     }
@@ -424,7 +419,11 @@ private actor ExportWorker {
       == frame.sourceURL.deletingLastPathComponent().standardizedFileURL.resolvingSymlinksInPath()
     else { throw PrintroomError.invalid("原片链接指向卷外，无法使用该任务快照：\(frame.sourceName)") }
     let attributes = try FileManager.default.attributesOfItem(atPath: resolved.path)
-    guard attributes[.type] as? FileAttributeType == .typeRegular,
+    guard attributes[.type] as? FileAttributeType == .typeRegular else {
+      throw PrintroomError.invalid("无法读取原片：\(frame.sourceName)")
+    }
+    if SourceImageIO.isRAW(frame.sourceURL) { return }
+    guard
       let size = (attributes[.size] as? NSNumber)?.int64Value,
       let modified = attributes[.modificationDate] as? Date,
       size == frame.sourceSize, modified.timeIntervalSince1970 == frame.sourceModified
