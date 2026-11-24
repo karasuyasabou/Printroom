@@ -279,7 +279,7 @@ struct EditorRefinementTests {
       image: LinearImage(width: 4, height: 4, samples: [UInt16](repeating: 49151, count: 48)),
       rect: .init(x: 0, y: 0, width: 4, height: 4), matrix: roll.calibration.matrix,
       sourceFrameID: roll.frames[0].id, cmosMatrix: roll.calibration.cmosMatrix)
-    try ProjectStore.save(roll, folder: folder, expectedModification: nil)
+    try ProjectStore.save(roll, folder: folder)
     model.open(folder)
     try await waitForProxyImport(model)
     try await prepareCalibratedPreview(model)

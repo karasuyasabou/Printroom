@@ -1,10 +1,8 @@
 import Foundation
 import PrintroomCore
 
-/// Owns the pending save and the revision accepted by ProjectStore. UI error and
-/// dirty state remain in EditorModel; a failed save never advances this token.
+/// Owns the pending save. UI error and dirty state remain in EditorModel.
 @MainActor final class ProjectPersistence {
-  var expectedModification: Date?
   private var pending: Task<Void, Never>?
 
   func cancel() { pending?.cancel(); pending = nil }
@@ -21,7 +19,6 @@ import PrintroomCore
   func save(_ project: RollProject, folder: URL) throws {
     let trace = PerformanceTrace.begin(); defer { PerformanceTrace.end("project.save", trace) }
     cancel()
-    expectedModification = try ProjectStore.save(project, folder: folder,
-      expectedModification: expectedModification)
+    try ProjectStore.save(project, folder: folder)
   }
 }

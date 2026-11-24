@@ -20,7 +20,7 @@ struct RollTimingEditingTests {
     }
     var p = try ProjectStore.open(folder: folder)
     p.calibration = FilmCalibration()
-    try ProjectStore.save(p, folder: folder, expectedModification: nil)
+    try ProjectStore.save(p, folder: folder)
     model.open(folder)
     try await waitForProxyImport(model)
     try await wait { model.hasImage && !model.isRendering }

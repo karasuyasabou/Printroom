@@ -37,7 +37,7 @@ RAW 输入需要另行安装 [Adobe DNG Converter](https://helpx.adobe.com/camer
 
 ## 主要功能
 
-- **按卷管理**：支持线性 16-bit RGB TIFF 与常见品牌 RAW，编辑设置自动保存，原片保持不变。
+- **按卷管理**：支持线性 8-bit / 16-bit RGB TIFF 与常见品牌 RAW，编辑设置自动保存，原片保持不变。
 - **校准与调色**：卷级矩阵、片基校准、色罩分析，逐帧 Timing / Contrast 与中性点吸管。
 - **印片外观**：内置 Kodak 2383 与 Fujifilm 3513DI。
 - **批量处理**：自动及手动裁剪、齿孔置白、多选同步、整组撤销，以及五种色彩空间的 TIFF / JPG 导出。
@@ -46,7 +46,7 @@ RAW 输入需要另行安装 [Adobe DNG Converter](https://helpx.adobe.com/camer
 
 ### 1. 打开并命名胶卷
 
-在主页点击“打开底片”，选择存放这一卷照片的文件夹。加载完成后可为胶卷命名。
+在主页点击“打开底片文件夹”，选择存放这一卷照片的文件夹。加载完成后可为胶卷命名。
 
 <p align="center">
   <img src="docs/images/quick-start-01-open-roll.png" width="720" alt="打开底片文件夹后，在命名胶卷窗口中输入名称并保存">

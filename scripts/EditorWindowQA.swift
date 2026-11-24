@@ -179,7 +179,7 @@ import SwiftUI
       }
       func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
       // This branch checks film-base dialogs on an existing roll; onboarding is covered by --roll-name.
-      try ProjectStore.save(try ProjectStore.open(folder: directory), folder: directory, expectedModification: nil)
+      try ProjectStore.save(try ProjectStore.open(folder: directory), folder: directory)
       model.open(directory)
       try await ready { model.hasImage && !model.isRendering && model.thumbnails.count == 2 }
       model.project?.name = "片基预览 QA"
@@ -647,7 +647,7 @@ import SwiftUI
         }
         return samples
       }
-      try ProjectStore.save(try ProjectStore.open(folder: hoverFolder), folder: hoverFolder, expectedModification: nil)
+      try ProjectStore.save(try ProjectStore.open(folder: hoverFolder), folder: hoverFolder)
       model.open(hoverFolder)
       func settleHover() async throws {
         let limit = ContinuousClock.now.advanced(by: .seconds(15))
@@ -857,7 +857,7 @@ import SwiftUI
     guard NSApp.isActive, window.isKeyWindow, window.isVisible, window.windowNumber > 0 else {
       throw KeyboardBlocked(detail: "一次激活后 QA 窗口未获得焦点；active=\(NSApp.isActive), key=\(window.isKeyWindow), visible=\(window.isVisible), windowNumber=\(window.windowNumber), frontmost=\(NSWorkspace.shared.frontmostApplication?.localizedName ?? "nil")。未发送键鼠事件，不继续尝试激活。")
     }
-    try ProjectStore.save(try ProjectStore.open(folder: folder), folder: folder, expectedModification: nil)
+    try ProjectStore.save(try ProjectStore.open(folder: folder), folder: folder)
     model.open(folder)
     func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
       guard condition() else { throw PrintroomError.invalid(message) }

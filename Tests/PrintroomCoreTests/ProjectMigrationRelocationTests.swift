@@ -23,7 +23,7 @@ final class ProjectMigrationRelocationTests: XCTestCase {
       XCTAssertEqual(loaded.frames, original.frames)
       XCTAssertEqual(loaded.calibration, original.calibration)
       XCTAssertEqual(try Data(contentsOf: url), bytes)
-      try ProjectStore.save(loaded, folder: root, expectedModification: loaded.loadedModificationDate)
+      try ProjectStore.save(loaded, folder: root)
       let reopened = try ProjectStore.open(folder: root)
       XCTAssertEqual(reopened.exportSettings, loaded.exportSettings)
       XCTAssertNil(OutputColorProfile(rawValue: rawProfile))
@@ -93,7 +93,7 @@ final class ProjectMigrationRelocationTests: XCTestCase {
     XCTAssertEqual(migrated.exportSettings.compression, .none)
     XCTAssertEqual(migrated.exportSettings.profileSHA256, OutputColorProfile.displayP3.profileSHA256)
     XCTAssertEqual(try Data(contentsOf: url), original)
-    try ProjectStore.save(migrated, folder: root, expectedModification: migrated.loadedModificationDate)
+    try ProjectStore.save(migrated, folder: root)
     let reopened = try ProjectStore.open(folder: root)
     XCTAssertEqual(reopened.frames, migrated.frames)
     XCTAssertEqual(reopened.schemaVersion, RollProject.currentSchemaVersion)
@@ -110,7 +110,7 @@ final class ProjectMigrationRelocationTests: XCTestCase {
         var project = try ProjectStore.open(folder: root)
         for index in project.frames.indices { project.frames[index].orientation = FrameOrientation.allCases[index] }
         project.exportSettings = ProjectExportSettings(profile: profile, compression: compression)
-        try ProjectStore.save(project, folder: root, expectedModification: nil)
+        try ProjectStore.save(project, folder: root)
         let loaded = try ProjectStore.open(folder: root)
         XCTAssertEqual(loaded.frames, project.frames)
         XCTAssertEqual(loaded.exportSettings, project.exportSettings)
@@ -173,7 +173,7 @@ final class ProjectMigrationRelocationTests: XCTestCase {
     project.frames[0].orientation = .rotate90CW
     project.frames[0].crop = FrameCrop(aspect: .square, width: 0.5)
     let preserved = project.frames[0]
-    try ProjectStore.save(project, folder: root, expectedModification: nil)
+    try ProjectStore.save(project, folder: root)
     let renamed = root.appendingPathComponent("renamed.tif")
     try FileManager.default.moveItem(at: old, to: renamed)
     let discovered = try ProjectStore.open(folder: root)
@@ -187,7 +187,7 @@ final class ProjectMigrationRelocationTests: XCTestCase {
     XCTAssertEqual(relocated.frames[0].crop, preserved.crop)
     XCTAssertFalse(relocated.frames[0].isMissing)
     XCTAssertEqual(relocated.lastActiveFrameID, preserved.id)
-    try ProjectStore.save(relocated, folder: root, expectedModification: discovered.loadedModificationDate)
+    try ProjectStore.save(relocated, folder: root)
     XCTAssertEqual(try ProjectStore.open(folder: root).frames, relocated.frames)
     XCTAssertEqual(discovered.frames.count, 2, "before value remains available for grouped undo")
   }
@@ -241,7 +241,7 @@ final class ProjectMigrationRelocationTests: XCTestCase {
     project.frames[0].adjustments.timing.red = 87
     project.frames[0].orientation = .rotate90CCW
     let stableID = project.frames[0].id
-    try ProjectStore.save(project, folder: root, expectedModification: nil)
+    try ProjectStore.save(project, folder: root)
     let settingsURL = root.appendingPathComponent(ProjectStore.filename)
     let originalSettings = try Data(contentsOf: settingsURL)
     try FileManager.default.removeItem(at: original)

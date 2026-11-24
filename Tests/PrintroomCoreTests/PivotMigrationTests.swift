@@ -63,30 +63,29 @@ final class PivotMigrationTests: XCTestCase {
       XCTAssertEqual(migrated.exportSettings, project.exportSettings)
       XCTAssertEqual(try Data(contentsOf: url), original)
       XCTAssertTrue(try backups(in: root).isEmpty)
-      let savedDate = try ProjectStore.save(migrated, folder: root, expectedModification: migrated.loadedModificationDate)
+      try ProjectStore.save(migrated, folder: root)
       let backup = try XCTUnwrap(backups(in: root).first)
       XCTAssertEqual(try Data(contentsOf: backup), original)
       let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
       XCTAssertEqual(saved["algorithmVersion"] as? String, "printroom-density-v6")
       XCTAssertEqual(saved["schemaVersion"] as? Int, RollProject.currentSchemaVersion)
-      try ProjectStore.save(migrated, folder: root, expectedModification: savedDate)
+      try ProjectStore.save(migrated, folder: root)
       XCTAssertEqual(try backups(in: root), [backup])
       XCTAssertEqual(try Data(contentsOf: backup), original)
     }
   }
 
-  func testConflictDoesNotBackUpOrOverwriteLegacySettings() throws {
+  func testDirectOverwriteStillBacksUpExactLegacySettings() throws {
     let root = try folder()
     let original = try legacyData(RollProject(), schema: 2)
     let url = root.appendingPathComponent(ProjectStore.filename)
     try original.write(to: url)
-    let migrated = try ProjectStore.open(folder: root)
-    XCTAssertThrowsError(try ProjectStore.save(migrated, folder: root, expectedModification: nil))
-    var other = migrated
-    other.id = UUID()
-    XCTAssertThrowsError(try ProjectStore.save(other, folder: root, expectedModification: migrated.loadedModificationDate))
-    XCTAssertTrue(try backups(in: root).isEmpty)
-    XCTAssertEqual(try Data(contentsOf: url), original)
+    var migrated = try ProjectStore.open(folder: root)
+    migrated.name = "Current settings"
+    try ProjectStore.save(migrated, folder: root)
+    let backup = try XCTUnwrap(backups(in: root).first)
+    XCTAssertEqual(try Data(contentsOf: backup), original)
+    XCTAssertEqual(try ProjectStore.open(folder: root).name, migrated.name)
   }
 
   func testUnknownAlgorithmAndOldParameterSnapshotAreRejected() throws {

@@ -47,7 +47,7 @@ final class RAWProjectTests: XCTestCase {
       project.frames[index].adjustments.timing.red = index + 1
       project.frames[index].orientation = .rotate90CW
     }
-    try ProjectStore.save(project, folder: root, expectedModification: nil)
+    try ProjectStore.save(project, folder: root)
     let reopened = try ProjectStore.open(folder: root)
     XCTAssertEqual(reopened.frames, project.frames)
     XCTAssertEqual(reopened.schemaVersion, project.schemaVersion)
@@ -76,7 +76,7 @@ final class RAWProjectTests: XCTestCase {
     project.frames[0].adjustments.timing.red = 19
     project.frames[0].orientation = .rotate90CW
     let originalFrame = project.frames[0]
-    try ProjectStore.save(project, folder: root, expectedModification: nil)
+    try ProjectStore.save(project, folder: root)
     let moved = container.appendingPathComponent("moved")
     try FileManager.default.moveItem(at: root, to: moved)
     let reopened = try ProjectStore.open(folder: moved)
@@ -110,13 +110,13 @@ final class RAWProjectTests: XCTestCase {
     XCTAssertEqual(migrated.frames, project.frames)
     XCTAssertNil(migrated.frames[0].rawProcessing)
     XCTAssertEqual(try Data(contentsOf: url), original)
-    try ProjectStore.save(migrated, folder: root, expectedModification: migrated.loadedModificationDate)
+    try ProjectStore.save(migrated, folder: root)
     let backups = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
       .filter { $0.lastPathComponent.hasPrefix(".printroom-schema4-") }
     XCTAssertEqual(backups.count, 1)
     XCTAssertEqual(try Data(contentsOf: XCTUnwrap(backups.first)), original)
     let reopened = try ProjectStore.open(folder: root)
-    try ProjectStore.save(reopened, folder: root, expectedModification: reopened.loadedModificationDate)
+    try ProjectStore.save(reopened, folder: root)
     XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path)
       .filter { $0.hasPrefix(".printroom-schema4-") }.count, 1)
   }
@@ -126,7 +126,7 @@ final class RAWProjectTests: XCTestCase {
     try Data([1]).write(to: root.appendingPathComponent("old.tif"))
     var project = try ProjectStore.open(folder: root)
     project.frames[0].rawProcessing = identity()
-    XCTAssertThrowsError(try ProjectStore.save(project, folder: root, expectedModification: nil))
+    XCTAssertThrowsError(try ProjectStore.save(project, folder: root))
     XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(ProjectStore.filename).path))
   }
 }

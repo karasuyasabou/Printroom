@@ -243,7 +243,6 @@ public enum ProjectStoreError: LocalizedError, Equatable, Sendable {
   case invalidProject(String)
   case unsupportedSchema(Int)
   case incompatibleAlgorithm(String)
-  case externalConflict
   case unavailableFrame(String)
 
   public var errorDescription: String? {
@@ -251,7 +250,6 @@ public enum ProjectStoreError: LocalizedError, Equatable, Sendable {
     case .invalidProject(let reason): "项目无效或已损坏：\(reason)"
     case .unsupportedSchema(let version): "不支持项目结构版本 \(version)，未覆盖原项目。"
     case .incompatibleAlgorithm(let version): "不兼容的算法版本：\(version)"
-    case .externalConflict: "项目已被外部修改或删除。请重新载入或另存副本。"
     case .unavailableFrame(let name): "照片不存在或无法读取：\(name)"
     }
   }
@@ -341,10 +339,10 @@ public enum ProjectStore {
     return try result.get()
   }
 
-  /// nil expects no existing project. Pass the last observed/returned date on every subsequent save.
+  /// Saves the current in-memory settings without checking external revisions.
   /// Validation and encoding finish before touching the destination; writes use a same-directory atomic replacement.
   @discardableResult
-  public static func save(_ project: RollProject, folder: URL, expectedModification: Date?) throws
+  public static func save(_ project: RollProject, folder: URL) throws
     -> Date
   {
     try validate(project)
@@ -365,12 +363,10 @@ public enum ProjectStore {
     ) { coordinated in
       result = Result {
         let current = try fileDate(coordinated)
-        guard current == expectedModification else { throw ProjectStoreError.externalConflict }
         if current != nil {
-          // Even a caller with the newest timestamp cannot overwrite a damaged/future project.
+          // Direct overwrite still preserves damaged and unsupported project files.
           let original = try Data(contentsOf: coordinated)
           let existing = try decode(original)
-          guard existing.id == project.id else { throw ProjectStoreError.externalConflict }
           let object = try JSONSerialization.jsonObject(with: original) as? [String: Any]
           let frames = object?["frames"] as? [[String: Any]] ?? []
           if frames.contains(where: { ($0["adjustments"] as? [String: Any])?["cineonLogLUT"] as? String == "neutral" }) {
@@ -387,7 +383,7 @@ public enum ProjectStore {
             try original.write(to: backup, options: .withoutOverwriting)
           } else if header.schemaVersion < RollProject.currentSchemaVersion {
             // Older app packages cannot read the current schema. Preserve their exact settings
-            // before the first migrated save, with the same conflict/atomicity rules.
+            // before the first migrated save, with the same atomicity rules.
             let backup = coordinated.deletingLastPathComponent().appendingPathComponent(
               ".printroom-schema\(header.schemaVersion)-\(UUID().uuidString).json")
             try original.write(to: backup, options: .withoutOverwriting)

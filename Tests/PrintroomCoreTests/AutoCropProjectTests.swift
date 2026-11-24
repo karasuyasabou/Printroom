@@ -29,7 +29,7 @@ final class AutoCropProjectTests: XCTestCase {
     loaded.frames[0].crop = free
     loaded.frames[0].cropOrigin = .automatic
     loaded.frames[0].cropNeedsReview = true
-    try ProjectStore.save(loaded, folder: folder, expectedModification: loaded.loadedModificationDate)
+    try ProjectStore.save(loaded, folder: folder)
     let backups = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
       .filter { $0.lastPathComponent.hasPrefix(".printroom-schema6-") }
     XCTAssertEqual(backups.count, 1)

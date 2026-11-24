@@ -73,6 +73,73 @@ final class TIFFCodecTests: XCTestCase {
     }
   }
 
+  func testEightBitAllLayoutsPreserveSamplesPreviewRegionAndICC() throws {
+    let order = [[0,1,2,3,4,5], [2,1,0,5,4,3], [5,4,3,2,1,0], [3,4,5,0,1,2],
+      [0,3,1,4,2,5], [3,0,4,1,5,2], [5,2,4,1,3,0], [2,5,1,4,0,3]]
+    let expanded = known.map { UInt16(UInt8(truncatingIfNeeded: $0)) * 257 }
+    try inTemporaryDirectory { directory in
+      let url = directory.appendingPathComponent("eight.tif")
+      for big in [false, true] {
+        for little in [false, true] {
+          for compression: UInt32 in [1, 5, 8, 32946] {
+            for predictor: UInt32 in [1, 2] {
+              for orientation: UInt32 in 1...8 {
+                try fixture(bits: 8, big: big, little: little, compression: compression,
+                  predictor: predictor, orientation: orientation,
+                  profile: descriptionProfile("Unrelated gamma RGB")).write(to: url)
+                let image = try TIFFCodec.read(url: url)
+                let expected = order[Int(orientation) - 1].flatMap {
+                  Array(expanded[($0 * 3)..<($0 * 3 + 3)])
+                }
+                XCTAssertEqual(image.samples, expected)
+                XCTAssertEqual(image.embeddedProfileName, "Unrelated gamma RGB")
+                XCTAssertEqual(try TIFFCodec.metadata(url: url).width, image.width)
+                let preview = try TIFFCodec.readPreview(url: url, maxDimension: 1)
+                XCTAssertEqual(preview.samples, Array(expected.prefix(3)))
+                let region = try TIFFCodec.readRegion(url: url,
+                  rect: PixelRect(x: 1, y: 1, width: 1, height: 1))
+                let start = (image.width + 1) * 3
+                XCTAssertEqual(region.samples, Array(expected[start..<(start + 3)]))
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  func testEightBitUserFilesWhenRequested() throws {
+    guard let path = ProcessInfo.processInfo.environment["PRINTROOM_EIGHT_BIT_INPUT"] else {
+      throw XCTSkip("Set PRINTROOM_EIGHT_BIT_INPUT to validate external 8-bit TIFF files.")
+    }
+    try inTemporaryDirectory { directory in
+      let proxies = SourceProxyService(cacheRoot: directory.appendingPathComponent("cache"))
+      defer { proxies.waitForMaintenance() }
+      for name in ["1.tif", "2.tif", "3.tif"] {
+        let url = URL(fileURLWithPath: path).appendingPathComponent(name)
+        let original = try Data(contentsOf: url)
+        let tags = inspect(original)
+        XCTAssertEqual(tags[258]?.values, [8, 8, 8])
+        let offset = Int(try XCTUnwrap(tags[273]?.values.first))
+        let count = Int(try XCTUnwrap(tags[279]?.values.first))
+        let raw = original.subdata(in: offset..<(offset + count))
+        let image = try TIFFCodec.read(url: url)
+        XCTAssertEqual(image.samples.count, raw.count)
+        XCTAssertTrue(zip(image.samples, raw).allSatisfy { $0 == UInt16($1) * 257 })
+        for dimension in [1600, 240] {
+          XCTAssertEqual(try proxies.preview(url: url, maxDimension: dimension).samples,
+            try TIFFCodec.readPreview(url: url, maxDimension: dimension).samples)
+        }
+        let result = directory.appendingPathComponent(name)
+        try TIFFCodec.write(url: result, width: image.width, height: image.height, profile: nil) { rows in
+          Array(image.samples[(rows.lowerBound * image.width * 3)..<(rows.upperBound * image.width * 3)])
+        }
+        XCTAssertEqual(try TIFFCodec.read(url: result).samples, image.samples)
+        XCTAssertEqual(try Data(contentsOf: url), original)
+      }
+    }
+  }
+
   func testBigTIFFSamplesPreviewRegionAndICC() throws {
     try inTemporaryDirectory { directory in
       let classic = directory.appendingPathComponent("classic.tif")
@@ -607,10 +674,11 @@ final class TIFFCodecTests: XCTestCase {
   // Independent fixture layout: pixel strips precede the IFD; production writes
   // its IFD and metadata first. A 3x2 fixture has one strip per row.
   private func fixture(
-    big: Bool = false, addressShift: UInt64 = 0, little: Bool = true, compression: UInt32 = 1, predictor: UInt32 = 1,
+    bits: Int = 16, big: Bool = false, addressShift: UInt64 = 0, little: Bool = true, compression: UInt32 = 1, predictor: UInt32 = 1,
     orientation: UInt32? = nil, profile: Data? = nil,
     overrides: [UInt16: [UInt32]] = [:], lzwStrips: [Data]? = nil
   ) throws -> Data {
+    let input = bits == 8 ? known.map { UInt16(UInt8(truncatingIfNeeded: $0)) } : known
     var file = Data(repeating: 0, count: big ? 16 : 8)
     var offsets: [UInt64] = []
     var counts: [UInt64] = []
@@ -619,8 +687,8 @@ final class TIFFCodecTests: XCTestCase {
       for x in 0..<3 {
         for c in 0..<3 {
           let i = y * 9 + x * 3 + c
-          let value = predictor == 2 && x > 0 ? known[i] &- known[i - 3] : known[i]
-          raw.append(contentsOf: encoded(UInt32(value), size: 2, little: little))
+          let value = predictor == 2 && x > 0 ? input[i] &- input[i - 3] : input[i]
+          raw.append(contentsOf: encoded(UInt32(value), size: bits / 8, little: little))
         }
       }
       if compression == 5 {
@@ -646,7 +714,7 @@ final class TIFFCodecTests: XCTestCase {
     while file.count % (big ? 8 : 2) != 0 { file.append(0) }
     let ifd = UInt64(file.count) + addressShift
     var tags: [UInt16: [UInt64]] = [
-      256: [3], 257: [2], 258: [16, 16, 16], 259: [UInt64(compression)],
+      256: [3], 257: [2], 258: Array(repeating: UInt64(bits), count: 3), 259: [UInt64(compression)],
       262: [2], 273: offsets, 277: [3], 278: [1], 279: counts, 284: [1], 317: [UInt64(predictor)],
     ]
     if let orientation { tags[274] = [UInt64(orientation)] }

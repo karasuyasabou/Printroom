@@ -456,14 +456,13 @@ final class CropTests: XCTestCase {
     XCTAssertEqual(migrated.algorithmVersion, algorithmVersion)
     XCTAssertEqual(migrated.schemaVersion, RollProject.currentSchemaVersion)
     XCTAssertEqual(try Data(contentsOf: settings), bytes)
-    XCTAssertThrowsError(try ProjectStore.save(migrated, folder: folder, expectedModification: nil))
     XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), [ProjectStore.filename])
-    let date = try ProjectStore.save(migrated, folder: folder, expectedModification: migrated.loadedModificationDate)
+    try ProjectStore.save(migrated, folder: folder)
     let backups = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
       .filter { $0.lastPathComponent.hasPrefix(".printroom-schema2-") }
     XCTAssertEqual(backups.count, 1)
     XCTAssertEqual(try Data(contentsOf: XCTUnwrap(backups.first)), bytes)
-    try ProjectStore.save(migrated, folder: folder, expectedModification: date)
+    try ProjectStore.save(migrated, folder: folder)
     XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path).count, 2)
   }
 

@@ -125,7 +125,7 @@ struct EditorView: View {
       cancel: { model.showMissingFilmBaseDialog = false }) { EmptyView() }
     .nativeDialog(isPresented: model.showRollTimingConfirmation || model.showRollTimingDialog,
       title: model.showRollTimingConfirmation ? "色罩分析" : (model.isAnalyzingRollTiming ? "色罩分析" : (model.rollTimingError == nil ? "分析成功" : "分析未完成")),
-      message: model.showRollTimingConfirmation ? "色罩分析将跳过首尾张，请确认已完成有效画幅裁剪和片基框选" : (model.rollTimingError ?? ""),
+      message: model.showRollTimingConfirmation ? "" : (model.rollTimingError ?? ""),
       primaryTitle: model.showRollTimingConfirmation ? "开始分析" : (!model.isAnalyzingRollTiming && model.rollTimingError == nil ? "应用到整卷" : nil),
       cancelTitle: model.isAnalyzingRollTiming ? "取消分析" : "取消",
       primary: {
@@ -364,7 +364,7 @@ struct EditorView: View {
       Image(systemName: "viewfinder.rectangular").font(.system(size: model.recentRolls != nil ? 32 : 52, weight: .ultraLight))
         .foregroundStyle(accent)
       HStack(spacing: 10) {
-        Button("打开底片") { model.openPanel() }.buttonStyle(.borderedProminent)
+        Button("打开底片文件夹") { model.openPanel() }.buttonStyle(.borderedProminent)
         Button { openWindow(id: "cache-manager") } label: {
           Label("管理缓存", systemImage: "internaldrive")
         }.buttonStyle(.bordered)

@@ -46,7 +46,7 @@ struct RollPerformanceMeasurements {
       timing: .init(master: 30, red: 5, green: -3, blue: 7),
       contrast: .init(master: 1.05, red: 0.95, green: 1.02, blue: 1.1))
     if mode != "import" {
-      _ = try ProjectStore.save(project, folder: folder, expectedModification: project.loadedModificationDate)
+      _ = try ProjectStore.save(project, folder: folder)
     }
     var applied: Double?
     var outputs: [String] = []

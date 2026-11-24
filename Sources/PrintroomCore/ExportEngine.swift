@@ -310,6 +310,7 @@ private actor ExportWorker {
     if let explicit = request.explicitDestination {
       try protect(explicit, request: request)
     }
+    let dates = try ExportDates.read(from: frame.sourceURL)
     let image = try PerformanceTrace.measure("export.full_input_read") { try SourceImageIO.readForExport(url: frame.sourceURL) }
     try validateSource(frame)
     let geometry = try CropGeometry(crop: request.settings.applyCrop ? frame.crop : nil, sourceWidth: image.width,
@@ -383,13 +384,13 @@ private actor ExportWorker {
         }
         if request.settings.format == .jpeg {
           try JPEGCodec.write(url: writeURL, width: size.width, height: size.height,
-            profile: converter.outputProfile) { rows in
+            profile: converter.outputProfile, dates: dates) { rows in
               let converted = try renderRows(rows)
               return try PerformanceTrace.measure("export.quantize8") { try OutputColorConverter.quantize8(converted) }
             }
         } else {
           try TIFFCodec.write(url: writeURL, width: size.width, height: size.height,
-            profile: converter.outputProfile, compression: request.settings.compression) { rows in
+            profile: converter.outputProfile, compression: request.settings.compression, dates: dates) { rows in
               let converted = try renderRows(rows)
               return try PerformanceTrace.measure("export.quantize16") { try OutputColorConverter.quantize16(converted) }
             }

@@ -178,7 +178,7 @@ final class MatrixTests: XCTestCase {
     let before = project.calibration
     project.calibration.cmosMatrix = try preset([1,0.2,0, 0,1,0, 0,0,1])
     project.calibration.matrix = try preset([0.8,0,0, 0,0.9,0, 0,0,1.1])
-    _ = try ProjectStore.save(project, folder: root, expectedModification: nil)
+    _ = try ProjectStore.save(project, folder: root)
     let reopened = try ProjectStore.open(folder: root)
     XCTAssertEqual(reopened.calibration, project.calibration)
     XCTAssertEqual(reopened.calibration.gainRGB, before.gainRGB)
@@ -203,7 +203,7 @@ final class MatrixTests: XCTestCase {
     XCTAssertEqual(project.calibration.cmosMatrix, .identity)
     XCTAssertEqual(project.calibration.gainRGB, SIMD3(repeating: 1))
     XCTAssertEqual(project.calibration.filmBaseOffsetCV, SIMD3(repeating: 0))
-    _ = try ProjectStore.save(project, folder: root, expectedModification: project.loadedModificationDate)
+    _ = try ProjectStore.save(project, folder: root)
     let backups = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasPrefix(".printroom-schema3-") }
     XCTAssertEqual(backups.count, 1)
     XCTAssertEqual(try Data(contentsOf: XCTUnwrap(backups.first)), original)

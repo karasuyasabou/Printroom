@@ -39,7 +39,7 @@ final class RollProjectTests: XCTestCase {
     try original.write(to: jsonURL(directory))
     var migrated = try ProjectStore.open(folder: directory)
     migrated.name = "京都"
-    _ = try ProjectStore.save(migrated, folder: directory, expectedModification: migrated.loadedModificationDate)
+    _ = try ProjectStore.save(migrated, folder: directory)
     XCTAssertEqual(try ProjectStore.open(folder: directory).name, "京都")
     let backups = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
       .filter { $0.lastPathComponent.hasPrefix(".printroom-schema7-") }
@@ -106,12 +106,12 @@ final class RollProjectTests: XCTestCase {
     XCTAssertEqual(project.calibration.cmosMatrix, .sonyA7CII)
     XCTAssertEqual(project.calibration.matrix, .ledLightSource)
     XCTAssertFalse(project.calibration.isCalibrated)
-    try ProjectStore.save(project, folder: root, expectedModification: project.loadedModificationDate)
+    try ProjectStore.save(project, folder: root)
     let reopened = try ProjectStore.open(folder: root)
     XCTAssertEqual(reopened.calibration, project.calibration)
     project = reopened
     project.calibration = FilmCalibration()
-    try ProjectStore.save(project, folder: root, expectedModification: project.loadedModificationDate)
+    try ProjectStore.save(project, folder: root)
     let identity = try ProjectStore.open(folder: root)
     XCTAssertEqual(identity.calibration.cmosMatrix, .identity)
     XCTAssertEqual(identity.calibration.matrix, .identity)
@@ -155,7 +155,7 @@ final class RollProjectTests: XCTestCase {
       project.frames[0].adjustments.timing = .init(master: 512, red: -512, green: 257, blue: -257)
       project.frames[1].adjustments.contrast = .init(master: 0.25, red: 4, green: 1.15, blue: 2.75)
       project.lastActiveFrameID = project.frames[1].id
-      let date = try ProjectStore.save(project, folder: root, expectedModification: nil)
+      let date = try ProjectStore.save(project, folder: root)
       XCTAssertEqual(ProjectStore.modificationDate(folder: root), date)
       let loaded = try ProjectStore.open(folder: root)
       XCTAssertEqual(loaded.id, project.id)
@@ -172,7 +172,7 @@ final class RollProjectTests: XCTestCase {
       XCTAssertEqual(
         try ProjectStore.open(folder: root, preferredFile: root.appendingPathComponent("1.tiff"))
           .lastActiveFrameID, project.frames[0].id)
-      try ProjectStore.save(loaded, folder: root, expectedModification: date)
+      try ProjectStore.save(loaded, folder: root)
     }
   }
 
@@ -183,7 +183,7 @@ final class RollProjectTests: XCTestCase {
     var project = try ProjectStore.open(folder: root)
     project.frames[0].adjustments.timing.red = 91
     let missingID = project.frames[0].id
-    let date = try ProjectStore.save(project, folder: root, expectedModification: nil)
+    try ProjectStore.save(project, folder: root)
     try FileManager.default.removeItem(at: one)
     try source("2.tiff", in: root)
     let merged = try ProjectStore.open(folder: root)
@@ -192,7 +192,7 @@ final class RollProjectTests: XCTestCase {
     XCTAssertEqual(merged.frames[0].id, missingID)
     XCTAssertEqual(merged.frames[0].adjustments.timing.red, 91)
     XCTAssertEqual(merged.lastActiveFrameID, merged.frames[1].id)
-    try ProjectStore.save(merged, folder: root, expectedModification: date)
+    try ProjectStore.save(merged, folder: root)
     try source("1.tif", in: root)
     let restored = try ProjectStore.open(folder: root)
     XCTAssertEqual(restored.frames[0].id, missingID)
@@ -206,7 +206,7 @@ final class RollProjectTests: XCTestCase {
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     try source("image.tif", in: root)
     let project = try ProjectStore.open(folder: root)
-    try ProjectStore.save(project, folder: root, expectedModification: nil)
+    try ProjectStore.save(project, folder: root)
     let moved = parent.appendingPathComponent("moved", isDirectory: true)
     try FileManager.default.moveItem(at: root, to: moved)
     let loaded = try ProjectStore.open(
@@ -220,7 +220,7 @@ final class RollProjectTests: XCTestCase {
     let root = try folder()
     let old = try source("old.tif", in: root)
     let project = try ProjectStore.open(folder: root)
-    try ProjectStore.save(project, folder: root, expectedModification: nil)
+    try ProjectStore.save(project, folder: root)
     try FileManager.default.moveItem(at: old, to: root.appendingPathComponent("new.tif"))
     let loaded = try ProjectStore.open(folder: root)
     XCTAssertEqual(loaded.frames.count, 2)
@@ -232,7 +232,7 @@ final class RollProjectTests: XCTestCase {
     let root = try folder()
     let file = try source("base.tiff", in: root)
     let project = calibrated(try ProjectStore.open(folder: root))
-    try ProjectStore.save(project, folder: root, expectedModification: nil)
+    try ProjectStore.save(project, folder: root)
     try Data([1, 2, 3, 4, 5]).write(to: file)
     let replaced = try ProjectStore.open(folder: root)
     XCTAssertEqual(replaced.frames[0].id, project.frames[0].id)
@@ -265,72 +265,67 @@ final class RollProjectTests: XCTestCase {
       try ProjectStore.open(folder: root, preferredFile: root.appendingPathComponent("link.tiff")))
   }
 
-  func testSaveRejectsStaleNilAndDeletedModificationWithoutOverwriting() throws {
+  func testSaveOverwritesAfterTimestampChangeAndRecreatesDeletedProject() throws {
     let root = try folder()
     var project = RollProject()
-    let firstDate = try ProjectStore.save(project, folder: root, expectedModification: nil)
-    let original = try Data(contentsOf: jsonURL(root))
-    XCTAssertThrowsError(try ProjectStore.save(project, folder: root, expectedModification: nil)) {
-      XCTAssertEqual($0 as? ProjectStoreError, .externalConflict)
-    }
-    XCTAssertEqual(try Data(contentsOf: jsonURL(root)), original)
+    let firstDate = try ProjectStore.save(project, folder: root)
     try FileManager.default.setAttributes(
       [.modificationDate: firstDate.addingTimeInterval(100)], ofItemAtPath: jsonURL(root).path)
-    project.calibration.matrix = .ledLightSource
-    XCTAssertThrowsError(
-      try ProjectStore.save(project, folder: root, expectedModification: firstDate)
-    ) {
-      XCTAssertEqual($0 as? ProjectStoreError, .externalConflict)
-    }
-    XCTAssertEqual(try Data(contentsOf: jsonURL(root)), original)
+    project.name = "NAS timestamp changed"
+    try ProjectStore.save(project, folder: root)
+    XCTAssertEqual(try ProjectStore.open(folder: root).name, project.name)
     try FileManager.default.removeItem(at: jsonURL(root))
-    XCTAssertThrowsError(
-      try ProjectStore.save(project, folder: root, expectedModification: firstDate))
-    XCTAssertFalse(FileManager.default.fileExists(atPath: jsonURL(root).path))
+    project.name = "Recreated"
+    try ProjectStore.save(project, folder: root)
+    XCTAssertEqual(try ProjectStore.open(folder: root).name, project.name)
   }
 
-  func testDifferentRollIdentityCannotOverwriteExistingProject() throws {
+  func testCurrentSettingsOverwriteExternalContentAndRollIdentity() throws {
     let root = try folder()
-    let date = try ProjectStore.save(RollProject(), folder: root, expectedModification: nil)
-    let original = try Data(contentsOf: jsonURL(root))
-    XCTAssertThrowsError(
-      try ProjectStore.save(RollProject(), folder: root, expectedModification: date))
-    XCTAssertEqual(try Data(contentsOf: jsonURL(root)), original)
+    var project = RollProject()
+    try ProjectStore.save(project, folder: root)
+    var external = RollProject()
+    external.name = "External settings"
+    try ProjectStore.save(external, folder: root)
+    project.name = "Current settings"
+    try ProjectStore.save(project, folder: root)
+    let reopened = try ProjectStore.open(folder: root)
+    XCTAssertEqual(reopened.id, project.id)
+    XCTAssertEqual(reopened.name, project.name)
   }
 
   func testReadOnlySaveFailurePreservesOriginalAndInMemoryEdits() throws {
     let root = try folder()
     var project = RollProject()
-    let date = try ProjectStore.save(project, folder: root, expectedModification: nil)
+    try ProjectStore.save(project, folder: root)
     let original = try Data(contentsOf: jsonURL(root))
     project.calibration.matrix = .ledLightSource
     try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: root.path)
     defer {
       try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
     }
-    XCTAssertThrowsError(try ProjectStore.save(project, folder: root, expectedModification: date))
+    XCTAssertThrowsError(try ProjectStore.save(project, folder: root))
     XCTAssertEqual(try Data(contentsOf: jsonURL(root)), original)
     XCTAssertEqual(project.calibration.matrix, .ledLightSource)
     XCTAssertEqual(
       try FileManager.default.contentsOfDirectory(atPath: root.path), [ProjectStore.filename])
   }
 
-  func testConcurrentInitialSavesPublishExactlyOneWholeProject() throws {
+  func testConcurrentSavesPublishWholeProjectsWithLastWriterWinning() throws {
     let root = try folder()
     let projects = (0..<8).map { _ in RollProject() }
     let results = ConcurrentSaveResults()
     DispatchQueue.concurrentPerform(iterations: projects.count) { index in
       do {
-        try ProjectStore.save(projects[index], folder: root, expectedModification: nil)
+        try ProjectStore.save(projects[index], folder: root)
         results.record(success: projects[index].id)
       } catch {
         results.record(error: error)
       }
     }
-    XCTAssertEqual(results.successes.count, 1)
-    XCTAssertEqual(results.errors.count, projects.count - 1)
-    XCTAssertTrue(results.errors.allSatisfy { ($0 as? ProjectStoreError) == .externalConflict })
-    XCTAssertEqual(try ProjectStore.open(folder: root).id, results.successes.first)
+    XCTAssertEqual(results.successes.count, projects.count)
+    XCTAssertTrue(results.errors.isEmpty)
+    XCTAssertTrue(results.successes.contains(try ProjectStore.open(folder: root).id))
     XCTAssertEqual(
       try FileManager.default.contentsOfDirectory(atPath: root.path), [ProjectStore.filename])
   }
@@ -346,8 +341,7 @@ final class RollProjectTests: XCTestCase {
       XCTAssertThrowsError(try ProjectStore.open(folder: root))
       XCTAssertThrowsError(
         try ProjectStore.save(
-          RollProject(), folder: root,
-          expectedModification: ProjectStore.modificationDate(folder: root)))
+          RollProject(), folder: root))
       XCTAssertEqual(try Data(contentsOf: jsonURL(root)), original)
     }
   }
@@ -361,12 +355,12 @@ final class RollProjectTests: XCTestCase {
     try FileManager.default.createSymbolicLink(at: jsonURL(root), withDestinationURL: target)
     XCTAssertThrowsError(try ProjectStore.open(folder: root))
     XCTAssertThrowsError(
-      try ProjectStore.save(RollProject(), folder: root, expectedModification: nil))
+      try ProjectStore.save(RollProject(), folder: root))
     XCTAssertEqual(try Data(contentsOf: target), bytes)
     try FileManager.default.removeItem(at: jsonURL(root))
     try FileManager.default.createDirectory(at: jsonURL(root), withIntermediateDirectories: true)
     XCTAssertThrowsError(
-      try ProjectStore.save(RollProject(), folder: root, expectedModification: nil))
+      try ProjectStore.save(RollProject(), folder: root))
     XCTAssertTrue(try jsonURL(root).resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true)
   }
 
@@ -409,12 +403,12 @@ final class RollProjectTests: XCTestCase {
       let root = try folder()
       try source("1.tiff", in: root)
       let project = try ProjectStore.open(folder: root)
-      try ProjectStore.save(project, folder: root, expectedModification: nil)
+      try ProjectStore.save(project, folder: root)
       let damaged = try rewriteJSON(in: root, mutation)
       XCTAssertThrowsError(try ProjectStore.open(folder: root))
       XCTAssertThrowsError(
         try ProjectStore.save(
-          project, folder: root, expectedModification: ProjectStore.modificationDate(folder: root)))
+          project, folder: root))
       XCTAssertEqual(try Data(contentsOf: jsonURL(root)), damaged)
     }
   }
@@ -423,7 +417,7 @@ final class RollProjectTests: XCTestCase {
     let root = try folder()
     try source("1.tiff", in: root)
     let project = try ProjectStore.open(folder: root)
-    let date = try ProjectStore.save(project, folder: root, expectedModification: nil)
+    try ProjectStore.save(project, folder: root)
     let bytes = try Data(contentsOf: jsonURL(root))
     let mutations: [(inout RollProject) -> Void] = [
       { $0.frames[0].adjustments.timing.master = 513 },
@@ -447,7 +441,7 @@ final class RollProjectTests: XCTestCase {
     for mutation in mutations {
       var invalid = project
       mutation(&invalid)
-      XCTAssertThrowsError(try ProjectStore.save(invalid, folder: root, expectedModification: date))
+      XCTAssertThrowsError(try ProjectStore.save(invalid, folder: root))
       XCTAssertEqual(try Data(contentsOf: jsonURL(root)), bytes)
     }
     XCTAssertEqual(
@@ -478,7 +472,7 @@ final class RollProjectTests: XCTestCase {
     for mutation in mutations {
       var invalid = project
       mutation(&invalid)
-      XCTAssertThrowsError(try ProjectStore.save(invalid, folder: root, expectedModification: nil))
+      XCTAssertThrowsError(try ProjectStore.save(invalid, folder: root))
       XCTAssertFalse(FileManager.default.fileExists(atPath: jsonURL(root).path))
     }
   }

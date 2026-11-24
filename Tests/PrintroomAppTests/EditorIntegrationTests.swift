@@ -55,7 +55,7 @@ struct EditorIntegrationTests {
       "Full reference pipeline export: 7008×4672, \(elapsed), sampled CPU comparison max \(maxError), ICC bytes exact"
     )
   }
-  @Test func testExternalConflictCanRestoreBackupAndReloadWithoutLosingSilentChanges() async throws
+  @Test func testDirectSaveOverwritesExternalSettingsAndBackupCanStillBeRestored() async throws
   {
     let model = EditorModel()
     let assets = try AppAssets()
@@ -71,14 +71,13 @@ struct EditorIntegrationTests {
     model.edit { $0.timing.master = 41 }
     let backup = try JSONEncoder().encode(try unwrap(model.project))
     var external = try ProjectStore.open(folder: folder, preferredFile: nil)
-    let loadedToken = external.loadedModificationDate
     external.frames[0].adjustments.timing.master = 89
-    _ = try ProjectStore.save(external, folder: folder, expectedModification: loadedToken)
-    #expect(model.flushSave() == false)
-    #expect(model.dirty && model.saveFailure)
+    _ = try ProjectStore.save(external, folder: folder)
+    #expect(model.flushSave())
+    #expect(!model.dirty && !model.saveFailure)
     #expect(
       try ProjectStore.open(folder: folder, preferredFile: nil).frames[0].adjustments.timing.master
-        == 89)
+        == 41)
     try model.restoreBackup(data: backup)
     #expect(model.adjustments.timing.master == 41)
     #expect(!model.dirty && !model.saveFailure)

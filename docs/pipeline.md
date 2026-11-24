@@ -23,7 +23,7 @@ CPU 参考和 Metal 基线都用 Float32。L0/L1/L2 是线性透射率数值；D
 
 ## 2. 输入读取与解释
 
-支持的初始输入是 3 通道无符号 16-bit RGB TIFF，`L0 = uint16 / 65535`。先解压读取样本数值，不做 ICC 转换或 transfer 解码。无 alpha；不支持的灰度、浮点、带 alpha 或其他样本格式先明确报错，不静默转成 8-bit。
+支持的 TIFF 输入是 3 通道无符号 8-bit 或 16-bit RGB，分别按 `L0 = uint8 / 255` 或 `L0 = uint16 / 65535` 解释。8-bit 样本精确扩展为 `uint16 = uint8 × 257`，共用现有内部缓冲、代理、ROI 与导出管线；不增加原始精度。先解压读取样本数值，不做 ICC 转换或 transfer 解码。无 alpha；不支持的灰度、浮点、带 alpha 或其他样本格式先明确报错，不静默转成 8-bit。
 
 输入解释固定记录为：原色 P3-D65，transfer Linear。最终工作显示 profile 使用现有 `ICC/DCIP3_D65.icc`。
 
@@ -279,7 +279,7 @@ RAW 策略独立版本为 `adobe-linear-camera-rgb-v1`。输入开放常见品�
 
 ## BigTIFF 输入
 
-TIFF 输入同时支持版本 42（classic）与 43（BigTIFF）；BigTIFF 使用 8 字节偏移、8 字节目录项数量、20 字节目录项与 8 字节内联值，条带地址和字节数支持 LONG8。样本约束沿用 §2：chunky RGB UInt16、无 alpha、单页条带、无压缩（259=1）、LZW（259=5）或 Deflate（259=8/32946）、水平预测和八种 orientation。不支持 tiled 或其他位深。LZW 按 TIFF 6.0 使用 MSB-first、9–12 bit early-change 码、条带独立字典及 Clear/EOI；解压长度必须等于条带原始样本字节数，先解压再恢复水平预测。ICC 仅作为元数据，解码数值、算法版本和项目 schema 不变。输入不再以 4 GiB 限制样本总量；维度与乘法先校验可寻址范围，读取前校验文件边界。预览和 ROI 按所需条带读取，完整图像和单个条带仍需要相应内存。输出继续使用 classic TIFF 及既有 4 GiB 拒绝行为。
+TIFF 输入同时支持版本 42（classic）与 43（BigTIFF）；BigTIFF 使用 8 字节偏移、8 字节目录项数量、20 字节目录项与 8 字节内联值，条带地址和字节数支持 LONG8。样本约束沿用 §2：chunky RGB UInt8/UInt16（各通道位深一致）、无 alpha、单页条带、无压缩（259=1）、LZW（259=5）或 Deflate（259=8/32946）、水平预测和八种 orientation。不支持 tiled 或其他位深。LZW 按 TIFF 6.0 使用 MSB-first、9–12 bit early-change 码、条带独立字典及 Clear/EOI；解压长度必须等于条带原始样本字节数，先解压再恢复水平预测。ICC 仅作为元数据，解码数值、算法版本和项目 schema 不变。输入不再以 4 GiB 限制样本总量；维度与乘法先校验可寻址范围，读取前校验文件边界。预览和 ROI 按所需条带读取，完整图像和单个条带仍需要相应内存。输出继续使用 classic TIFF 及既有 4 GiB 拒绝行为。
 
 
 ## RAW 日常代理采样

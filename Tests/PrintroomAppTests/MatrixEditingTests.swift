@@ -28,7 +28,7 @@ struct MatrixEditingTests {
     // Explicit Identity fixture exercises both matrix transitions with new-roll defaults changed.
     var fixture = try ProjectStore.open(folder: root)
     fixture.calibration = FilmCalibration()
-    try ProjectStore.save(fixture, folder: root, expectedModification: nil)
+    try ProjectStore.save(fixture, folder: root)
     model.open(root)
     try await waitForProxyImport(model)
     try await wait { model.hasImage && !model.isRendering }
@@ -80,7 +80,7 @@ struct MatrixEditingTests {
     // Explicit Identity fixture exercises both matrix transitions with new-roll defaults changed.
     var fixture = try ProjectStore.open(folder: root)
     fixture.calibration = FilmCalibration()
-    try ProjectStore.save(fixture, folder: root, expectedModification: nil)
+    try ProjectStore.save(fixture, folder: root)
     model.open(root)
     try await waitForProxyImport(model)
     try await wait { model.hasImage && !model.isRendering }

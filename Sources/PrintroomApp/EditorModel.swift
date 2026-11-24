@@ -442,7 +442,6 @@ import UniformTypeIdentifiers
     folder = targetFolder
     project = roll
     recentRolls?.record(folder: targetFolder, projectID: roll.id, replacing: replacingRecent, name: roll.name)
-    persistence.expectedModification = roll.loadedModificationDate
     saveFailure = false
     selection = SelectionState()
     let available = roll.frames.filter { !$0.isMissing }
@@ -485,7 +484,6 @@ import UniformTypeIdentifiers
     thumbnails = [:]
     presentationCache.clear()
     preparedGeometryMetadata = [:]
-    persistence.expectedModification = nil
     gestureBefore = nil
     showSync = false
     matrixManager = nil
@@ -1734,7 +1732,7 @@ import UniformTypeIdentifiers
         url.standardizedFileURL.resolvingSymlinksInPath()
           != folder?.appendingPathComponent(ProjectStore.filename).standardizedFileURL
           .resolvingSymlinksInPath()
-      else { throw PrintroomError.invalid("请为设置副本选择不同文件名，不能绕过冲突检查覆盖当前项目") }
+      else { throw PrintroomError.invalid("请为设置副本选择不同文件名，不能覆盖当前项目") }
       let encoder = JSONEncoder()
       encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
       try encoder.encode(project).write(to: url, options: .atomic)
@@ -1781,8 +1779,7 @@ import UniformTypeIdentifiers
     next.sprocketWhitening = backup.sprocketWhitening
     next.calibration = backup.calibration
     next.calibrationNeedsReview = false
-    let saved = try ProjectStore.save(
-      next, folder: folder, expectedModification: next.loadedModificationDate)
+    try ProjectStore.save(next, folder: folder)
     cancelSampling()
     isCropping = false
     cropDraft = nil
@@ -1791,7 +1788,6 @@ import UniformTypeIdentifiers
     cropViewportToken += 1
     registerUndo(old: previous, name: "恢复设置副本")
     project = next
-    persistence.expectedModification = saved
     dirty = false
     saveFailure = false
     errorMessage = nil
@@ -1844,7 +1840,7 @@ import UniformTypeIdentifiers
           do {
             var updated = original
             updated.name = name
-            _ = try ProjectStore.save(updated, folder: target, expectedModification: original.loadedModificationDate)
+            _ = try ProjectStore.save(updated, folder: target)
             self.recentRolls?.updateName(folder: target, name: name)
           } catch { self.errorMessage = error.localizedDescription }
         }

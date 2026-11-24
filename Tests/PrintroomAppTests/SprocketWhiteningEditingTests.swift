@@ -104,7 +104,7 @@ struct SprocketWhiteningEditingTests {
     roll.calibration = try Pipeline.calibrate(image: TIFFCodec.read(url: source), rect: .init(x: 0, y: 0, width: 4, height: 4),
       matrix: .identity, sourceFrameID: roll.frames[0].id)
     roll.frames[0].crop = FrameCrop(aspect: .square, width: 0.5, angleDegrees: 5)
-    try ProjectStore.save(roll, folder: folder, expectedModification: nil)
+    try ProjectStore.save(roll, folder: folder)
     model.open(source)
     try await waitForProxyImport(model)
     try await until { model.hasImage && !model.isRendering }

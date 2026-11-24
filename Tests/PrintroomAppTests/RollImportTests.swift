@@ -36,7 +36,7 @@ struct RollImportTests {
     if saved {
       var roll = try ProjectStore.open(folder: folder)
       roll.frames[0].adjustments.timing.red = 27
-      try ProjectStore.save(roll, folder: folder, expectedModification: nil)
+      try ProjectStore.save(roll, folder: folder)
     }
     return folder
   }

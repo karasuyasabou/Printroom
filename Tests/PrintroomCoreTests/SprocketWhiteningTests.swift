@@ -132,7 +132,7 @@ final class SprocketWhiteningTests: XCTestCase, @unchecked Sendable {
     XCTAssertEqual(loaded.frames[0].crop, project.frames[0].crop)
     XCTAssertEqual(try Data(contentsOf: path), bytes)
     loaded.sprocketWhitening = .init(enabled: true, thresholdPercent: 42)
-    try ProjectStore.save(loaded, folder: folder, expectedModification: loaded.loadedModificationDate)
+    try ProjectStore.save(loaded, folder: folder)
     let backups = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
       .filter { $0.lastPathComponent.hasPrefix(".printroom-schema8-") }
     XCTAssertEqual(backups.count, 1)

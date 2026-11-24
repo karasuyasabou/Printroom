@@ -18,7 +18,7 @@ public enum TIFFWriteError: LocalizedError, Equatable {
 }
 
 /// Raw sample I/O: ICC metadata never participates in decoding or encoding.
-/// Reads classic and BigTIFF stripped RGB UInt16 TIFF (uncompressed, LZW or Deflate).
+/// Reads classic and BigTIFF stripped RGB UInt8/UInt16 TIFF (uncompressed, LZW or Deflate).
 public enum TIFFCodec {
   public static func read(url: URL) throws -> LinearImage {
     guard url.isFileURL else { throw invalid("TIFF 必须是本地文件。") }
@@ -56,7 +56,7 @@ public enum TIFFCodec {
   /// No alpha, no color conversion, exact supplied ICC bytes. Deflate has one
   /// independent zlib stream per strip; metadata is finalized before publication.
   public static func write(
-    url: URL, width: Int, height: Int, profile: Data?, compression: TIFFCompression = .none,
+    url: URL, width: Int, height: Int, profile: Data?, compression: TIFFCompression = .none, dates: ExportDates = .init(),
     rows: (Range<Int>) throws -> [UInt16]
   ) throws {
     guard url.isFileURL, width > 0, height > 0,
@@ -86,7 +86,7 @@ public enum TIFFCodec {
     if let profile {
       entries.append(TIFFWriteEntry(tag: 34675, type: 7, count: UInt32(profile.count), payload: profile))
     }
-    let metadataSize = try makeHeader(entries).count
+    let metadataSize = try makeHeader(entries, dates: dates).count
     let end = UInt64(metadataSize) + rowBytes * UInt64(height)
     guard end <= UInt64(UInt32.max) else {
       throw invalid("输出超过 classic TIFF 的 4 GiB 限制。")
@@ -96,7 +96,7 @@ public enum TIFFCodec {
       ? try StripDeflater(capacity: rowsPerStrip * Int(rowBytes)) : nil
     defer { withExtendedLifetime(deflater) {} }
     var offsets = [UInt32](repeating: 0, count: stripCount)
-    let header = try makeHeader(entries)
+    let header = try makeHeader(entries, dates: dates)
     let temporary = url.deletingLastPathComponent()
       .appendingPathComponent(".printroom-\(UUID().uuidString).tiff.tmp")
     let fd = temporary.withUnsafeFileSystemRepresentation { path in
@@ -142,12 +142,13 @@ public enum TIFFCodec {
     entries[5] = .longs(273, offsets)
     entries[9] = .longs(279, byteCounts)
     try handle.seek(toOffset: 0)
-    try handle.write(contentsOf: makeHeader(entries))
+    try handle.write(contentsOf: makeHeader(entries, dates: dates))
     try Task.checkCancellation()
     let publishTrace = PerformanceTrace.begin()
     try handle.synchronize()
     try handle.close()
     try Task.checkCancellation()
+    try dates.apply(to: temporary)
     // RENAME_EXCL is an atomic no-replace operation, including a destination
     // created by another process after the initial check (or a dangling link).
     let result = temporary.withUnsafeFileSystemRepresentation { source in
@@ -221,12 +222,32 @@ public enum TIFFCodec {
     }
   }
 
-  private static func makeHeader(_ entries: [TIFFWriteEntry]) throws -> Data {
-    var directory = Data([0x49, 0x49, 42, 0, 8, 0, 0, 0])
+  private static func makeHeader(_ imageEntries: [TIFFWriteEntry], dates: ExportDates) throws -> Data {
+    var entries = imageEntries
+    if let timestamp = dates.tiffDateTime { entries.append(.ascii(306, timestamp)) }
+    let exifEntries = ExportDates.exifTags.compactMap { key, tag in
+      dates.exif[key].map { TIFFWriteEntry.ascii(tag, $0) }
+    }
+    var exifData = Data()
+    if !exifEntries.isEmpty {
+      // The pointer occupies four inline bytes; replacing it cannot change size.
+      entries.append(.long(34665, 0))
+      let offset = 8 + (try makeDirectory(entries, offset: 8)).count
+      entries[entries.count - 1] = .long(34665, UInt32(offset))
+      exifData = try makeDirectory(exifEntries, offset: offset)
+    }
+    var header = Data([0x49, 0x49, 42, 0, 8, 0, 0, 0])
+    header.append(try makeDirectory(entries, offset: 8))
+    header.append(exifData)
+    return header
+  }
+
+  private static func makeDirectory(_ entries: [TIFFWriteEntry], offset: Int) throws -> Data {
+    var directory = Data()
     directory.appendLE(UInt16(entries.count))
-    let extraStart = 8 + 2 + entries.count * 12 + 4
+    let extraStart = offset + 2 + entries.count * 12 + 4
     var extra = Data()
-    for entry in entries {
+    for entry in entries.sorted(by: { $0.tag < $1.tag }) {
       directory.appendLE(entry.tag)
       directory.appendLE(entry.type)
       directory.appendLE(entry.count)
@@ -262,6 +283,12 @@ private struct TIFFWriteEntry {
   let type: UInt16
   let count: UInt32
   let payload: Data
+
+  static func ascii(_ tag: UInt16, _ value: String) -> Self {
+    var data = Data(value.utf8)
+    data.append(0)
+    return Self(tag: tag, type: 2, count: UInt32(data.count), payload: data)
+  }
 
   static func long(_ tag: UInt16, _ value: UInt32) -> Self { longs(tag, [value]) }
   static func longs(_ tag: UInt16, _ values: [UInt32]) -> Self {
@@ -379,12 +406,13 @@ private final class TIFFReader {
     else {
       throw invalid("TIFF 尺寸无效或样本超过可寻址范围。")
     }
+    let bits = try integers(258, expectedCount: 3)
     guard try scalar(262) == 2, try scalar(277) == 3,
-      try integers(258, expectedCount: 3) == [16, 16, 16],
+      bits == [8, 8, 8] || bits == [16, 16, 16],
       try integers(339, expectedCount: 3, defaultValue: [1, 1, 1]) == [1, 1, 1],
       try scalar(284, defaultValue: 1) == 1, entries[338] == nil
     else {
-      throw invalid("仅支持无 alpha、chunky、3 通道无符号 16-bit RGB TIFF。")
+      throw invalid("仅支持无 alpha、chunky、3 通道无符号 8-bit 或 16-bit RGB TIFF。")
     }
     guard entries[322] == nil, entries[323] == nil, entries[324] == nil, entries[325] == nil else {
       throw invalid("暂不支持 tiled TIFF。")
@@ -400,6 +428,7 @@ private final class TIFFReader {
     else {
       throw invalid("不支持的 TIFF predictor、orientation 或 FillOrder。")
     }
+    let bytesPerSample = bits[0] / 8
     let rowsPerStrip = try scalar(278, defaultValue: Int(UInt32.max))
     guard rowsPerStrip > 0 else { throw invalid("TIFF RowsPerStrip 必须大于零。") }
     let stripCount = (height - 1) / rowsPerStrip + 1
@@ -408,7 +437,7 @@ private final class TIFFReader {
     // Validate every range before allocating the full image.
     for strip in 0..<stripCount {
       let count = counts[strip]
-      let expected = min(rowsPerStrip, height - strip * rowsPerStrip) * width * 6
+      let expected = min(rowsPerStrip, height - strip * rowsPerStrip) * width * 3 * bytesPerSample
       guard count > 0, offsets[strip] >= (big ? 16 : 8),
         UInt64(offsets[strip]) <= fileSize,
         UInt64(count) <= fileSize - UInt64(offsets[strip]),
@@ -418,13 +447,13 @@ private final class TIFFReader {
       }
     }
     return Layout(
-      width: width, height: height, compression: compression,
+      width: width, height: height, compression: compression, bytesPerSample: bytesPerSample,
       predictor: predictor, orientation: orientation, rowsPerStrip: rowsPerStrip,
       offsets: offsets, counts: counts)
   }
 
   private struct Layout {
-    let width: Int, height: Int, compression: Int, predictor: Int, orientation: Int
+    let width: Int, height: Int, compression: Int, bytesPerSample: Int, predictor: Int, orientation: Int
     let rowsPerStrip: Int, offsets: [Int], counts: [Int]
     var outputWidth: Int { orientation >= 5 ? height : width }
     var outputHeight: Int { orientation >= 5 ? width : height }
@@ -484,7 +513,7 @@ private final class TIFFReader {
           if cancelled() { throw CancellationError() }
           let firstRow = strip * info.rowsPerStrip
           let rowCount = min(info.rowsPerStrip, info.height - firstRow)
-          let expected = rowCount * info.width * 6
+          let expected = rowCount * info.width * 3 * info.bytesPerSample
           var bytes = try PerformanceTrace.measure("tiff.strip_read") { try readBytes(at: UInt64(info.offsets[strip]), count: info.counts[strip]) }
           switch info.compression {
           case 5: bytes = try PerformanceTrace.measure("tiff.lzw_decode") { try decodeLZWStrip(bytes, expected: expected, cancelled: cancelled) }
@@ -493,7 +522,7 @@ private final class TIFFReader {
           }
           let samplingTrace = PerformanceTrace.begin()
           defer { PerformanceTrace.end("tiff.sample_copy_predictor", samplingTrace) }
-          if info.orientation == 1, info.predictor == 1, little,
+          if info.bytesPerSample == 2, info.orientation == 1, info.predictor == 1, little,
             region.x == 0, region.y == 0, outputWidth == info.width,
             outputHeight == info.height
           {
@@ -504,8 +533,17 @@ private final class TIFFReader {
             return
           }
           // Horizontal prediction is reconstructed in the original raw row order,
-          // before selecting/resizing/orienting pixels; UInt16 overflow is specified.
-          if info.predictor == 2 {
+          // before selecting/resizing/orienting pixels, wrapping at the source bit depth.
+          if info.predictor == 2 && info.bytesPerSample == 1 {
+            bytes.withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) in
+              for row in 0..<rowCount {
+                let start = row * info.width * 3
+                for i in 3..<(info.width * 3) {
+                  raw[start + i] = raw[start + i] &+ raw[start + i - 3]
+                }
+              }
+            }
+          } else if info.predictor == 2 {
             bytes.withUnsafeMutableBytes { raw in
               for row in 0..<rowCount {
                 var previous = SIMD3<UInt16>(repeating: 0)
@@ -533,13 +571,18 @@ private final class TIFFReader {
                 let normalizedX = region.x + Int(UInt64(x) * UInt64(region.width) / UInt64(outputWidth))
                 let normalizedY = region.y + Int(UInt64(y) * UInt64(region.height) / UInt64(outputHeight))
                 let source = info.source(x: normalizedX, y: normalizedY)
-                let offset = ((source.y - firstRow) * info.width + source.x) * 6
+                let offset = ((source.y - firstRow) * info.width + source.x) * 3 * info.bytesPerSample
                 let target = (y * outputWidth + x) * 3
                 for channel in 0..<3 {
-                  let value = raw.loadUnaligned(
-                    fromByteOffset: offset + channel * 2, as: UInt16.self)
-                  output[target + channel] =
-                    little ? UInt16(littleEndian: value) : UInt16(bigEndian: value)
+                  if info.bytesPerSample == 1 {
+                    // Exact normalized expansion: (v * 257) / 65535 == v / 255.
+                    output[target + channel] = UInt16(raw[offset + channel]) * 257
+                  } else {
+                    let value = raw.loadUnaligned(
+                      fromByteOffset: offset + channel * 2, as: UInt16.self)
+                    output[target + channel] =
+                      little ? UInt16(littleEndian: value) : UInt16(bigEndian: value)
+                  }
                 }
               }
             }

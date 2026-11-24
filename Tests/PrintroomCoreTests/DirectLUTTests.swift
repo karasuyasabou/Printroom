@@ -43,8 +43,8 @@ final class DirectLUTTests: XCTestCase {
     let loaded = try ProjectStore.open(folder: folder)
     XCTAssertEqual(loaded.frames[0].adjustments.cineonLogLUT, .kodak2383)
     XCTAssertEqual(loaded.frames[0].adjustments.timing.red, 27)
-    let date = try ProjectStore.save(loaded, folder: folder, expectedModification: loaded.loadedModificationDate)
-    try ProjectStore.save(loaded, folder: folder, expectedModification: date)
+    try ProjectStore.save(loaded, folder: folder)
+    try ProjectStore.save(loaded, folder: folder)
     let backups = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
       .filter { $0.lastPathComponent.hasPrefix(".printroom-neutral-") }
     XCTAssertEqual(backups.count, 1)
@@ -65,8 +65,8 @@ final class DirectLUTTests: XCTestCase {
     XCTAssertEqual(migrated.algorithmVersion, algorithmVersion)
     XCTAssertEqual(migrated.frames, project.frames) // No automatic compensation of other rolls.
     XCTAssertEqual(migrated.calibration, project.calibration)
-    let date = try ProjectStore.save(migrated, folder: folder, expectedModification: migrated.loadedModificationDate)
-    try ProjectStore.save(migrated, folder: folder, expectedModification: date)
+    try ProjectStore.save(migrated, folder: folder)
+    try ProjectStore.save(migrated, folder: folder)
     let backups = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
       .filter { $0.lastPathComponent.hasPrefix(".printroom-density-v5-") }
     XCTAssertEqual(backups.count, 1)

@@ -52,7 +52,7 @@ struct SelectionCropTests {
       roll.frames[index].orientation = .rotate90CW
       roll.frames[index].adjustments.timing.red = 24
     }
-    try ProjectStore.save(roll, folder: folder, expectedModification: roll.loadedModificationDate)
+    try ProjectStore.save(roll, folder: folder)
     model.open(folder.appendingPathComponent(roll.frames[0].filename))
     try await waitForProxyImport(model)
     try await prepareCalibratedPreview(model)
@@ -140,7 +140,7 @@ struct SelectionCropTests {
     var roll = try ProjectStore.open(folder: folder)
     let crop = FrameCrop(aspect: .square, width: 0.5)
     for index in roll.frames.indices { roll.frames[index].crop = crop }
-    try ProjectStore.save(roll, folder: folder, expectedModification: roll.loadedModificationDate)
+    try ProjectStore.save(roll, folder: folder)
     model.open(folder.appendingPathComponent(roll.frames[0].filename))
     try await waitForProxyImport(model)
     try await prepareCalibratedPreview(model)
@@ -183,7 +183,7 @@ struct SelectionCropTests {
       roll.frames[index].orientation = directions[index]
       roll.frames[index].adjustments.timing.red = 10 + index
     }
-    try ProjectStore.save(roll, folder: folder, expectedModification: roll.loadedModificationDate)
+    try ProjectStore.save(roll, folder: folder)
     let sourceIndex = try #require(directions.firstIndex(of: activeOrientation))
     model.open(folder.appendingPathComponent(roll.frames[sourceIndex].filename))
     try await waitForProxyImport(model)
@@ -523,14 +523,13 @@ struct SelectionCropTests {
         }
       }
     }
-    let firstSave = try ProjectStore.save(migrated, folder: folder,
-      expectedModification: migrated.loadedModificationDate)
+    try ProjectStore.save(migrated, folder: folder)
     let backups = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
       .filter { $0.lastPathComponent.hasPrefix(".printroom-") && $0.pathExtension == "json" }
     #expect(backups.count == 1)
     let backupURL = try #require(backups.first)
     #expect(try Data(contentsOf: backupURL) == originalJSON)
-    try ProjectStore.save(migrated, folder: folder, expectedModification: firstSave)
+    try ProjectStore.save(migrated, folder: folder)
     let afterSecondSave = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
       .filter { $0.lastPathComponent.hasPrefix(".printroom-") && $0.pathExtension == "json" }
     #expect(afterSecondSave == backups)

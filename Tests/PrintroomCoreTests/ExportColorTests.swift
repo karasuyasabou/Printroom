@@ -59,7 +59,7 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
     var project = try ProjectStore.open(folder: folder)
     project.frames[0].orientation = FrameOrientation.allCases.first { $0.outputSize(sourceWidth: 32, sourceHeight: 48).width == 48 }!
     project.exportSettings.format = .jpeg
-    try ProjectStore.save(project, folder: folder, expectedModification: nil)
+    try ProjectStore.save(project, folder: folder)
     XCTAssertEqual(try ProjectStore.open(folder: folder).exportSettings.format, .jpeg)
     let engine = ExportEngine(useCPUReference: true)
     for profile in OutputColorProfile.allCases {

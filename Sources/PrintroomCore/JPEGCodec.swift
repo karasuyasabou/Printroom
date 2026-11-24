@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// Encodes already converted RGB samples; the ICC describes those exact samples.
 public enum JPEGCodec {
   public static func write(
-    url: URL, width: Int, height: Int, profile: Data,
+    url: URL, width: Int, height: Int, profile: Data, dates: ExportDates = .init(),
     rows: (Range<Int>) throws -> [UInt8]
   ) throws {
     guard url.isFileURL, width > 0, height > 0, width <= 65500, height <= 65500,
@@ -37,13 +37,14 @@ public enum JPEGCodec {
       let destination = CGImageDestinationCreateWithURL(temporary as CFURL, UTType.jpeg.identifier as CFString, 1, nil)
     else { throw PrintroomError.invalid("无法创建 JPG 编码器。") }
     let encodeTrace = PerformanceTrace.begin()
-    CGImageDestinationAddImage(destination, image, [
-      kCGImageDestinationLossyCompressionQuality: 1.0,
-      kCGImagePropertyOrientation: 1,
-    ] as CFDictionary)
+    var properties = dates.imageProperties
+    properties[kCGImageDestinationLossyCompressionQuality as String] = 1.0
+    properties[kCGImagePropertyOrientation as String] = 1
+    CGImageDestinationAddImage(destination, image, properties as CFDictionary)
     guard CGImageDestinationFinalize(destination) else { throw PrintroomError.invalid("JPG 编码失败。") }
     PerformanceTrace.end("jpeg.encode_write", encodeTrace)
     try Task.checkCancellation()
+    try dates.apply(to: temporary)
     let publishTrace = PerformanceTrace.begin()
     let result = temporary.withUnsafeFileSystemRepresentation { source in
       url.withUnsafeFileSystemRepresentation { target in

@@ -79,7 +79,7 @@ struct CineonLUTTests {
     let migrated = try ProjectStore.open(folder: folder)
     #expect(migrated.schemaVersion == RollProject.currentSchemaVersion)
     #expect(migrated.frames[0].adjustments.cineonLogLUT == .kodak2383)
-    try ProjectStore.save(migrated, folder: folder, expectedModification: ProjectStore.modificationDate(folder: folder))
+    try ProjectStore.save(migrated, folder: folder)
     let backups = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
       .filter { $0.lastPathComponent.hasPrefix(".printroom-schema5-") }
     #expect(backups.count == 1)
