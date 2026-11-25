@@ -1,0 +1,161 @@
+<Window x:Class="PrintroomApp.Dialogs.KeyboardShortcutsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="键盘快捷键"
+        Width="620" Height="700"
+        MinWidth="520" MinHeight="480"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResizeWithGrip"
+        Background="{DynamicResource WindowBrush}"
+        Foreground="{DynamicResource PrimaryTextBrush}">
+    <Window.Resources>
+        <Style x:Key="GroupHeaderStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+        </Style>
+        <Style x:Key="KeyColStyle" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Consolas"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style x:Key="DescColStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="24,20,24,18">
+            <TextBlock Text="键盘快捷键" FontSize="20" FontWeight="SemiBold"/>
+        </StackPanel>
+
+        <Border Grid.Row="1" Height="1" Background="{DynamicResource SeparatorBrush}"/>
+
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="24">
+
+                <!-- 调色 · 简易 Timing -->
+                <TextBlock Text="调色 · 简易 Timing" Style="{StaticResource GroupHeaderStyle}"/>
+                <Grid Margin="0,0,0,22">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="156"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="26"/>
+                        <RowDefinition Height="26"/>
+                        <RowDefinition Height="26"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="W / S" Style="{StaticResource KeyColStyle}"/>
+                    <TextBlock Grid.Row="0" Grid.Column="1" Text="曝光增加 / 减少" Style="{StaticResource DescColStyle}"/>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Q / E" Style="{StaticResource KeyColStyle}"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1" Text="色温偏冷 / 偏暖" Style="{StaticResource DescColStyle}"/>
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="A / D" Style="{StaticResource KeyColStyle}"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1" Text="色调偏绿 / 偏洋红" Style="{StaticResource DescColStyle}"/>
+                </Grid>
+
+                <!-- 调色 · RGB Timing -->
+                <TextBlock Text="调色 · RGB Timing" Style="{StaticResource GroupHeaderStyle}"/>
+                <Grid Margin="0,0,0,22">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="156"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="26"/>
+                        <RowDefinition Height="26"/>
+                        <RowDefinition Height="26"/>
+                        <RowDefinition Height="26"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="W / S" Style="{StaticResource KeyColStyle}"/>
+                    <TextBlock Grid.Row="0" Grid.Column="1" Text="Master +1 / −1 CV" Style="{StaticResource DescColStyle}"/>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Q / E" Style="{StaticResource KeyColStyle}"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1" Text="红色 −1 / +1 CV" Style="{StaticResource DescColStyle}"/>
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="A / D" Style="{StaticResource KeyColStyle}"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1" Text="绿色 −1 / +1 CV" Style="{StaticResource DescColStyle}"/>
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Z / C" Style="{StaticResource KeyColStyle}"/>
+                    <TextBlock Grid.Row="3" Grid.Column="1" Text="蓝色 −1 / +1 CV" Style="{StaticResource DescColStyle}"/>
+                </Grid>
+
+                <!-- 裁剪 -->
+                <TextBlock Text="裁剪" Style="{StaticResource GroupHeaderStyle}"/>
+                <Grid Margin="0,0,0,22">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="156"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="26"/>
+                        <RowDefinition Height="26"/>
+                        <RowDefinition Height="26"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="R" Style="{StaticResource KeyColStyle}"/>
+                    <TextBlock Grid.Row="0" Grid.Column="1" Text="进入裁剪" Style="{StaticResource DescColStyle}"/>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="W / S / A / D" Style="{StaticResource KeyColStyle}"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1" Text="裁剪框上 / 下 / 左 / 右移动" Style="{StaticResource DescColStyle}"/>
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Q / E" Style="{StaticResource KeyColStyle}"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1" Text="裁剪角度 −0.1° / +0.1°" Style="{StaticResource DescColStyle}"/>
+                </Grid>
+
+                <!-- 反差 · Contrast -->
+                <TextBlock Text="反差 · Contrast" Style="{StaticResource GroupHeaderStyle}"/>
+                <Grid Margin="0,0,0,22">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="156"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="26"/>
+                        <RowDefinition Height="26"/>
+                        <RowDefinition Height="26"/>
+                        <RowDefinition Height="26"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Alt + W / S" Style="{StaticResource KeyColStyle}"/>
+                    <TextBlock Grid.Row="0" Grid.Column="1" Text="Master +0.01 / −0.01" Style="{StaticResource DescColStyle}"/>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Alt + Q / E" Style="{StaticResource KeyColStyle}"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1" Text="红色 −0.01 / +0.01" Style="{StaticResource DescColStyle}"/>
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Alt + A / D" Style="{StaticResource KeyColStyle}"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1" Text="绿色 −0.01 / +0.01" Style="{StaticResource DescColStyle}"/>
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Alt + Z / C" Style="{StaticResource KeyColStyle}"/>
+                    <TextBlock Grid.Row="3" Grid.Column="1" Text="蓝色 −0.01 / +0.01" Style="{StaticResource DescColStyle}"/>
+                </Grid>
+
+                <!-- 照片与预览 -->
+                <TextBlock Text="照片与预览" Style="{StaticResource GroupHeaderStyle}"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="156"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="26"/>
+                        <RowDefinition Height="26"/>
+                        <RowDefinition Height="26"/>
+                        <RowDefinition Height="26"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="[ / ]" Style="{StaticResource KeyColStyle}"/>
+                    <TextBlock Grid.Row="0" Grid.Column="1" Text="向左 / 向右旋转 90°" Style="{StaticResource DescColStyle}"/>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Ctrl + F" Style="{StaticResource KeyColStyle}"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1" Text="按当前画面水平翻转" Style="{StaticResource DescColStyle}"/>
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="I" Style="{StaticResource KeyColStyle}"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1" Text="开启 / 取消 Final 中性点吸管" Style="{StaticResource DescColStyle}"/>
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Ctrl + Shift + E" Style="{StaticResource KeyColStyle}"/>
+                    <TextBlock Grid.Row="3" Grid.Column="1" Text="导出当前照片" Style="{StaticResource DescColStyle}"/>
+                </Grid>
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>
