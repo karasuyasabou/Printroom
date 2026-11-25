@@ -6,6 +6,8 @@ var products: [Product] = [
 ]
 #if os(macOS)
 products.append(.executable(name: "Printroom", targets: ["PrintroomApp"]))
+#elseif os(Windows)
+products.append(.library(name: "PrintroomWinBridge", type: .dynamic, targets: ["PrintroomWinBridge"]))
 #endif
 
 var targets: [Target] = [
@@ -78,6 +80,25 @@ targets.append(contentsOf: [
   .executableTarget(name: "PrintroomApp", dependencies: ["PrintroomCore"]),
   .testTarget(name: "PrintroomAppTests", dependencies: ["PrintroomApp", "PrintroomCore"]),
 ])
+#elseif os(Windows)
+targets.append(
+  .target(
+    name: "PrintroomWinBridge",
+    dependencies: ["PrintroomCore", "CWinPlatform"],
+    linkerSettings: [
+      .unsafeFlags([
+        "-Xlinker", "/EXPORT:pr_bridge_verify_resources",
+        "-Xlinker", "/EXPORT:pr_bridge_create",
+        "-Xlinker", "/EXPORT:pr_bridge_destroy",
+        "-Xlinker", "/EXPORT:pr_bridge_set_hwnd",
+        "-Xlinker", "/EXPORT:pr_bridge_dispatch",
+        "-Xlinker", "/EXPORT:pr_bridge_poll_state",
+        "-Xlinker", "/EXPORT:pr_bridge_copy_preview_bgra",
+        "-Xlinker", "/EXPORT:pr_bridge_copy_thumbnail_bgra",
+        "-Xlinker", "/EXPORT:pr_bridge_free_string",
+      ])
+    ])
+)
 #endif
 
 let package = Package(

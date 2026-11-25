@@ -322,18 +322,18 @@ public struct SHA256: Sendable {
 #endif
 
 #if os(Windows)
-enum PlatformFS {
-  struct FileStat {
-    let size: Int64
-    let mtimeSec: Int64
-    let mtimeNsec: Int64
-    let fileID: UInt64
-    let isRegular: Bool
-    let isDirectory: Bool
-    let isReparse: Bool
+public enum PlatformFS {
+  public struct FileStat: Sendable {
+    public let size: Int64
+    public let mtimeSec: Int64
+    public let mtimeNsec: Int64
+    public let fileID: UInt64
+    public let isRegular: Bool
+    public let isDirectory: Bool
+    public let isReparse: Bool
   }
 
-  static func formatError(_ code: UInt32) -> String {
+  public static func formatError(_ code: UInt32) -> String {
     var buf = [CChar](repeating: 0, count: 512)
     pr_win_format_error(code, &buf, buf.count)
     return buf.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }
@@ -346,7 +346,7 @@ enum PlatformFS {
     }
   }
 
-  static func lstat(_ url: URL) throws -> FileStat? {
+  public static func lstat(_ url: URL) throws -> FileStat? {
     var raw = PRWinFileStat()
     var err: UInt32 = 0
     let status = try withPath(url) { pr_win_lstat($0, &raw, &err) }
@@ -365,7 +365,7 @@ enum PlatformFS {
     )
   }
 
-  static func pathExistsNoFollow(_ url: URL) throws -> Bool {
+  public static func pathExistsNoFollow(_ url: URL) throws -> Bool {
     var err: UInt32 = 0
     let status = try withPath(url) { pr_win_path_exists_nofollow($0, &err) }
     guard status >= 0 else {
@@ -399,7 +399,7 @@ enum PlatformFS {
     return result
   }
 
-  static func openTempExclusive(_ url: URL) throws -> Int {
+  public static func openTempExclusive(_ url: URL) throws -> Int {
     var err: UInt32 = 0
     let handle = try withPath(url) { pr_win_open_temp_excl($0, &err) }
     guard handle != -1 else {
@@ -408,7 +408,7 @@ enum PlatformFS {
     return handle
   }
 
-  static func writeAll(handle: Int, data: Data) throws {
+  public static func writeAll(handle: Int, data: Data) throws {
     var err: UInt32 = 0
     let ok = data.withUnsafeBytes { buf in
       pr_win_write_all(handle, buf.baseAddress, data.count, &err)
@@ -428,7 +428,7 @@ enum PlatformFS {
     }
   }
 
-  static func flushAndClose(handle: Int) throws {
+  public static func flushAndClose(handle: Int) throws {
     var err: UInt32 = 0
     let ok = pr_win_flush_close(handle, &err)
     guard ok == 0 else {
@@ -440,7 +440,7 @@ enum PlatformFS {
     pr_win_close(handle)
   }
 
-  static func moveExclusive(from source: URL, to destination: URL) throws {
+  public static func moveExclusive(from source: URL, to destination: URL) throws {
     var err: UInt32 = 0
     let status = try withPath(source) { src in
       try withPath(destination) { dst in
@@ -455,7 +455,7 @@ enum PlatformFS {
     }
   }
 
-  static func moveReplace(from source: URL, to destination: URL) throws {
+  public static func moveReplace(from source: URL, to destination: URL) throws {
     var err: UInt32 = 0
     let status = try withPath(source) { src in
       try withPath(destination) { dst in
@@ -467,7 +467,7 @@ enum PlatformFS {
     }
   }
 
-  static func atomicWrite(_ data: Data, to destination: URL) throws {
+  public static func atomicWrite(_ data: Data, to destination: URL) throws {
     let temp = destination.deletingLastPathComponent()
       .appendingPathComponent(".\(destination.lastPathComponent).\(UUID().uuidString).tmp")
     let handle = try openTempExclusive(temp)
@@ -500,11 +500,11 @@ enum PlatformFS {
     throw PrintroomError.invalid("代理缓存锁定失败：\(formatError(err))")
   }
 
-  static func closeLock(handle: Int) {
+  public static func closeLock(handle: Int) {
     pr_win_lock_close(handle)
   }
 
-  static func normalizedPathKey(_ url: URL) -> String {
+  public static func normalizedPathKey(_ url: URL) -> String {
     var p = url.standardizedFileURL.resolvingSymlinksInPath().path
       .replacingOccurrences(of: "\\", with: "/")
     while p.count > 1 && p.hasSuffix("/") {
@@ -514,7 +514,7 @@ enum PlatformFS {
     return p.lowercased()
   }
 
-  static func sameDirectory(_ lhs: URL, _ rhs: URL) -> Bool {
+  public static func sameDirectory(_ lhs: URL, _ rhs: URL) -> Bool {
     normalizedPathKey(lhs) == normalizedPathKey(rhs)
   }
 
@@ -529,7 +529,7 @@ enum PlatformFS {
     return (sec, max(0, nsec))
   }
 
-  static func getFileDates(_ url: URL) throws -> (creation: Date?, modification: Date?) {
+  public static func getFileDates(_ url: URL) throws -> (creation: Date?, modification: Date?) {
     var hasC: Int32 = 0, cSec: Int64 = 0, cNsec: Int64 = 0
     var hasM: Int32 = 0, mSec: Int64 = 0, mNsec: Int64 = 0
     var err: UInt32 = 0
@@ -544,7 +544,7 @@ enum PlatformFS {
     return (creation, modification)
   }
 
-  static func setFileDates(_ url: URL, creation: Date?, modification: Date?) throws {
+  public static func setFileDates(_ url: URL, creation: Date?, modification: Date?) throws {
     if creation == nil && modification == nil { return }
     let c = creation.map(splitDate) ?? (sec: Int64(0), nsec: Int64(0))
     let m = modification.map(splitDate) ?? (sec: Int64(0), nsec: Int64(0))
