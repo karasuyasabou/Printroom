@@ -24,19 +24,13 @@ scripts/test.sh --build-system native --no-parallel --filter NativeDialogTests
 scripts/test.sh --build-system native --no-parallel --filter PreviewCanvasTests
 ```
 
-测试包含 AppKit／Metal 集成；原生对话框与预览画布分进程运行，其余测试串行执行以避免套件争用；应在可用的本机图形环境运行。默认测试不要求私人参考照片，需额外素材或环境的测试会跳过。提交说明中列出实际运行和跳过的项目。
+测试包含 AppKit／Metal 集成；原生对话框与预览画布分进程运行，其余测试串行执行以避免套件争用；应在可用的本机图形环境运行。默认测试不要求私人参考照片，需额外素材或环境的测试会自动跳过。
 
-以下是按需执行的现有入口，不要求每次修改全部运行：
+如需包含本地参考 TIFF 的完整校验（需要 `TEST/TIFF/` 参考照片）：
 
 ```sh
 scripts/test.sh --full --build-system native --no-parallel
-scripts/test-raw-integration.sh
-scripts/measure-performance.sh
-scripts/measure-adjustments.sh
-bash scripts/editor-window-qa.sh --release
 ```
-
-`--full` 需要未随仓库提供的 `TEST/TIFF/` 十张参考照片；RAW 集成需要本机 Adobe、参考 ARW 和独立研究基线。窗口 QA 需要图形会话与截图权限。缺少这些条件时说明未运行，不以合成数据或编译成功替代实片／窗口验收。
 
 ## 实现与规范
 
