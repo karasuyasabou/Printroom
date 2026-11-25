@@ -6,10 +6,10 @@
             BorderBrush="{DynamicResource SubtleSeparatorBrush}"
             BorderThickness="0.75"
             CornerRadius="10"
-            Padding="10"
+            Padding="9,8"
             Cursor="Arrow">
         <Border.Effect>
-            <DropShadowEffect Color="Black" Opacity="0.22" BlurRadius="10" ShadowDepth="3" Direction="270"/>
+            <DropShadowEffect Color="Black" Opacity="0.24" BlurRadius="12" ShadowDepth="3" Direction="270"/>
         </Border.Effect>
         <StackPanel x:Name="ContentStack">
             <Grid>
@@ -19,31 +19,37 @@
                 </Grid.ColumnDefinitions>
                 <Border x:Name="StagePickerPanel" Grid.Column="0" Margin="0,0,8,0"
                         Background="{DynamicResource SecondaryPanelBrush}"
-                        CornerRadius="5" Padding="2">
+                        CornerRadius="6" Padding="2">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Button x:Name="DensityBtn" Grid.Column="0" Content="Density" Click="DensityBtn_Click"
-                                FontSize="10.5" Height="20" Padding="6,0" BorderThickness="0"/>
+                                Style="{StaticResource PillSegmentButtonStyle}" FontSize="10.5" Height="20"/>
                         <Button x:Name="FinalBtn" Grid.Column="1" Content="Final" Click="FinalBtn_Click"
-                                FontSize="10.5" Height="20" Padding="6,0" BorderThickness="0"/>
+                                Style="{StaticResource PillSegmentButtonStyle}" FontSize="10.5" Height="20"/>
                     </Grid>
                 </Border>
                 <Button x:Name="CollapseBtn" Grid.Column="1" Click="CollapseBtn_Click"
-                        Style="{StaticResource FlatIconButtonStyle}" Height="22" Padding="6,2">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock x:Name="CollapsedTitleText" Text="直方图 " FontSize="11" Visibility="Collapsed"/>
-                        <TextBlock x:Name="CollapseGlyph" Text="▾" FontSize="11"/>
+                        Style="{StaticResource FlatIconButtonStyle}" Height="22" Padding="5,2">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock x:Name="CollapsedTitleText" Text="直方图" FontSize="11" Margin="0,0,5,0" Visibility="Collapsed" VerticalAlignment="Center"/>
+                        <Path x:Name="CollapseIconPath"
+                              Data="{StaticResource GeoChevronDown}"
+                              Stroke="{DynamicResource SecondaryTextBrush}"
+                              StrokeThickness="1.35"
+                              StrokeStartLineCap="Round"
+                              StrokeEndLineCap="Round"
+                              Width="12" Height="12" Stretch="Uniform" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
             </Grid>
-            <StackPanel x:Name="ChartPanel" Margin="0,6,0,0" Width="228">
-                <Border BorderBrush="{DynamicResource SubtleSeparatorBrush}" BorderThickness="0.75" Height="78" ClipToBounds="True">
-                    <Canvas x:Name="PlotCanvas" Width="228" Height="78" IsHitTestVisible="False"/>
+            <StackPanel x:Name="ChartPanel" Margin="0,6,0,0" Width="198">
+                <Border BorderBrush="{DynamicResource SubtleSeparatorBrush}" BorderThickness="0.75" CornerRadius="2" Height="74" ClipToBounds="True">
+                    <Canvas x:Name="PlotCanvas" Width="198" Height="74" IsHitTestVisible="False"/>
                 </Border>
-                <Canvas x:Name="AxisCanvas" Width="228" Height="14" Margin="0,3,0,0" IsHitTestVisible="False"/>
+                <Canvas x:Name="AxisCanvas" Width="198" Height="14" Margin="0,3,0,0" IsHitTestVisible="False"/>
             </StackPanel>
         </StackPanel>
     </Border>

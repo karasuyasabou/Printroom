@@ -31,34 +31,47 @@ public partial class AdjustmentRowControl : System.Windows.Controls.UserControl
         new PropertyMetadata(512.0, (d, e) => ((AdjustmentRowControl)d).ValueSlider.Maximum = (double)e.NewValue));
 
     public static readonly DependencyProperty StepProperty = DependencyProperty.Register(
-        nameof(Step), typeof(double), typeof(AdjustmentRowControl), new PropertyMetadata(1.0));
+        nameof(Step), typeof(double), typeof(AdjustmentRowControl),
+        new PropertyMetadata(1.0, (d, e) => ((AdjustmentRowControl)d).ValueSlider.Step = (double)e.NewValue));
 
     public static readonly DependencyProperty FractionDigitsProperty = DependencyProperty.Register(
         nameof(FractionDigits), typeof(int), typeof(AdjustmentRowControl),
         new PropertyMetadata(0, (d, _) => ((AdjustmentRowControl)d).SyncTextFromValue()));
 
     public static readonly DependencyProperty ResetValueProperty = DependencyProperty.Register(
-        nameof(ResetValue), typeof(double?), typeof(AdjustmentRowControl), new PropertyMetadata(0.0));
+        nameof(ResetValue), typeof(double?), typeof(AdjustmentRowControl),
+        new PropertyMetadata(0.0, (d, e) => ((AdjustmentRowControl)d).ValueSlider.ResetValue = (double?)e.NewValue));
 
     public static readonly DependencyProperty QuantizesValueProperty = DependencyProperty.Register(
-        nameof(QuantizesValue), typeof(bool), typeof(AdjustmentRowControl), new PropertyMetadata(true));
+        nameof(QuantizesValue), typeof(bool), typeof(AdjustmentRowControl),
+        new PropertyMetadata(true, (d, e) => ((AdjustmentRowControl)d).ValueSlider.QuantizesValue = (bool)e.NewValue));
 
     public static readonly DependencyProperty TrackColorBrushProperty = DependencyProperty.Register(
         nameof(TrackColorBrush), typeof(System.Windows.Media.Brush), typeof(AdjustmentRowControl),
         new PropertyMetadata(System.Windows.Media.Brushes.Gray,
-            (d, e) => ((AdjustmentRowControl)d).ValueSlider.Foreground = (System.Windows.Media.Brush)e.NewValue));
+            (d, e) => ((AdjustmentRowControl)d).ValueSlider.FillBrush = (System.Windows.Media.Brush)e.NewValue));
 
     private bool _suppressSlider;
-    private bool _dragging;
 
     public AdjustmentRowControl()
     {
         InitializeComponent();
-        ValueSlider.ValueChanged += OnSliderValueChanged;
-        ValueSlider.PreviewMouseLeftButtonDown += OnSliderPreviewMouseDown;
-        ValueSlider.PreviewMouseLeftButtonUp += OnSliderPreviewMouseUp;
-        ValueSlider.LostMouseCapture += (_, _) => EndDrag();
-        ValueSlider.PreviewKeyDown += OnSliderPreviewKeyDown;
+        ValueSlider.Minimum = Minimum;
+        ValueSlider.Maximum = Maximum;
+        ValueSlider.Step = Step;
+        ValueSlider.ResetValue = ResetValue;
+        ValueSlider.QuantizesValue = QuantizesValue;
+        ValueSlider.FillBrush = TrackColorBrush;
+
+        ValueSlider.EditingStarted += () => EditingStarted?.Invoke();
+        ValueSlider.ValueCommitted += v =>
+        {
+            if (_suppressSlider) return;
+            Value = v;
+            SyncTextFromValue();
+            ValueCommitted?.Invoke(v);
+        };
+        ValueSlider.EditingEnded += () => EditingEnded?.Invoke();
     }
 
     public string Title
@@ -144,60 +157,6 @@ public partial class AdjustmentRowControl : System.Windows.Controls.UserControl
         if (ValueBox.IsKeyboardFocusWithin) return;
         string fmt = FractionDigits > 0 ? $"F{FractionDigits}" : "F0";
         ValueBox.Text = Value.ToString(fmt, CultureInfo.InvariantCulture);
-    }
-
-    private void OnSliderPreviewMouseDown(object sender, MouseButtonEventArgs e)
-    {
-        if (!IsEnabled) return;
-        if (e.ClickCount == 2 && ResetValue.HasValue)
-        {
-            e.Handled = true;
-            EditingStarted?.Invoke();
-            double target = Math.Clamp(ResetValue.Value, Minimum, Maximum);
-            Value = target;
-            SyncControlsFromValue();
-            ValueCommitted?.Invoke(target);
-            EditingEnded?.Invoke();
-            return;
-        }
-        if (!_dragging)
-        {
-            _dragging = true;
-            EditingStarted?.Invoke();
-        }
-    }
-
-    private void OnSliderPreviewMouseUp(object sender, MouseButtonEventArgs e)
-    {
-        EndDrag();
-    }
-
-    private void EndDrag()
-    {
-        if (_dragging)
-        {
-            _dragging = false;
-            EditingEnded?.Invoke();
-        }
-    }
-
-    private void OnSliderValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (_suppressSlider) return;
-        double v = e.NewValue;
-        if (QuantizesValue && Step > 0)
-            v = Math.Round(v / Step) * Step;
-        v = Math.Clamp(v, Minimum, Maximum);
-        Value = v;
-        SyncTextFromValue();
-        ValueCommitted?.Invoke(v);
-    }
-
-    private void OnSliderPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
-    {
-        // Arrow keys belong to frame navigation, never slider increments
-        if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down)
-            e.Handled = true;
     }
 
     private void ValueBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)

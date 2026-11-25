@@ -98,6 +98,9 @@ try {
     New-Item -ItemType Directory -Force -Path $ThirdPartyDest | Out-Null
     Copy-Item -Path (Join-Path $RepoRoot 'ThirdParty\LibRaw') -Destination (Join-Path $ThirdPartyDest 'LibRaw') -Recurse -Force
     Copy-Item -Path (Join-Path $RepoRoot 'ThirdParty\libdeflate') -Destination (Join-Path $ThirdPartyDest 'libdeflate') -Recurse -Force
+    $FontsThirdPartyDest = Join-Path $ThirdPartyDest 'Fonts'
+    New-Item -ItemType Directory -Force -Path $FontsThirdPartyDest | Out-Null
+    Get-ChildItem -Path (Join-Path $RepoRoot 'Windows\PrintroomApp\Assets\Fonts') -Filter '*.txt' -ErrorAction SilentlyContinue | Copy-Item -Destination $FontsThirdPartyDest -Force
 
     if (-not $SkipSmokeTest) {
         $ExePath = Join-Path $StageDir 'Printroom.exe'

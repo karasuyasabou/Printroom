@@ -35,6 +35,7 @@ public sealed class RenameRollDialog : Window
         ResizeMode = ResizeMode.NoResize;
         SetResourceReference(BackgroundProperty, "WindowBrush");
         SetResourceReference(ForegroundProperty, "PrimaryTextBrush");
+        SetResourceReference(FontFamilyProperty, "AppSansFont");
         SourceInitialized += (_, _) => ThemeManager.ApplyWindowChrome(this);
 
         string? resolvedFolder = folderPath ?? _vm.State.FolderPath;
@@ -195,6 +196,7 @@ public sealed class CustomRatioDialog : Window
         ResizeMode = ResizeMode.NoResize;
         SetResourceReference(BackgroundProperty, "WindowBrush");
         SetResourceReference(ForegroundProperty, "PrimaryTextBrush");
+        SetResourceReference(FontFamilyProperty, "AppSansFont");
         SourceInitialized += (_, _) => ThemeManager.ApplyWindowChrome(this);
 
         var root = new StackPanel { Margin = new Thickness(22) };
@@ -376,6 +378,7 @@ public sealed class ErrorModalDialog : Window
         ResizeMode = ResizeMode.NoResize;
         SetResourceReference(BackgroundProperty, "WindowBrush");
         SetResourceReference(ForegroundProperty, "PrimaryTextBrush");
+        SetResourceReference(FontFamilyProperty, "AppSansFont");
         SourceInitialized += (_, _) => ThemeManager.ApplyWindowChrome(this);
 
         var root = new StackPanel { Margin = new Thickness(22) };

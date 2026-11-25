@@ -19,5 +19,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Resource Include="Assets\Printroom.ico" />
+    <Resource Include="Assets\Fonts\*.ttf" />
   </ItemGroup>
 </Project>

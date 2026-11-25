@@ -18,6 +18,8 @@ public enum AppAppearance
 public static class ThemeManager
 {
     private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+    private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    private const int DWMWCP_ROUND = 2;
 
     [DllImport("dwmapi.dll", PreserveSig = true)]
     private static extern int DwmSetWindowAttribute(nint hwnd, int attr, ref int attrValue, int attrSize);
@@ -62,21 +64,27 @@ public static class ThemeManager
         bool dark = appearance == AppAppearance.Dark;
 
         var res = System.Windows.Application.Current.Resources;
-        SetBrush(res, "WindowBrush", dark ? 0x282828u : 0xF7F7F7u);
-        SetBrush(res, "PanelBrush", dark ? 0x242424u : 0xF3F3F3u);
-        SetBrush(res, "SecondaryPanelBrush", dark ? 0x202020u : 0xEEEEEEu);
-        SetBrush(res, "ControlBrush", dark ? 0x363636u : 0xFFFFFFu);
-        SetBrush(res, "HoverBrush", dark ? 0x414141u : 0xE7E7E7u);
-        SetBrush(res, "SelectedBrush", dark ? 0x444033u : 0xE4E4E4u);
-        SetBrush(res, "AccentBrush", dark ? 0xD6B570u : 0x86621Fu);
-        SetBrush(res, "PrimaryTextBrush", dark ? 0xE5E5E3u : 0x282828u);
-        SetBrush(res, "SecondaryTextBrush", dark ? 0xAAA9A5u : 0x666666u);
-        SetBrush(res, "TertiaryTextBrush", dark ? 0x7F7F7Bu : 0x8A8A8Au);
-        SetBrush(res, "SeparatorBrush", dark ? 0x393939u : 0xD6D6D6u);
-        SetBrush(res, "SubtleSeparatorBrush", dark ? 0x393939u : 0xD6D6D6u, 0.45);
-        SetBrush(res, "HistogramBrush", dark ? 0x1E1E1Eu : 0xF5F5F5u, 0.78);
-        SetBrush(res, "CanvasBrush", dark ? 0x484848u : 0xD6D6D6u);
-        SetBrush(res, "HomeBrush", dark ? 0x131313u : 0xF7F7F7u);
+        SetBrush(res, "WindowBrush", dark ? 0x262628u : 0xF5F5F7u);
+        SetBrush(res, "PanelBrush", dark ? 0x232325u : 0xF0F0F2u);
+        SetBrush(res, "SecondaryPanelBrush", dark ? 0x1C1C1Eu : 0xE7E7EAu);
+        SetBrush(res, "ControlBrush", dark ? 0x323235u : 0xFFFFFFu);
+        SetBrush(res, "InputWellBrush", dark ? 0x18181Au : 0xFFFFFFu);
+        SetBrush(res, "SliderTrackBrush", dark ? 0x3C3C40u : 0xD4D4D9u);
+        SetBrush(res, "HoverBrush", dark ? 0x3E3E42u : 0xE4E4E8u);
+        SetBrush(res, "SelectedBrush", dark ? 0x3D3626u : 0xEDE4CEu);
+        SetBrush(res, "AccentBrush", dark ? 0xD8B66Eu : 0x9A6E1Eu);
+        SetBrush(res, "GoldPillBrush", 0xD8B66Eu);
+        SetBrush(res, "GoldPillTextBrush", 0x1C1810u);
+        SetBrush(res, "PrimaryTextBrush", dark ? 0xECECEAu : 0x1D1D1Fu);
+        SetBrush(res, "SecondaryTextBrush", dark ? 0x9E9E9Au : 0x6E6E73u);
+        SetBrush(res, "TertiaryTextBrush", dark ? 0x6E6E6Au : 0x98989Du);
+        SetBrush(res, "SeparatorBrush", dark ? 0x343437u : 0xD4D4D9u);
+        SetBrush(res, "SubtleSeparatorBrush", dark ? 0x343437u : 0xD4D4D9u, dark ? 0.60 : 0.65);
+        SetBrush(res, "HistogramBrush", dark ? 0x1E1E20u : 0xFAFAFCu, dark ? 0.86 : 0.90);
+        SetBrush(res, "CanvasBrush", dark ? 0x3C3C3Eu : 0xD2D2D6u);
+        SetBrush(res, "HomeBrush", dark ? 0x141416u : 0xF5F5F7u);
+        SetBrush(res, "ScrollThumbBrush", dark ? 0xFFFFFFu : 0x000000u, dark ? 0.28 : 0.24);
+        SetBrush(res, "ScrollThumbHoverBrush", dark ? 0xFFFFFFu : 0x000000u, dark ? 0.50 : 0.45);
         SetBrush(res, "RedChannelBrush", dark ? 0xEB7D6Eu : 0xB95145u);
         SetBrush(res, "GreenChannelBrush", dark ? 0x7ABF8Cu : 0x438454u);
         SetBrush(res, "BlueChannelBrush", dark ? 0x78A6E0u : 0x477BADu);
@@ -95,6 +103,8 @@ public static class ThemeManager
         if (hwnd == 0) return;
         int dark = Current == AppAppearance.Dark ? 1 : 0;
         _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
+        int corner = DWMWCP_ROUND;
+        _ = DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref corner, sizeof(int));
     }
 
     public static MediaColor ColorFromRgb(uint rgb, double alpha = 1.0)

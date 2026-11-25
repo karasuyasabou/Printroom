@@ -89,8 +89,8 @@ public partial class HistogramOverlayControl : System.Windows.Controls.UserContr
         ChartPanel.Visibility = _expanded ? Visibility.Visible : Visibility.Collapsed;
         StagePickerPanel.Visibility = _expanded ? Visibility.Visible : Visibility.Collapsed;
         CollapsedTitleText.Visibility = _expanded ? Visibility.Collapsed : Visibility.Visible;
-        CollapseGlyph.Text = _expanded ? "▾" : "◂";
-        RootBorder.Width = _expanded ? 248 : double.NaN;
+        CollapseIconPath.Data = TryFindResource(_expanded ? "GeoChevronDown" : "GeoChevronLeft") as Geometry;
+        RootBorder.Width = _expanded ? 218 : double.NaN;
         CollapseBtn.ToolTip = _expanded ? "收起直方图" : "展开直方图";
     }
 
@@ -100,14 +100,16 @@ public partial class HistogramOverlayControl : System.Windows.Controls.UserContr
     private void UpdateStageButtons()
     {
         bool isDensity = _selectedStage == 6;
-        var activeBg = TryFindResource("ControlBrush") as System.Windows.Media.Brush ?? MediaBrushes.DimGray;
-        var primary = TryFindResource("PrimaryTextBrush") as System.Windows.Media.Brush ?? MediaBrushes.White;
+        var activeBg = TryFindResource("GoldPillBrush") as System.Windows.Media.Brush ?? MediaBrushes.Goldenrod;
+        var activeFg = TryFindResource("GoldPillTextBrush") as System.Windows.Media.Brush ?? MediaBrushes.Black;
         var secondary = TryFindResource("SecondaryTextBrush") as System.Windows.Media.Brush ?? MediaBrushes.Gray;
 
         DensityBtn.Background = isDensity ? activeBg : MediaBrushes.Transparent;
-        DensityBtn.Foreground = isDensity ? primary : secondary;
+        DensityBtn.Foreground = isDensity ? activeFg : secondary;
+        DensityBtn.FontWeight = isDensity ? FontWeights.SemiBold : FontWeights.Normal;
         FinalBtn.Background = !isDensity ? activeBg : MediaBrushes.Transparent;
-        FinalBtn.Foreground = !isDensity ? primary : secondary;
+        FinalBtn.Foreground = !isDensity ? activeFg : secondary;
+        FinalBtn.FontWeight = !isDensity ? FontWeights.SemiBold : FontWeights.Normal;
     }
 
     private void Redraw()
@@ -231,10 +233,11 @@ public partial class HistogramOverlayControl : System.Windows.Controls.UserContr
 
     private void AddAxisText(string text, double x, System.Windows.Media.Brush brush, System.Windows.HorizontalAlignment align)
     {
+        var mono = TryFindResource("AppMonoFont") as System.Windows.Media.FontFamily ?? new System.Windows.Media.FontFamily("Consolas");
         var tb = new TextBlock
         {
             Text = text,
-            FontFamily = new System.Windows.Media.FontFamily("Consolas"),
+            FontFamily = mono,
             FontSize = 9,
             Foreground = brush
         };

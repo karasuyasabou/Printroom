@@ -57,16 +57,15 @@ public partial class MainWindow : Window
 
         public WinMatrixOptionDto Dto { get; }
         public string Id => Dto.Id;
-        public string DisplayTitle =>
-            Dto.IsBuiltIn ? $"{Dto.Name}（内置）"
-            : Dto.IsSnapshot ? $"{Dto.Name}（当前项目）"
-            : Dto.Name;
+        public string DisplayTitle => Dto.IsSnapshot ? $"{Dto.Name} · 本卷快照" : Dto.Name;
+        public override string ToString() => DisplayTitle;
     }
 
     private readonly EditorViewModel _vm;
     private readonly ShortcutController _shortcuts;
     private readonly DispatcherTimer _loadingHintTimer;
     private readonly string? _initialOpenPath;
+    private readonly string? _screenshotPath;
 
     private bool _updatingUi;
     private bool _modalDialogOpen;
@@ -80,9 +79,10 @@ public partial class MainWindow : Window
     private bool _syncCrop = true;
     private string? _pendingActiveScrollId;
 
-    public MainWindow(string? initialOpenPath = null)
+    public MainWindow(string? initialOpenPath = null, string? screenshotPath = null)
     {
         _initialOpenPath = initialOpenPath;
+        _screenshotPath = screenshotPath;
         InitializeComponent();
 
         _vm = new EditorViewModel();
@@ -106,7 +106,12 @@ public partial class MainWindow : Window
 
         ThemeManager.ThemeChanged += OnThemeChanged;
         _vm.StateUpdated += OnStateUpdated;
-        _vm.PreviewBitmapUpdated += () => CanvasControl.UpdateState(_vm.State, _vm.PreviewBitmap);
+        _vm.PreviewBitmapUpdated += () =>
+        {
+            CanvasControl.UpdateState(_vm.State, _vm.PreviewBitmap);
+            UpdateZoomButtons();
+        };
+        CanvasControl.ViewportZoomChanged += UpdateZoomButtons;
 
         SourceInitialized += OnSourceInitialized;
         Loaded += (_, _) =>
@@ -118,6 +123,32 @@ public partial class MainWindow : Window
                 _vm.Dispatch(new { action = "openFolder", path = _initialOpenPath });
             }
             _vm.Dispatch(new { action = "checkForUpdates" });
+            if (!string.IsNullOrWhiteSpace(_screenshotPath))
+            {
+                var snapTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2500) };
+                snapTimer.Tick += (_, _) =>
+                {
+                    snapTimer.Stop();
+                    try
+                    {
+                        var dir = Path.GetDirectoryName(_screenshotPath);
+                        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                        int w = Math.Max(1, (int)Math.Round(RootFrameGrid.ActualWidth));
+                        int h = Math.Max(1, (int)Math.Round(RootFrameGrid.ActualHeight));
+                        var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+                        rtb.Render(RootFrameGrid);
+                        var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                        enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+                        using var fs = File.Create(_screenshotPath);
+                        enc.Save(fs);
+                    }
+                    finally
+                    {
+                        Close();
+                    }
+                };
+                snapTimer.Start();
+            }
         };
     }
 
@@ -243,12 +274,13 @@ public partial class MainWindow : Window
     private void ApplyThemeVisuals()
     {
         bool dark = ThemeManager.Current == AppAppearance.Dark;
-        LightThemeBtn.SetResourceReference(BackgroundProperty, dark ? "PanelBrush" : "SelectedBrush");
-        LightThemeBtn.SetResourceReference(ForegroundProperty, dark ? "SecondaryTextBrush" : "PrimaryTextBrush");
-        DarkThemeBtn.SetResourceReference(BackgroundProperty, dark ? "SelectedBrush" : "PanelBrush");
-        DarkThemeBtn.SetResourceReference(ForegroundProperty, dark ? "PrimaryTextBrush" : "SecondaryTextBrush");
+        LightThemeBtn.SetResourceReference(BackgroundProperty, dark ? "SecondaryPanelBrush" : "SelectedBrush");
+        LightThemeIcon.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, dark ? "SecondaryTextBrush" : "AccentBrush");
+        DarkThemeBtn.SetResourceReference(BackgroundProperty, dark ? "SelectedBrush" : "SecondaryPanelBrush");
+        DarkThemeIcon.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, dark ? "AccentBrush" : "SecondaryTextBrush");
         CanvasControl.RefreshTheme();
         HistogramControl.RefreshTheme();
+        UpdateZoomButtons();
     }
 
     private void OnStateUpdated(WinUIStateSnapshot s)
@@ -285,9 +317,10 @@ public partial class MainWindow : Window
 
             CanvasControl.UpdateState(s, _vm.PreviewBitmap);
             HistogramControl.Update(s);
-            HistogramControl.Visibility = s.HasProject && s.HasImage && !s.IsImporting
+            HistogramControl.Visibility = s.HasProject && s.HasImage && s.HasFilmBase && !s.IsCropping && !s.IsImporting
                 ? Visibility.Visible
                 : Visibility.Collapsed;
+            UpdateZoomButtons();
         }
         finally
         {
@@ -295,6 +328,30 @@ public partial class MainWindow : Window
         }
 
         HandleModalTriggers(s);
+    }
+
+    private void UpdateZoomButtons()
+    {
+        if (!IsInitialized || ZoomFitBtn == null || Zoom100Btn == null) return;
+        bool hasImg = _vm.State.HasProject && _vm.State.HasImage && !_vm.State.IsCropping && !_vm.State.IsImporting;
+        ZoomFitBtn.IsEnabled = hasImg;
+        Zoom100Btn.IsEnabled = hasImg;
+        if (!hasImg)
+        {
+            ZoomFitBtn.SetResourceReference(BackgroundProperty, "SecondaryPanelBrush");
+            ZoomFitBtn.SetResourceReference(ForegroundProperty, "SecondaryTextBrush");
+            Zoom100Btn.SetResourceReference(BackgroundProperty, "SecondaryPanelBrush");
+            Zoom100Btn.SetResourceReference(ForegroundProperty, "SecondaryTextBrush");
+            return;
+        }
+        bool is100 = CanvasControl.IsActualPixelsZoom;
+        bool isFit = !is100 && CanvasControl.IsFitZoom;
+        ZoomFitBtn.SetResourceReference(BackgroundProperty, isFit ? "GoldPillBrush" : "SecondaryPanelBrush");
+        ZoomFitBtn.SetResourceReference(ForegroundProperty, isFit ? "GoldPillTextBrush" : "SecondaryTextBrush");
+        ZoomFitBtn.FontWeight = isFit ? FontWeights.SemiBold : FontWeights.Normal;
+        Zoom100Btn.SetResourceReference(BackgroundProperty, is100 ? "GoldPillBrush" : "SecondaryPanelBrush");
+        Zoom100Btn.SetResourceReference(ForegroundProperty, is100 ? "GoldPillTextBrush" : "SecondaryTextBrush");
+        Zoom100Btn.FontWeight = is100 ? FontWeights.SemiBold : FontWeights.Normal;
     }
 
     private void UpdateImportAndEmptyOverlay(WinUIStateSnapshot s)
@@ -332,6 +389,12 @@ public partial class MainWindow : Window
     {
         bool editorVisible = s.HasProject && !s.IsImporting;
         ToolbarActionsPanel.Visibility = editorVisible ? Visibility.Visible : Visibility.Collapsed;
+        TopRollTitlePanel.Visibility = editorVisible ? Visibility.Visible : Visibility.Collapsed;
+        if (editorVisible)
+        {
+            RollTitleText.Text = s.RollName;
+            RevealFolderBtn.IsEnabled = !string.IsNullOrEmpty(s.FolderPath);
+        }
 
         UpdateAvailableBtn.Visibility = !string.IsNullOrWhiteSpace(s.AvailableUpdateVersion)
             ? Visibility.Visible
@@ -342,17 +405,17 @@ public partial class MainWindow : Window
             UpdateAvailableBtn.ToolTip = $"发现可用更新 v{s.AvailableUpdateVersion}，点击下载";
         }
 
-        SprocketBtn.IsEnabled = s.CanAdjustSprocketWhitening;
+        SprocketBtn.IsEnabled = s.HasProject && !s.IsLoading && !s.IsExporting && !s.IsCropping && !s.IsAutoCropping;
         SprocketBtn.SetResourceReference(ForegroundProperty,
             s.SprocketWhiteningEnabled ? "AccentBrush" : "PrimaryTextBrush");
 
         AutoCropBtn.IsEnabled = s.CanStartAutoCrop;
-        AutoCropBtn.Content = s.IsAutoCropping
-            ? (string.IsNullOrWhiteSpace(s.AutoCropProgressText) ? "⊡ 裁剪分析中…" : $"⊡ {s.AutoCropProgressText}")
-            : "⊡ 自动裁剪";
+        AutoCropBtnLabel.Text = s.IsAutoCropping
+            ? (string.IsNullOrWhiteSpace(s.AutoCropProgressText) ? "裁剪分析中…" : s.AutoCropProgressText)
+            : "自动裁剪";
 
         RollTimingBtn.IsEnabled = s.CanStartRollTiming;
-        RollTimingBtn.Content = s.IsAnalyzingRollTiming ? "✦ 色罩分析中…" : "✦ 色罩分析";
+        RollTimingBtnLabel.Text = s.IsAnalyzingRollTiming ? "色罩分析中…" : "色罩分析";
 
         ResetBtn.IsEnabled = s.CanAdjustColors;
 
@@ -429,6 +492,9 @@ public partial class MainWindow : Window
         ActiveFilenameText.Text = s.HasProject && !string.IsNullOrWhiteSpace(s.ActiveFilename)
             ? s.ActiveFilename
             : "预览";
+        ActiveDimensionsText.Text = s.HasProject && s.HasImage && s.DisplayWidth > 0 && s.DisplayHeight > 0
+            ? $"{s.DisplayWidth:N0} × {s.DisplayHeight:N0}"
+            : "";
 
         if (s.IsCropping)
         {
@@ -452,8 +518,8 @@ public partial class MainWindow : Window
                     aspectLabel = string.Format(CultureInfo.InvariantCulture, "{0:0.###} : 1", draft.Ratio);
                 }
             }
-            CropAspectBtn.Content = $"{aspectLabel} ▾";
-            CropLockBtn.Content = s.CropRatioLocked ? "🔒" : "🔓";
+            CropAspectText.Text = aspectLabel;
+            CropLockIconPath.Data = TryFindResource(s.CropRatioLocked ? "GeoLock" : "GeoUnlock") as Geometry;
             CropLockBtn.ToolTip = s.CropRatioLocked ? "解锁长宽比" : "锁定当前长宽比";
 
             double angle = draft?.AngleDegrees ?? 0.0;
@@ -482,13 +548,13 @@ public partial class MainWindow : Window
             CropPreviewCheckBox.IsChecked = s.CropPreviewEnabled;
             StageMenuBtn.IsEnabled = hasActive;
 
-            string stageName = s.Stage switch
+            string stageName = !s.HasFilmBase ? "原图" : s.Stage switch
             {
                 2 => "线性",
                 6 => "密度",
                 _ => "输出"
             };
-            StageMenuBtn.Content = $"管线预览 {stageName} ▾";
+            StageValueText.Text = stageName;
             StageL2Item.IsChecked = s.Stage == 2;
             StageD3Item.IsChecked = s.Stage == 6;
             StageFinalItem.IsChecked = s.Stage == 7;
@@ -512,7 +578,7 @@ public partial class MainWindow : Window
         DensityMatrixCombo.IsEnabled = projectOpen && !s.IsCropping;
 
         FilmBaseSampleBtn.IsEnabled = s.HasProject && s.HasImage && !s.IsCropping && !s.IsImporting;
-        FilmBaseSampleBtn.Content = s.Sampling ? "⌖ 正在框选片基…" : "⌖ 框选片基";
+        FilmBaseSampleBtnText.Text = s.Sampling ? "取消框选" : "框选片基";
         FilmBaseSampleBtn.SetResourceReference(ForegroundProperty,
             s.Sampling ? "AccentBrush" : "PrimaryTextBrush");
 
@@ -524,14 +590,16 @@ public partial class MainWindow : Window
         SimpleTimingPanel.Visibility = isRgb ? Visibility.Collapsed : Visibility.Visible;
         RgbTimingPanel.Visibility = isRgb ? Visibility.Visible : Visibility.Collapsed;
 
-        SimpleModeBtn.SetResourceReference(BackgroundProperty, isRgb ? "SecondaryPanelBrush" : "SelectedBrush");
-        SimpleModeBtn.SetResourceReference(ForegroundProperty, isRgb ? "SecondaryTextBrush" : "PrimaryTextBrush");
-        RgbModeBtn.SetResourceReference(BackgroundProperty, isRgb ? "SelectedBrush" : "SecondaryPanelBrush");
-        RgbModeBtn.SetResourceReference(ForegroundProperty, isRgb ? "PrimaryTextBrush" : "SecondaryTextBrush");
+        SimpleModeBtn.SetResourceReference(BackgroundProperty, isRgb ? "SecondaryPanelBrush" : "GoldPillBrush");
+        SimpleModeBtn.SetResourceReference(ForegroundProperty, isRgb ? "SecondaryTextBrush" : "GoldPillTextBrush");
+        SimpleModeBtn.FontWeight = isRgb ? FontWeights.Normal : FontWeights.SemiBold;
+        RgbModeBtn.SetResourceReference(BackgroundProperty, isRgb ? "GoldPillBrush" : "SecondaryPanelBrush");
+        RgbModeBtn.SetResourceReference(ForegroundProperty, isRgb ? "GoldPillTextBrush" : "SecondaryTextBrush");
+        RgbModeBtn.FontWeight = isRgb ? FontWeights.SemiBold : FontWeights.Normal;
 
         NeutralPipetteBtn.IsEnabled = s.CanPickNeutral;
-        NeutralPipetteBtn.SetResourceReference(ForegroundProperty,
-            (s.NeutralPicking || s.IsNeutralSampling) ? "AccentBrush" : "PrimaryTextBrush");
+        NeutralPipetteIcon.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty,
+            (s.NeutralPicking || s.IsNeutralSampling) ? "AccentBrush" : "SecondaryTextBrush");
 
         ExposureRow.SetModelValue(s.SimpleExposure);
         TemperatureRow.SetModelValue(s.SimpleTemperature);
@@ -560,17 +628,6 @@ public partial class MainWindow : Window
 
     private void UpdateFilmstrip(WinUIStateSnapshot s)
     {
-        if (s.HasProject)
-        {
-            RollTitlePanel.Visibility = Visibility.Visible;
-            RollTitleText.Text = s.RollName;
-            RevealFolderBtn.IsEnabled = !string.IsNullOrEmpty(s.FolderPath);
-        }
-        else
-        {
-            RollTitlePanel.Visibility = Visibility.Collapsed;
-        }
-
         FilmstripCountText.Text = $"{s.Frames.Count} 张 · 已选 {s.SelectedFrameIds.Count} 张";
         if (!string.IsNullOrWhiteSpace(s.CopiedSourceName))
         {
@@ -886,6 +943,41 @@ public partial class MainWindow : Window
 
     private void DarkThemeBtn_Click(object sender, RoutedEventArgs e) =>
         ThemeManager.Apply(AppAppearance.Dark);
+
+    private void AppMenuBtn_Click(object sender, RoutedEventArgs e)
+    {
+        AppMainContextMenu.PlacementTarget = AppMenuBtn;
+        AppMainContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        AppMainContextMenu.IsOpen = true;
+    }
+
+    private void MinWindowBtn_Click(object sender, RoutedEventArgs e) =>
+        WindowState = WindowState.Minimized;
+
+    private void MaxRestoreWindowBtn_Click(object sender, RoutedEventArgs e) =>
+        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+
+    private void CloseWindowBtn_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void Window_StateChanged(object? sender, EventArgs e)
+    {
+        bool maximized = WindowState == WindowState.Maximized;
+        RootFrameGrid.Margin = maximized ? new Thickness(7) : new Thickness(0);
+        MaxRestorePath.Data = TryFindResource(maximized ? "GeoWinRestore" : "GeoWinMax") as Geometry;
+        MaxRestoreWindowBtn.ToolTip = maximized ? "还原" : "最大化";
+    }
+
+    private void ZoomFitBtn_Click(object sender, RoutedEventArgs e)
+    {
+        CanvasControl.SetFitZoom();
+        UpdateZoomButtons();
+    }
+
+    private void Zoom100Btn_Click(object sender, RoutedEventArgs e)
+    {
+        CanvasControl.SetActualPixelsZoom();
+        UpdateZoomButtons();
+    }
 
     private void UpdateAvailableBtn_Click(object sender, RoutedEventArgs e)
     {
@@ -1353,11 +1445,12 @@ public partial class MainWindow : Window
         try
         {
             SprocketEnableCheck.IsChecked = s.SprocketWhiteningEnabled;
+            SprocketEnableCheck.IsEnabled = s.CanAdjustSprocketWhitening || s.SprocketWhiteningEnabled;
             double th = Math.Clamp(s.SprocketWhiteningThreshold, 5.0, 200.0);
             SprocketThresholdSlider.Value = th;
-            SprocketThresholdSlider.IsEnabled = s.SprocketWhiteningEnabled;
+            SprocketThresholdSlider.IsEnabled = s.SprocketWhiteningEnabled && s.CanAdjustSprocketWhitening;
             SprocketThresholdLabel.Text = $"片基 +{Math.Round(th):F0}%";
-            SprocketHintText.Visibility = s.HasFilmBase ? Visibility.Collapsed : Visibility.Visible;
+            SprocketHintText.Visibility = s.CanAdjustSprocketWhitening ? Visibility.Collapsed : Visibility.Visible;
         }
         finally
         {

@@ -11,6 +11,7 @@ namespace PrintroomApp;
 public partial class App : System.Windows.Application
 {
     public string? InitialOpenPath { get; private set; }
+    public string? ScreenshotPath { get; private set; }
 
     [STAThread]
     public static int Main(string[] args)
@@ -37,8 +38,20 @@ public partial class App : System.Windows.Application
             }
         }
 
-        string? initialPath = args.FirstOrDefault(a => !a.StartsWith("-", StringComparison.Ordinal));
-        var app = new App { InitialOpenPath = initialPath };
+        string? screenshotPath = null;
+        string? initialPath = null;
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (string.Equals(args[i], "--screenshot", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+            {
+                screenshotPath = args[++i];
+            }
+            else if (!args[i].StartsWith("-", StringComparison.Ordinal) && initialPath == null)
+            {
+                initialPath = args[i];
+            }
+        }
+        var app = new App { InitialOpenPath = initialPath, ScreenshotPath = screenshotPath };
         app.InitializeComponent();
         return app.Run();
     }
@@ -47,7 +60,7 @@ public partial class App : System.Windows.Application
     {
         base.OnStartup(e);
         ThemeManager.Apply(ThemeManager.Current);
-        var mainWindow = new MainWindow(InitialOpenPath);
+        var mainWindow = new MainWindow(InitialOpenPath, ScreenshotPath);
         MainWindow = mainWindow;
         mainWindow.Show();
     }

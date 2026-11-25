@@ -6,6 +6,9 @@
         MinWidth="640" MinHeight="480"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResizeWithGrip"
+        FontFamily="{StaticResource AppSansFont}"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
         Background="{DynamicResource WindowBrush}"
         Foreground="{DynamicResource PrimaryTextBrush}">
     <Grid Margin="24">
@@ -147,17 +150,17 @@
                     <TextBlock Grid.Row="2" Grid.Column="0" Text="输出 G′" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center" Margin="0,0,8,6"/>
                     <TextBlock Grid.Row="3" Grid.Column="0" Text="输出 B′" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
 
-                    <TextBox x:Name="Cell0" Grid.Row="1" Grid.Column="1" Margin="0,0,8,6" Height="26" VerticalContentAlignment="Center" FontFamily="Consolas" FontSize="12" Style="{StaticResource ThemedTextBoxStyle}" TextChanged="Cell_TextChanged"/>
-                    <TextBox x:Name="Cell1" Grid.Row="1" Grid.Column="2" Margin="0,0,8,6" Height="26" VerticalContentAlignment="Center" FontFamily="Consolas" FontSize="12" Style="{StaticResource ThemedTextBoxStyle}" TextChanged="Cell_TextChanged"/>
-                    <TextBox x:Name="Cell2" Grid.Row="1" Grid.Column="3" Margin="0,0,0,6" Height="26" VerticalContentAlignment="Center" FontFamily="Consolas" FontSize="12" Style="{StaticResource ThemedTextBoxStyle}" TextChanged="Cell_TextChanged"/>
+                    <TextBox x:Name="Cell0" Grid.Row="1" Grid.Column="1" Margin="0,0,8,6" Height="26" VerticalContentAlignment="Center" FontFamily="{StaticResource AppMonoFont}" FontSize="12" Style="{StaticResource ThemedTextBoxStyle}" TextChanged="Cell_TextChanged"/>
+                    <TextBox x:Name="Cell1" Grid.Row="1" Grid.Column="2" Margin="0,0,8,6" Height="26" VerticalContentAlignment="Center" FontFamily="{StaticResource AppMonoFont}" FontSize="12" Style="{StaticResource ThemedTextBoxStyle}" TextChanged="Cell_TextChanged"/>
+                    <TextBox x:Name="Cell2" Grid.Row="1" Grid.Column="3" Margin="0,0,0,6" Height="26" VerticalContentAlignment="Center" FontFamily="{StaticResource AppMonoFont}" FontSize="12" Style="{StaticResource ThemedTextBoxStyle}" TextChanged="Cell_TextChanged"/>
 
-                    <TextBox x:Name="Cell3" Grid.Row="2" Grid.Column="1" Margin="0,0,8,6" Height="26" VerticalContentAlignment="Center" FontFamily="Consolas" FontSize="12" Style="{StaticResource ThemedTextBoxStyle}" TextChanged="Cell_TextChanged"/>
-                    <TextBox x:Name="Cell4" Grid.Row="2" Grid.Column="2" Margin="0,0,8,6" Height="26" VerticalContentAlignment="Center" FontFamily="Consolas" FontSize="12" Style="{StaticResource ThemedTextBoxStyle}" TextChanged="Cell_TextChanged"/>
-                    <TextBox x:Name="Cell5" Grid.Row="2" Grid.Column="3" Margin="0,0,0,6" Height="26" VerticalContentAlignment="Center" FontFamily="Consolas" FontSize="12" Style="{StaticResource ThemedTextBoxStyle}" TextChanged="Cell_TextChanged"/>
+                    <TextBox x:Name="Cell3" Grid.Row="2" Grid.Column="1" Margin="0,0,8,6" Height="26" VerticalContentAlignment="Center" FontFamily="{StaticResource AppMonoFont}" FontSize="12" Style="{StaticResource ThemedTextBoxStyle}" TextChanged="Cell_TextChanged"/>
+                    <TextBox x:Name="Cell4" Grid.Row="2" Grid.Column="2" Margin="0,0,8,6" Height="26" VerticalContentAlignment="Center" FontFamily="{StaticResource AppMonoFont}" FontSize="12" Style="{StaticResource ThemedTextBoxStyle}" TextChanged="Cell_TextChanged"/>
+                    <TextBox x:Name="Cell5" Grid.Row="2" Grid.Column="3" Margin="0,0,0,6" Height="26" VerticalContentAlignment="Center" FontFamily="{StaticResource AppMonoFont}" FontSize="12" Style="{StaticResource ThemedTextBoxStyle}" TextChanged="Cell_TextChanged"/>
 
-                    <TextBox x:Name="Cell6" Grid.Row="3" Grid.Column="1" Margin="0,0,8,0" Height="26" VerticalContentAlignment="Center" FontFamily="Consolas" FontSize="12" Style="{StaticResource ThemedTextBoxStyle}" TextChanged="Cell_TextChanged"/>
-                    <TextBox x:Name="Cell7" Grid.Row="3" Grid.Column="2" Margin="0,0,8,0" Height="26" VerticalContentAlignment="Center" FontFamily="Consolas" FontSize="12" Style="{StaticResource ThemedTextBoxStyle}" TextChanged="Cell_TextChanged"/>
-                    <TextBox x:Name="Cell8" Grid.Row="3" Grid.Column="3" Margin="0,0,0,0" Height="26" VerticalContentAlignment="Center" FontFamily="Consolas" FontSize="12" Style="{StaticResource ThemedTextBoxStyle}" TextChanged="Cell_TextChanged"/>
+                    <TextBox x:Name="Cell6" Grid.Row="3" Grid.Column="1" Margin="0,0,8,0" Height="26" VerticalContentAlignment="Center" FontFamily="{StaticResource AppMonoFont}" FontSize="12" Style="{StaticResource ThemedTextBoxStyle}" TextChanged="Cell_TextChanged"/>
+                    <TextBox x:Name="Cell7" Grid.Row="3" Grid.Column="2" Margin="0,0,8,0" Height="26" VerticalContentAlignment="Center" FontFamily="{StaticResource AppMonoFont}" FontSize="12" Style="{StaticResource ThemedTextBoxStyle}" TextChanged="Cell_TextChanged"/>
+                    <TextBox x:Name="Cell8" Grid.Row="3" Grid.Column="3" Margin="0,0,0,0" Height="26" VerticalContentAlignment="Center" FontFamily="{StaticResource AppMonoFont}" FontSize="12" Style="{StaticResource ThemedTextBoxStyle}" TextChanged="Cell_TextChanged"/>
                 </Grid>
 
                 <!-- Density Paste + CMOS Identifications -->

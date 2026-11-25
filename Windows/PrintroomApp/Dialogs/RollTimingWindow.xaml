@@ -6,6 +6,9 @@
         SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
+        FontFamily="{StaticResource AppSansFont}"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
         Background="{DynamicResource WindowBrush}"
         Foreground="{DynamicResource PrimaryTextBrush}">
     <StackPanel Margin="22">

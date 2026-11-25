@@ -44,6 +44,34 @@ public sealed class PreviewCanvasControl : FrameworkElement
     public event Action<double, double, double, double, string, bool, double?>? CropDraftUpdated;
     public event Action<bool>? CropRatioLockRestored;
     public event Action? CropDraftResetRequested;
+    public event Action? ViewportZoomChanged;
+
+    public bool IsFitZoom => Math.Abs(_zoom - 1.0) < 0.015;
+    public bool IsActualPixelsZoom => FitScale > 1e-6 && Math.Abs(_zoom * FitScale - 1.0) < 0.02;
+
+    public void SetFitZoom()
+    {
+        if (_bitmap == null) return;
+        CancelGesture();
+        _zoom = 1.0;
+        _panX = 0;
+        _panY = 0;
+        ConstrainPan();
+        InvalidateVisual();
+        ViewportZoomChanged?.Invoke();
+    }
+
+    public void SetActualPixelsZoom()
+    {
+        if (_bitmap == null) return;
+        double fit = FitScale;
+        if (fit <= 1e-6) return;
+        CancelGesture();
+        _zoom = Math.Clamp(1.0 / fit, 0.25, 16.0);
+        ConstrainPan();
+        InvalidateVisual();
+        ViewportZoomChanged?.Invoke();
+    }
 
     public PreviewCanvasControl()
     {
@@ -70,6 +98,7 @@ public sealed class PreviewCanvasControl : FrameworkElement
         ConstrainPan();
         RefreshCursor();
         InvalidateVisual();
+        ViewportZoomChanged?.Invoke();
     }
 
     public void RefreshTheme() => InvalidateVisual();
@@ -93,6 +122,7 @@ public sealed class PreviewCanvasControl : FrameworkElement
         if (sizeInfo.WidthChanged || sizeInfo.HeightChanged) CancelGesture();
         ConstrainPan();
         InvalidateVisual();
+        ViewportZoomChanged?.Invoke();
     }
 
     private bool PresentsCrop => _state.PresentsCrop;
@@ -472,6 +502,7 @@ public sealed class PreviewCanvasControl : FrameworkElement
         ConstrainPan();
         UpdateHistogramProbe(p);
         InvalidateVisual();
+        ViewportZoomChanged?.Invoke();
         e.Handled = true;
     }
 

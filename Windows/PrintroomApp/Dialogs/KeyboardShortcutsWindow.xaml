@@ -6,6 +6,9 @@
         MinWidth="520" MinHeight="480"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResizeWithGrip"
+        FontFamily="{StaticResource AppSansFont}"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
         Background="{DynamicResource WindowBrush}"
         Foreground="{DynamicResource PrimaryTextBrush}">
     <Window.Resources>
@@ -16,8 +19,8 @@
             <Setter Property="Margin" Value="0,0,0,10"/>
         </Style>
         <Style x:Key="KeyColStyle" TargetType="TextBlock">
-            <Setter Property="FontFamily" Value="Consolas"/>
-            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="FontFamily" Value="{StaticResource AppMonoFont}"/>
+            <Setter Property="FontSize" Value="12"/>
             <Setter Property="FontWeight" Value="Medium"/>
             <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
