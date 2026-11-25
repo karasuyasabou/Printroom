@@ -212,8 +212,14 @@ final class ProjectMigrationRelocationTests: XCTestCase {
     let outside = try source("external.tif", in: folder())
     XCTAssertThrowsError(try ProjectStore.relocate(project, frameID: oldID, to: outside, folder: root))
     let symlink = root.appendingPathComponent("outside.tif")
-    try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: outside)
-    XCTAssertThrowsError(try ProjectStore.relocate(project, frameID: oldID, to: symlink, folder: root))
+    do {
+      try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: outside)
+      XCTAssertThrowsError(try ProjectStore.relocate(project, frameID: oldID, to: symlink, folder: root))
+    } catch {
+      #if !os(Windows)
+      throw error
+      #endif
+    }
     XCTAssertThrowsError(try ProjectStore.relocate(project, frameID: UUID(), to: new, folder: root))
   }
 

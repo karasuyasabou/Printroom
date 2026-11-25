@@ -34,3 +34,10 @@ xcuserdata/
 /AGENTS.md
 **/__pycache__/
 *.pyc
+
+# Windows port and IDE artifacts
+/Windows/**/bin/
+/Windows/**/obj/
+/.vs/
+*.user
+*.sln.docstates

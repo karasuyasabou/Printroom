@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(simd)
 import simd
+#endif
 
 /// Fits existing RGB Timing controls to a neutral Final sample. The image
 /// pipeline, Master, Contrast, calibration and project format remain unchanged.

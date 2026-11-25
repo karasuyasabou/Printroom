@@ -1,5 +1,9 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
+#if canImport(ImageIO)
 import ImageIO
+#endif
 import Foundation
 import XCTest
 @testable import PrintroomCore
@@ -76,6 +80,9 @@ final class SprocketWhiteningTests: XCTestCase, @unchecked Sendable {
     }
   }
   func testCPUAndMetalThresholdChangesReuseDensityWithoutChangingDiagnostics() throws {
+    #if !canImport(Metal)
+    throw XCTSkip("Windows GPU pipeline is scheduled for Phase 1.")
+    #else
     let gpu = try MetalPipeline().makeSession()
     let input = PixelBuffer(width: 96, height: 72, pixels: (0..<(96 * 72)).map {
       let v = Float($0 % 257) / 256 * 0.5 + 0.05
@@ -114,6 +121,7 @@ final class SprocketWhiteningTests: XCTestCase, @unchecked Sendable {
     }
     XCTAssertEqual(gpu.statistics.densityPasses, 1)
     XCTAssertGreaterThan(gpu.statistics.densityCacheHits, 0)
+    #endif
   }
   func testSchemaEightDefaultsBacksUpOriginalAndValidatesSettings() throws {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent("sprocket-schema-\(UUID())")
@@ -142,6 +150,9 @@ final class SprocketWhiteningTests: XCTestCase, @unchecked Sendable {
     XCTAssertThrowsError(try ProjectStore.decodeSnapshot(JSONEncoder().encode(loaded)))
   }
   func testJPEGWhiteningAcrossOutputProfilesAndBothBackends() async throws {
+    #if !canImport(ImageIO)
+    throw XCTSkip("Windows JPEG encoder is scheduled for Phase 1.")
+    #else
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent("sprocket-jpeg-\(UUID())")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: folder) }
@@ -180,6 +191,7 @@ final class SprocketWhiteningTests: XCTestCase, @unchecked Sendable {
         }
       }
     }
+    #endif
   }
   func testTIFFExportAllDirectionsProfilesAndBackendsProtectCropAndWriteExactWhite() async throws {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent("sprocket-export-\(UUID())")
@@ -216,10 +228,12 @@ final class SprocketWhiteningTests: XCTestCase, @unchecked Sendable {
             let summary = try await engine.run(request, lut: table, p3Profile: profile)
             XCTAssertEqual(summary.completedCount, 1, "\(summary.results)")
             let destination = try XCTUnwrap(summary.results[0].destination)
+            #if canImport(ImageIO)
             let reader = try XCTUnwrap(CGImageSourceCreateWithURL(destination as CFURL, nil))
             let decoded = try XCTUnwrap(CGImageSourceCreateImageAtIndex(reader, 0, nil))
             let embedded = try XCTUnwrap(decoded.colorSpace?.copyICCData()) as Data
             XCTAssertEqual(embedded, try color.profileData(p3: profile))
+            #endif
             results.append(try TIFFCodec.read(url: destination))
           }
           let before = results[0], after = results[1]

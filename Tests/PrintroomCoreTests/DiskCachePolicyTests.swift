@@ -42,14 +42,24 @@ final class DiskCachePolicyTests: XCTestCase {
       let unknown = fresh.deletingLastPathComponent().appendingPathComponent("keep.json")
       try Data("project".utf8).write(to: unknown)
       let link = fresh.deletingLastPathComponent().appendingPathComponent(String(repeating: "c", count: 64) + ".png")
-      try FileManager.default.createSymbolicLink(at: link, withDestinationURL: unknown)
+      var createdLink = false
+      do {
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: unknown)
+        createdLink = true
+      } catch {
+        #if !os(Windows)
+        throw error
+        #endif
+      }
       _ = try ManagedDiskCache.maintain(root: root, policy: .init(retentionDays: days), now: now)
       XCTAssertEqual(FileManager.default.fileExists(atPath: old.path), days == 0)
       XCTAssertTrue(FileManager.default.fileExists(atPath: fresh.path))
       XCTAssertEqual(FileManager.default.fileExists(atPath: middle.path), days == 0 || days > 5)
       XCTAssertEqual(FileManager.default.fileExists(atPath: older.path), days == 0 || days > 14)
       XCTAssertEqual(try Data(contentsOf: unknown), Data("project".utf8))
-      XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link.path), unknown.path)
+      if createdLink {
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link.path), unknown.path)
+      }
     }
   }
 
@@ -60,7 +70,15 @@ final class DiskCachePolicyTests: XCTestCase {
     let namespace = fresh.deletingLastPathComponent().deletingLastPathComponent()
     let moved = root.appendingPathComponent("originals")
     try FileManager.default.moveItem(at: namespace, to: moved)
-    try FileManager.default.createSymbolicLink(at: namespace, withDestinationURL: moved)
+    do {
+      try FileManager.default.createSymbolicLink(at: namespace, withDestinationURL: moved)
+    } catch {
+      #if os(Windows)
+      throw XCTSkip("Windows symlink creation requires Developer Mode or elevation.")
+      #else
+      throw error
+      #endif
+    }
     XCTAssertEqual(try ManagedDiskCache.size(root: root), 0)
     _ = try ManagedDiskCache.maintain(root: root, policy: .init())
     XCTAssertTrue(FileManager.default.fileExists(atPath: moved.appendingPathComponent(".printroom-cache").appendingPathComponent(fresh.lastPathComponent).path))

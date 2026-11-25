@@ -1,3 +1,4 @@
+#if canImport(CoreGraphics) && canImport(ImageIO) && canImport(UniformTypeIdentifiers) && canImport(Darwin)
 import CoreGraphics
 import Darwin
 import Foundation
@@ -58,3 +59,16 @@ public enum JPEGCodec {
     }
   }
 }
+#else
+import Foundation
+
+/// Encodes already converted RGB samples; the ICC describes those exact samples.
+public enum JPEGCodec {
+  public static func write(
+    url: URL, width: Int, height: Int, profile: Data, dates: ExportDates = .init(),
+    rows: (Range<Int>) throws -> [UInt8]
+  ) throws {
+    throw PrintroomError.invalid("Windows JPG 编码器将在阶段 1 接入。")
+  }
+}
+#endif

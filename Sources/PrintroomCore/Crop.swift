@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 
 public enum CropAspectRatio: String, CaseIterable, Codable, Sendable {
   case free = "free", threeTwo = "3:2", fourThree = "4:3", square = "1:1", sevenSix = "7:6"

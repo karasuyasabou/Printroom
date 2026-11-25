@@ -1,6 +1,10 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
 import Foundation
+#if canImport(simd)
 import simd
+#endif
 
 /// These profiles are fixed application resources, never a display profile or an
 /// OS-dependent substitute. The native LUT ICC is separate from export choices.
@@ -41,6 +45,7 @@ public enum OutputColorProfile: String, Codable, CaseIterable, Sendable {
       case .displayP3: name = "DisplayP3"
       case .rec2020: name = "Rec2020"
       }
+      #if os(macOS)
       let packagedBundle = Bundle.main.resourceURL?
         .appendingPathComponent("Printroom_PrintroomCore.bundle")
       let bundle: Bundle
@@ -54,6 +59,12 @@ public enum OutputColorProfile: String, Codable, CaseIterable, Sendable {
       guard let url = bundle.url(forResource: name, withExtension: "icc") else {
         throw PrintroomError.invalid("缺少输出 ICC：\(label)")
       }
+      #else
+      guard let url = Bundle.module.url(forResource: name, withExtension: "icc")
+        ?? Bundle.module.url(forResource: name, withExtension: "icc", subdirectory: "OutputProfiles") else {
+        throw PrintroomError.invalid("缺少输出 ICC：\(label)")
+      }
+      #endif
       data = try Data(contentsOf: url)
     }
     guard SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == profileSHA256

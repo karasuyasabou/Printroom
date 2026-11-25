@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 /// Runs the installed, unmodified Adobe binary inside an LSUIElement bundle.
@@ -59,3 +60,4 @@ enum AdobeShadowBundle {
     }
   }
 }
+#endif

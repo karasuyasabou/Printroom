@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(simd)
 import simd
+#endif
 
 /// Analysis only: no changes to the rendering pipeline or stored parameter format.
 public enum RollTiming {

@@ -44,6 +44,9 @@ final class MetalReuseTests: XCTestCase {
   }
 
   func testWarmTimingContrastReusesBuffersAndD1WithoutChangingPixels() throws {
+    #if !canImport(Metal)
+    throw XCTSkip("Windows GPU pipeline is scheduled for Phase 1.")
+    #else
     let gpu = try MetalPipeline()
     let session = gpu.makeSession()
     let source = input(), identity = UUID(), table = try lut()
@@ -69,9 +72,13 @@ final class MetalReuseTests: XCTestCase {
     XCTAssertEqual(result.lutUploads, 1)
     XCTAssertEqual(result.densityPasses, 1)
     XCTAssertEqual(result.densityCacheHits, 3)
+    #endif
   }
 
   func testStageCalibrationLUTAndSourceInvalidation() throws {
+    #if !canImport(Metal)
+    throw XCTSkip("Windows GPU pipeline is scheduled for Phase 1.")
+    #else
     let session = try MetalPipeline().makeSession()
     var source = input(), identity = UUID(), table = try lut()
     var calibration = FilmCalibration()
@@ -105,9 +112,13 @@ final class MetalReuseTests: XCTestCase {
     try check()
     XCTAssertEqual(session.statistics.sourceUploads, 3)
     XCTAssertEqual(session.statistics.densityPasses, 5)
+    #endif
   }
 
   func testNilIdentityNeverReusesSamplesOrD1AndRejectsInvalidInput() throws {
+    #if !canImport(Metal)
+    throw XCTSkip("Windows GPU pipeline is scheduled for Phase 1.")
+    #else
     let session = try MetalPipeline().makeSession()
     var source = input()
     let table = try lut(), calibration = FilmCalibration()
@@ -124,9 +135,13 @@ final class MetalReuseTests: XCTestCase {
     source.pixels[0].x = .nan
     XCTAssertThrowsError(try session.render(source, calibration: calibration, adjustments: .init(), lut: table))
     XCTAssertThrowsError(try session.render(PixelBuffer(width: -1, height: -513, pixels: input().pixels), calibration: calibration, adjustments: .init(), lut: table))
+    #endif
   }
 
   func testActualLUTWarmPathAcrossEveryStageAndAdjustmentExtremes() throws {
+    #if !canImport(Metal)
+    throw XCTSkip("Windows GPU pipeline is scheduled for Phase 1.")
+    #else
     let gpu = try MetalPipeline(), session = gpu.makeSession()
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
       .deletingLastPathComponent().deletingLastPathComponent()
@@ -157,9 +172,13 @@ final class MetalReuseTests: XCTestCase {
     XCTAssertEqual(session.statistics.sourceUploads, 1)
     XCTAssertEqual(session.statistics.densityPasses, 2)
     XCTAssertEqual(session.statistics.bufferAllocations, 4)
+    #endif
   }
 
   func testLargeRegionBuffersAreReleasedAfterRendering() throws {
+    #if !canImport(Metal)
+    throw XCTSkip("Windows GPU pipeline is scheduled for Phase 1.")
+    #else
     let session = try MetalPipeline().makeSession(), table = try lut()
     _ = try session.render(input(), calibration: .init(), adjustments: .init(), lut: table, inputIdentity: UUID())
     XCTAssertGreaterThan(session.statistics.retainedPixelBytes, 0)
@@ -174,9 +193,13 @@ final class MetalReuseTests: XCTestCase {
     _ = try session.render(input(), calibration: .init(), adjustments: .init(), lut: table, inputIdentity: UUID())
     XCTAssertEqual(session.statistics.densityPasses, 2)
     XCTAssertEqual(session.statistics.retainedPixelBytes, 513 * 16 * 3)
+    #endif
   }
 
   func testConcurrentSessionsAndSharedSessionDoNotCrossContaminate() async throws {
+    #if !canImport(Metal)
+    throw XCTSkip("Windows GPU pipeline is scheduled for Phase 1.")
+    #else
     let gpu = try MetalPipeline()
     let sessions = [gpu.makeSession(), gpu.makeSession()]
     let source = input(), table = try lut()
@@ -208,5 +231,6 @@ final class MetalReuseTests: XCTestCase {
       XCTAssertEqual(session.statistics.lutUploads, 1)
       XCTAssertEqual(session.statistics.bufferAllocations, 4)
     }
+    #endif
   }
 }

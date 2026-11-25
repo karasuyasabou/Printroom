@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(simd)
 import simd
+#endif
 
 /// Rows are output R/G/B; columns are input R/G/B. No implicit normalization.
 public struct RGBMatrix: Codable, Hashable, Sendable {
@@ -128,6 +130,7 @@ public struct MatrixLibraryStore: Sendable {
     let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     let data = try encoder.encode(Document(entries: entries))
     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    #if os(macOS)
     var error: NSError?
     var result: Result<Void, Error>?
     NSFileCoordinator().coordinate(writingItemAt: url, options: .forReplacing, error: &error) { target in
@@ -139,6 +142,10 @@ public struct MatrixLibraryStore: Sendable {
     if let error { throw error }
     guard let result else { throw PrintroomError.invalid("无法访问矩阵库。") }
     try result.get()
+    #else
+    guard try load() == expected else { throw PrintroomError.invalid("矩阵库已被其他窗口或应用修改，请重新载入后再保存。") }
+    try PlatformFS.atomicWrite(data, to: url)
+    #endif
   }
 }
 

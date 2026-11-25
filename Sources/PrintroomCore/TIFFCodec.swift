@@ -1,7 +1,13 @@
 import CLibDeflate
+#if canImport(Darwin)
 import Darwin
+#elseif os(Windows)
+import CWinPlatform
+#endif
 import Foundation
+#if canImport(zlib)
 import zlib
+#endif
 
 public struct TIFFMetadata: Sendable {
   public let width: Int, height: Int
@@ -23,13 +29,13 @@ public enum TIFFCodec {
   public static func read(url: URL) throws -> LinearImage {
     guard url.isFileURL else { throw invalid("TIFF 必须是本地文件。") }
     let reader = try TIFFReader(url: url)
-    defer { try? reader.handle.close() }
+    defer { reader.close() }
     return try reader.readImage()
   }
 
   public static func metadata(url: URL) throws -> TIFFMetadata {
     let reader = try TIFFReader(url: url)
-    defer { try? reader.handle.close() }
+    defer { reader.close() }
     return try reader.metadata()
   }
 
@@ -39,7 +45,7 @@ public enum TIFFCodec {
     cancelled: @escaping @Sendable () -> Bool = { false }) throws -> LinearImage {
     guard maxDimension > 0 else { throw invalid("预览尺寸必须大于零。") }
     let reader = try TIFFReader(url: url)
-    defer { try? reader.handle.close() }
+    defer { reader.close() }
     return try reader.readImage(maxDimension: maxDimension, cancelled: cancelled)
   }
 
@@ -47,7 +53,7 @@ public enum TIFFCodec {
   /// changes are separate. Unneeded strips are not decoded.
   public static func readRegion(url: URL, rect: PixelRect) throws -> LinearImage {
     let reader = try TIFFReader(url: url)
-    defer { try? reader.handle.close() }
+    defer { reader.close() }
     return try reader.readImage(region: rect)
   }
 
@@ -99,6 +105,58 @@ public enum TIFFCodec {
     let header = try makeHeader(entries, dates: dates)
     let temporary = url.deletingLastPathComponent()
       .appendingPathComponent(".printroom-\(UUID().uuidString).tiff.tmp")
+    #if os(Windows)
+    let winHandle = try PlatformFS.openTempExclusive(temporary)
+    var winClosed = false
+    var currentOffset: UInt64 = 0
+    defer {
+      if !winClosed { PlatformFS.close(handle: winHandle) }
+      try? FileManager.default.removeItem(at: temporary)
+    }
+    try PlatformFS.writeAll(handle: winHandle, data: header)
+    currentOffset += UInt64(header.count)
+    for (strip, start) in stride(from: 0, to: height, by: rowsPerStrip).enumerated() {
+      try autoreleasepool {
+        try Task.checkCancellation()
+        let range = start..<min(height, start + rowsPerStrip)
+        var samples = try rows(range)
+        guard samples.count == range.count * width * 3 else {
+          throw invalid("TIFF 行回调返回的 RGB 样本数量不正确。")
+        }
+        if UInt16(littleEndian: 1) != 1 {
+          for i in samples.indices { samples[i] = samples[i].littleEndian }
+        }
+        let encoded: Data
+        if let deflater {
+          encoded = try PerformanceTrace.measure("tiff.deflate") {
+            try samples.withUnsafeBytes { try deflater.compress($0) }
+          }
+        } else {
+          encoded = PerformanceTrace.measure("tiff.pack_bytes") { samples.withUnsafeBytes { Data($0) } }
+        }
+        guard currentOffset + UInt64(encoded.count) <= UInt64(UInt32.max) else {
+          throw invalid("输出超过 classic TIFF 的 4 GiB 限制。")
+        }
+        offsets[strip] = UInt32(currentOffset)
+        byteCounts[strip] = UInt32(encoded.count)
+        try PerformanceTrace.measure("tiff.file_write") {
+          try PlatformFS.writeAll(handle: winHandle, data: encoded)
+        }
+        currentOffset += UInt64(encoded.count)
+      }
+    }
+    entries[5] = .longs(273, offsets)
+    entries[9] = .longs(279, byteCounts)
+    try PlatformFS.pwriteAll(handle: winHandle, offset: 0, data: makeHeader(entries, dates: dates))
+    try Task.checkCancellation()
+    let publishTrace = PerformanceTrace.begin()
+    try PlatformFS.flushAndClose(handle: winHandle)
+    winClosed = true
+    try Task.checkCancellation()
+    try dates.apply(to: temporary)
+    try PlatformFS.moveExclusive(from: temporary, to: url)
+    PerformanceTrace.end("tiff.sync_publish", publishTrace)
+    #else
     let fd = temporary.withUnsafeFileSystemRepresentation { path in
       Darwin.open(path!, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
     }
@@ -161,13 +219,20 @@ public enum TIFFCodec {
       if errno == EEXIST { throw TIFFWriteError.destinationExists(url.lastPathComponent) }
       throw fileError("无法发布 TIFF（目标可能已存在）", code: errno)
     }
+    #endif
   }
 
   private static func requireAbsent(_ url: URL) throws {
+    #if os(Windows)
+    if try PlatformFS.pathExistsNoFollow(url) {
+      throw TIFFWriteError.destinationExists(url.lastPathComponent)
+    }
+    #else
     var status = stat()
     let result = url.withUnsafeFileSystemRepresentation { lstat($0!, &status) }
     if result == 0 { throw TIFFWriteError.destinationExists(url.lastPathComponent) }
     if errno != ENOENT { throw fileError("无法检查 TIFF 目标", code: errno) }
+    #endif
   }
 
   private final class StripDeflater {
@@ -190,8 +255,12 @@ public enum TIFFCodec {
         throw invalid("无法创建 TIFF Deflate 压缩器。")
       }
       self.compressor = compressor
+      #if canImport(zlib)
       capacity = max(Int(libdeflate_zlib_compress_bound(compressor, inputCapacity)),
         Int(compressBound(uLong(inputCapacity))))
+      #else
+      capacity = Int(libdeflate_zlib_compress_bound(compressor, inputCapacity))
+      #endif
       output = .allocate(byteCount: capacity, alignment: 64)
     }
 
@@ -329,15 +398,49 @@ private final class TIFFReader {
     let count: Int
     let value: Data
   }
+  #if os(Windows)
+  private let winHandle: Int
+  #else
   let handle: FileHandle
+  #endif
   private let fileSize: UInt64
   private let little: Bool
   private let big: Bool
   private var entries: [UInt16: Entry] = [:]
 
+  func close() {
+    #if os(Windows)
+    PlatformFS.close(handle: winHandle)
+    #else
+    try? handle.close()
+    #endif
+  }
+
   init(url: URL) throws {
+    #if os(Windows)
+    guard let stat = try PlatformFS.lstat(url) else {
+      throw invalid("无法打开 TIFF 文件：\(url.lastPathComponent)")
+    }
+    fileSize = UInt64(max(0, stat.size))
+    let fd = try PlatformFS.openRead(url)
+    #else
     let file = try FileHandle(forReadingFrom: url)
+    #endif
     do {
+      #if os(Windows)
+      guard fileSize >= 8 else { throw invalid("TIFF 文件头不完整。") }
+      let header = try PlatformFS.pread(handle: fd, offset: 0, count: 8)
+      guard header.prefix(2) == Data([0x49, 0x49]) || header.prefix(2) == Data([0x4d, 0x4d]) else {
+        throw invalid("不是 TIFF 文件。")
+      }
+      little = header[0] == 0x49
+      let version = header.uint16(2, little: little)
+      guard version == 42 || version == 43 else {
+        throw invalid("TIFF 文件头版本无效（\(version)）。")
+      }
+      big = version == 43
+      winHandle = fd
+      #else
       fileSize = try file.seekToEnd()
       try file.seek(toOffset: 0)
       guard let header = try file.read(upToCount: 8), header.count == 8 else {
@@ -353,6 +456,7 @@ private final class TIFFReader {
       }
       big = version == 43
       handle = file
+      #endif
       let ifd: UInt64
       if big {
         guard header.uint16(4, little: little) == 8,
@@ -392,7 +496,11 @@ private final class TIFFReader {
         : UInt64(directory.uint32(count * entrySize, little: little))
       guard next == 0 else { throw invalid("暂不支持多页 TIFF。") }
     } catch {
+      #if os(Windows)
+      PlatformFS.close(handle: fd)
+      #else
       try? file.close()
+      #endif
       throw error
     }
   }
@@ -601,6 +709,10 @@ private final class TIFFReader {
       UInt64(count) <= UInt64(Int64.max) - offset, UInt64(count) <= fileSize - offset else {
       throw invalid("TIFF 数据超出文件边界。")
     }
+    #if os(Windows)
+    try Task.checkCancellation()
+    return try PlatformFS.pread(handle: winHandle, offset: offset, count: count)
+    #else
     // pread fills Swift-owned storage directly. FileHandle.read creates
     // autoreleased NSData objects that otherwise accumulate on long-lived actor
     // executors while loading a roll or exporting it.
@@ -621,6 +733,7 @@ private final class TIFFReader {
       }
     }
     return result
+    #endif
   }
 
   private func payload(_ entry: Entry, unit: Int) throws -> Data {
@@ -745,6 +858,7 @@ private final class TIFFReader {
   }
 
   private func inflateStrip(_ source: Data, expected: Int) throws -> Data {
+    #if canImport(zlib)
     var result = Data(count: expected)
     var destinationLength = uLongf(expected)
     var sourceLength = uLong(source.count)
@@ -759,6 +873,27 @@ private final class TIFFReader {
       throw invalid("TIFF Deflate 数据损坏或解压样本数量不符 (zlib \(code))。")
     }
     return result
+    #else
+    guard let decompressor = libdeflate_alloc_decompressor() else {
+      throw invalid("无法创建 TIFF Deflate 解压器。")
+    }
+    defer { libdeflate_free_decompressor(decompressor) }
+    var result = Data(count: expected)
+    var actualOut = 0
+    let status = result.withUnsafeMutableBytes { destination in
+      source.withUnsafeBytes { input in
+        libdeflate_zlib_decompress(
+          decompressor,
+          input.baseAddress, input.count,
+          destination.baseAddress, expected,
+          &actualOut)
+      }
+    }
+    guard status == LIBDEFLATE_SUCCESS, actualOut == expected else {
+      throw invalid("TIFF Deflate 数据损坏或解压样本数量不符 (libdeflate \(status.rawValue))。")
+    }
+    return result
+    #endif
   }
 
   private func embeddedProfileName() throws -> String {

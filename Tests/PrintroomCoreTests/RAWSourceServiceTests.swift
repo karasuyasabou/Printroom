@@ -1,4 +1,6 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
 import Foundation
 import XCTest
 @testable import PrintroomCore
@@ -477,10 +479,16 @@ final class RAWSourceServiceTests: XCTestCase, @unchecked Sendable {
     let target = directory.appendingPathComponent("outside")
     try FileManager.default.createDirectory(at: target, withIntermediateDirectories: false)
     let link = directory.appendingPathComponent("link")
-    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
-    let unsafe = SourceProxyService(cacheRoot: link, byteLimit: 100, dependencies: backend.dependencies())
-    XCTAssertThrowsError(try unsafe.preview(url: source))
-    XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: target.path), [])
+    do {
+      try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+      let unsafe = SourceProxyService(cacheRoot: link, byteLimit: 100, dependencies: backend.dependencies())
+      XCTAssertThrowsError(try unsafe.preview(url: source))
+      XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: target.path), [])
+    } catch {
+      #if !os(Windows)
+      throw error
+      #endif
+    }
     let invalid = SourceProxyService(cacheRoot: source.appendingPathComponent("cache"), byteLimit: 100, dependencies: backend.dependencies())
     XCTAssertThrowsError(try invalid.preview(url: source))
     XCTAssertEqual(backend.count(), 0)
@@ -512,6 +520,9 @@ final class RAWSourceServiceTests: XCTestCase, @unchecked Sendable {
     XCTAssertEqual(backend.count(), 2)
   }
   func testAdobeRunnerNonzeroMissingOutputAndCancellation() async throws {
+    #if !os(macOS)
+    throw XCTSkip("Fixture uses macOS /bin/sh .app bundle.")
+    #else
     let (directory, source, _, _) = try fixture()
     let contents = directory.appendingPathComponent("Fixture.app/Contents")
     try FileManager.default.createDirectory(at: contents.appendingPathComponent("MacOS"), withIntermediateDirectories: true)
@@ -537,6 +548,7 @@ final class RAWSourceServiceTests: XCTestCase, @unchecked Sendable {
     do { try await running.value; XCTFail("Expected cancellation") } catch is CancellationError {} catch { XCTFail("\(error)") }
     XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
     XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("adobe.log").path))
+    #endif
   }
 
   func testCrashStagingRecoveryDeletesOnlyOwnedUUIDDirectories() throws {
@@ -556,13 +568,23 @@ final class RAWSourceServiceTests: XCTestCase, @unchecked Sendable {
     let marker = outside.appendingPathComponent("keep.txt")
     try Data("keep target".utf8).write(to: marker)
     let link = cache.appendingPathComponent(".preparing-\(UUID().uuidString)")
-    try fm.createSymbolicLink(at: link, withDestinationURL: outside)
+    var createdLink = false
+    do {
+      try fm.createSymbolicLink(at: link, withDestinationURL: outside)
+      createdLink = true
+    } catch {
+      #if !os(Windows)
+      throw error
+      #endif
+    }
     _ = try service.preview(url: source)
     service.waitForMaintenance()
     XCTAssertFalse(fm.fileExists(atPath: stale.path))
     XCTAssertTrue(fm.fileExists(atPath: unrelated.path))
     XCTAssertEqual(try Data(contentsOf: regularFile), Data("keep file".utf8))
-    XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: link.path), outside.path)
+    if createdLink {
+      XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: link.path), outside.path)
+    }
     XCTAssertEqual(try Data(contentsOf: marker), Data("keep target".utf8))
     XCTAssertEqual(try Data(contentsOf: source), Data("original RAW".utf8))
   }

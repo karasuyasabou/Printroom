@@ -1,3 +1,4 @@
+#if canImport(Metal)
 import Foundation
 @preconcurrency import Metal
 
@@ -330,3 +331,50 @@ public final class MetalPipeline: @unchecked Sendable {
     }
     """
 }
+#else
+import Foundation
+
+/// Windows Phase 0 placeholder preserving MetalPipeline's public API surface.
+public final class MetalPipeline: @unchecked Sendable {
+  public var deviceName: String { "CPU Fallback" }
+
+  public init() throws {
+    throw PrintroomError.invalid("Windows GPU 管线将在阶段 1 接入，当前使用 CPU 参考管线")
+  }
+
+  public func makeSession() -> Session {
+    Session()
+  }
+
+  public func render(
+    _ input: PixelBuffer, calibration: FilmCalibration, adjustments: FrameAdjustments, lut: CubeLUT,
+    stage: PipelineStage = .final, sprocketWhitening: SprocketWhiteningContext? = nil
+  ) throws -> PixelBuffer {
+    try Pipeline.render(
+      input, calibration: calibration, adjustments: adjustments, lut: lut, stage: stage,
+      sprocketWhitening: sprocketWhitening)
+  }
+
+  public final class Session: @unchecked Sendable {
+    public struct Statistics: Sendable {
+      public fileprivate(set) var bufferAllocations = 0
+      public fileprivate(set) var sourceUploads = 0
+      public fileprivate(set) var lutUploads = 0
+      public fileprivate(set) var densityPasses = 0
+      public fileprivate(set) var densityCacheHits = 0
+      public fileprivate(set) var retainedPixelBytes = 0
+    }
+    public var statistics: Statistics { Statistics() }
+
+    public func render(
+      _ input: PixelBuffer, calibration: FilmCalibration, adjustments: FrameAdjustments, lut: CubeLUT,
+      stage: PipelineStage = .final, inputIdentity: UUID? = nil,
+      sprocketWhitening: SprocketWhiteningContext? = nil
+    ) throws -> PixelBuffer {
+      try Pipeline.render(
+        input, calibration: calibration, adjustments: adjustments, lut: lut, stage: stage,
+        sprocketWhitening: sprocketWhitening)
+    }
+  }
+}
+#endif

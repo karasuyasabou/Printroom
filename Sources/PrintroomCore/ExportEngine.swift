@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif os(Windows)
+import CWinPlatform
+#endif
 import Foundation
 
 public struct ExportFrameSnapshot: Sendable {
@@ -74,14 +78,23 @@ public struct ExportRequest: Sendable {
     settings: ProjectExportSettings = .init(), crop: FrameCrop? = nil,
     sprocketWhitening: SprocketWhiteningSettings = .init()
   ) throws {
+    #if os(Windows)
+    guard source.isFileURL, destination.isFileURL,
+      let st = try? PlatformFS.lstat(source), st.isRegular
+    else { throw PrintroomError.invalid("无法固定单张导出的源文件身份。") }
+    let size = st.size
+    let sourceModified = Double(st.mtimeSec) + Double(st.mtimeNsec) / 1_000_000_000.0
+    #else
     let attributes = try FileManager.default.attributesOfItem(atPath: source.path)
     guard source.isFileURL, destination.isFileURL,
       let size = (attributes[.size] as? NSNumber)?.int64Value,
       let date = attributes[.modificationDate] as? Date
     else { throw PrintroomError.invalid("无法固定单张导出的源文件身份。") }
+    let sourceModified = date.timeIntervalSince1970
+    #endif
     var frame = FrameRecord(
       filename: source.lastPathComponent, adjustments: adjustments,
-      sourceSize: size, sourceModified: date.timeIntervalSince1970)
+      sourceSize: size, sourceModified: sourceModified)
     frame.orientation = orientation
     frame.crop = crop
     id = UUID()
@@ -279,7 +292,9 @@ private actor ExportWorker {
         destination: nil, status: .notStarted, error: "取消后未开始")
     }
     let converter = try OutputColorConverter(p3Profile: p3Profile, output: request.settings.profile)
+    #if canImport(Metal)
     if !useCPUReference && gpu == nil { gpu = try PerformanceTrace.measure("export.worker_pipeline_init") { try MetalPipeline() } }
+    #endif
     progress(0)
     do {
       let selectedLUT: CubeLUT
@@ -398,12 +413,16 @@ private actor ExportWorker {
         if overwrite {
           try Task.checkCancellation()
           try protect(destination, request: request)
+          #if os(Windows)
+          try PlatformFS.moveReplace(from: writeURL, to: destination)
+          #else
           let result = writeURL.withUnsafeFileSystemRepresentation { source in
             destination.withUnsafeFileSystemRepresentation { target in rename(source!, target!) }
           }
           guard result == 0 else {
             throw PrintroomError.invalid("无法覆盖导出文件：\(String(cString: strerror(errno)))")
           }
+          #endif
         }
         return destination
       } catch is TIFFWriteError {
@@ -416,6 +435,19 @@ private actor ExportWorker {
 
   private func validateSource(_ frame: ExportFrameSnapshot) throws {
     let resolved = frame.sourceURL.standardizedFileURL.resolvingSymlinksInPath()
+    #if os(Windows)
+    guard PlatformFS.sameDirectory(resolved.deletingLastPathComponent(), frame.sourceURL.deletingLastPathComponent()) else {
+      throw PrintroomError.invalid("原片链接指向卷外，无法使用该任务快照：\(frame.sourceName)")
+    }
+    guard let st = try? PlatformFS.lstat(resolved), st.isRegular else {
+      throw PrintroomError.invalid("无法读取原片：\(frame.sourceName)")
+    }
+    if SourceImageIO.isRAW(frame.sourceURL) { return }
+    let modified = Double(st.mtimeSec) + Double(st.mtimeNsec) / 1_000_000_000.0
+    guard st.size == frame.sourceSize, modified == frame.sourceModified else {
+      throw PrintroomError.invalid("原片自任务快照后发生变化，请重新打开后导出：\(frame.sourceName)")
+    }
+    #else
     guard resolved.deletingLastPathComponent()
       == frame.sourceURL.deletingLastPathComponent().standardizedFileURL.resolvingSymlinksInPath()
     else { throw PrintroomError.invalid("原片链接指向卷外，无法使用该任务快照：\(frame.sourceName)") }
@@ -429,6 +461,7 @@ private actor ExportWorker {
       let modified = attributes[.modificationDate] as? Date,
       size == frame.sourceSize, modified.timeIntervalSince1970 == frame.sourceModified
     else { throw PrintroomError.invalid("原片自任务快照后发生变化，请重新打开后导出：\(frame.sourceName)") }
+    #endif
   }
 
   private func canonical(_ url: URL) -> String {
@@ -448,7 +481,11 @@ private actor ExportWorker {
   }
 
   private func occupied(_ url: URL) -> Bool {
+    #if os(Windows)
+    return (try? PlatformFS.pathExistsNoFollow(url)) == true
+    #else
     var info = stat()
     return url.withUnsafeFileSystemRepresentation { lstat($0!, &info) == 0 }
+    #endif
   }
 }

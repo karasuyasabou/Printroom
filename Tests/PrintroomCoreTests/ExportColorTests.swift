@@ -1,9 +1,17 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
 import Foundation
+#if canImport(ImageIO)
 import ImageIO
+#endif
 import XCTest
+#if canImport(simd)
 import simd
+#endif
 
 @testable import PrintroomCore
 
@@ -49,6 +57,9 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
   }
 
   func testJPEGExportProfilesNumberingAndNoOverwrite() async throws {
+    #if !canImport(ImageIO)
+    throw XCTSkip("Windows JPEG encoder is scheduled for Phase 1.")
+    #else
     let folder = try temporary()
     defer { try? FileManager.default.removeItem(at: folder) }
     let source = folder.appendingPathComponent("source.tiff")
@@ -96,6 +107,7 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
     }
     XCTAssertEqual(try Data(contentsOf: source), original)
     XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: folder.path).contains { $0.hasPrefix(".printroom-") })
+    #endif
   }
 
   func testCropBypassPreservesDirectionAndFrozenSettingsForBothFormats() async throws {
@@ -107,7 +119,12 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
     var project = try ProjectStore.open(folder: folder)
     let crop = FrameCrop(width: 0.5, angleDegrees: 4)
     let engine = ExportEngine(useCPUReference: true)
-    for format in ExportFormat.allCases {
+    #if canImport(ImageIO)
+    let formats = ExportFormat.allCases
+    #else
+    let formats: [ExportFormat] = [.tiff]
+    #endif
+    for format in formats {
       for (index, orientation) in FrameOrientation.allCases.enumerated() {
         project.frames[0].orientation = orientation
         project.frames[0].crop = crop
@@ -120,20 +137,32 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
         let bypass = try await engine.run(request, lut: identityLUT(), p3Profile: p3())
         XCTAssertEqual(bypass.completedCount, 1, "\(bypass.results)")
         let bypassURL = try XCTUnwrap(bypass.results[0].destination)
+        #if canImport(ImageIO)
         let reader = try XCTUnwrap(CGImageSourceCreateWithURL(bypassURL as CFURL, nil))
         let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(reader, 0, nil))
+        let bypassWidth = image.width, bypassHeight = image.height
+        #else
+        let bypassMeta = try TIFFCodec.metadata(url: bypassURL)
+        let bypassWidth = bypassMeta.width, bypassHeight = bypassMeta.height
+        #endif
         let size = orientation.outputSize(sourceWidth: 32, sourceHeight: 48)
-        XCTAssertEqual(image.width, size.width)
-        XCTAssertEqual(image.height, size.height)
+        XCTAssertEqual(bypassWidth, size.width)
+        XCTAssertEqual(bypassHeight, size.height)
         XCTAssertEqual(project.frames[0].crop, crop)
         let croppedRequest = try ExportRequest(project: project, targetIDs: [project.frames[0].id],
           destinationDirectory: folder, filenamePrefix: "cropped-\(format)-\(index)")
         let cropped = try await engine.run(croppedRequest, lut: identityLUT(), p3Profile: p3())
         let croppedURL = try XCTUnwrap(cropped.results[0].destination)
+        #if canImport(ImageIO)
         let croppedReader = try XCTUnwrap(CGImageSourceCreateWithURL(croppedURL as CFURL, nil))
         let croppedImage = try XCTUnwrap(CGImageSourceCreateImageAtIndex(croppedReader, 0, nil))
-        XCTAssertLessThan(croppedImage.width, image.width)
-        XCTAssertLessThan(croppedImage.height, image.height)
+        let croppedWidth = croppedImage.width, croppedHeight = croppedImage.height
+        #else
+        let croppedMeta = try TIFFCodec.metadata(url: croppedURL)
+        let croppedWidth = croppedMeta.width, croppedHeight = croppedMeta.height
+        #endif
+        XCTAssertLessThan(croppedWidth, bypassWidth)
+        XCTAssertLessThan(croppedHeight, bypassHeight)
         project.frames[0].crop = nil
         let reference = try ExportRequest(project: project, targetIDs: [project.frames[0].id],
           destinationDirectory: folder, filenamePrefix: "reference-\(format)-\(index)")
@@ -146,6 +175,9 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
   }
 
   func testJPEGWriterFailureRemovesTemporaryFiles() throws {
+    #if !canImport(ImageIO)
+    throw XCTSkip("Windows JPEG encoder is scheduled for Phase 1.")
+    #else
     let folder = try temporary()
     defer { try? FileManager.default.removeItem(at: folder) }
     let url = folder.appendingPathComponent("cancelled.jpg")
@@ -155,9 +187,13 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
         return Array(repeating: UInt8(127), count: rows.count * 32 * 3)
       })
     XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), [])
+    #endif
   }
 
   func testProfilesTransformNumbersAndMatchIndependentCoreGraphics() throws {
+    #if !canImport(CoreGraphics)
+    throw XCTSkip("Requires CoreGraphics independent reference on macOS.")
+    #else
     let sourceData = try p3()
     let sourceSpace = try XCTUnwrap(CGColorSpace(iccData: sourceData as CFData))
     let colors: [SIMD4<Float>] = [
@@ -197,6 +233,7 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
       }
       print("ICC CoreGraphics independent reference \(profile.rawValue): max abs=\(maximum)")
     }
+    #endif
   }
 
   func testProPhotoD50AdaptedMatrixAndGammaAnalyticalReference() throws {
@@ -231,6 +268,7 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
     let tiny = PixelBuffer(width: 1, height: 1, pixels: [SIMD4(0.02, 0.02, 0.02, 1)])
     let toe = try OutputColorConverter(p3Profile: source, output: .proPhoto).convert(tiny)
     XCTAssertEqual(toe.pixels[0].x, Float(pow(0.02, 2.600006103515625) * 16), accuracy: 0.000002)
+    #if canImport(CoreGraphics)
     let sourceSpace = try XCTUnwrap(CGColorSpace(iccData: source as CFData))
     let targetSpace = try XCTUnwrap(CGColorSpace(iccData: destination as CFData))
     let sourceColor = try XCTUnwrap(
@@ -242,6 +280,7 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
     print(
       "ProPhoto D50 dark reference: P3=.02, ICC analytic=\(toe.pixels[0].x), ColorSync/CGColor Float=\(systemDark)"
     )
+    #endif
   }
 
   func testBothCompressionsAllProfilesReadBackExactICCAndPixelsWithImageIO() throws {
@@ -266,6 +305,7 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(tiffTag(file, 274), Data([1, 0]))
         XCTAssertEqual(tiffTag(file, 259), Data([compression == .none ? 1 : 8, 0]))
         XCTAssertEqual(try TIFFCodec.read(url: url).samples, expected)
+        #if canImport(ImageIO)
         let source = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
         let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
         XCTAssertEqual(image.bitsPerComponent, 16)
@@ -273,12 +313,13 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
         let decoded = try XCTUnwrap(image.dataProvider?.data) as Data
         let little = image.bitmapInfo.intersection(.byteOrderMask) == .byteOrder16Little
         for y in 0..<15 {
-          for x in 0..<21 {
+          for x in 0..<(21) {
             let offset = y * image.bytesPerRow + x * 2
             let sample = UInt16(decoded[offset]) | UInt16(decoded[offset + 1]) << 8
             XCTAssertEqual(little ? sample : sample.byteSwapped, expected[y * 21 + x])
           }
         }
+        #endif
       }
     }
   }
@@ -650,7 +691,12 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
   }
 
   func testConflictDecisionsPreserveOrReplaceTIFFAndJPEG() async throws {
-    for format in ExportFormat.allCases {
+    #if canImport(ImageIO)
+    let formats = ExportFormat.allCases
+    #else
+    let formats: [ExportFormat] = [.tiff]
+    #endif
+    for format in formats {
       let folder = try temporary()
       defer { try? FileManager.default.removeItem(at: folder) }
       let source = folder.appendingPathComponent("a.tiff")
