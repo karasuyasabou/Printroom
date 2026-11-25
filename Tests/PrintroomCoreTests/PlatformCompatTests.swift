@@ -1,6 +1,9 @@
 #if canImport(CryptoKit)
 import CryptoKit
 #endif
+#if os(Windows)
+import CWinPlatform
+#endif
 import Foundation
 #if canImport(simd)
 import simd
@@ -99,6 +102,150 @@ final class PlatformCompatTests: XCTestCase {
     let l2 = try PlatformFS.openLock(lockFile)
     defer { PlatformFS.closeLock(handle: l2) }
     XCTAssertFalse(try PlatformFS.tryLock(handle: l2, exclusive: false))
+  }
+
+  func testWindowsHiddenProcessRunnerSuccessFailureAndCancellation() throws {
+    let dir = FileManager.default.temporaryDirectory
+      .appendingPathComponent("printroom-winproc-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    let comspec = ProcessInfo.processInfo.environment["ComSpec"] ?? #"C:\Windows\System32\cmd.exe"#
+    let log1 = dir.appendingPathComponent("ok.log")
+    var exitCode: Int32 = -1
+    var winErr: UInt32 = 0
+    let okArgs = ["/c", "echo", "hello_printroom"]
+    let okCArgs = okArgs.map { _strdup($0) }
+    defer { okCArgs.forEach { free($0) } }
+    var okPtrs = okCArgs.map { UnsafePointer($0) }
+    let st1 = comspec.withCString { exeC in
+      log1.withUnsafeFileSystemRepresentation { logC in
+        okPtrs.withUnsafeMutableBufferPointer { buf in
+          CWinPlatform.pr_win_run_hidden_process(exeC, buf.baseAddress, buf.count, logC, 5000, nil, nil, &exitCode, &winErr)
+        }
+      }
+    }
+    XCTAssertEqual(st1, 0)
+    XCTAssertEqual(exitCode, 0)
+    XCTAssertTrue((try String(contentsOf: log1, encoding: .utf8)).contains("hello_printroom"))
+
+    // Cancel callback terminates long-running child promptly
+    let log2 = dir.appendingPathComponent("cancel.log")
+    let cancelArgs = ["/c", "ping", "-n", "10", "127.0.0.1"]
+    let cancelCArgs = cancelArgs.map { _strdup($0) }
+    defer { cancelCArgs.forEach { free($0) } }
+    var cancelPtrs = cancelCArgs.map { UnsafePointer($0) }
+    let cancelCb: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { _ in 1 }
+    let st2 = comspec.withCString { exeC in
+      log2.withUnsafeFileSystemRepresentation { logC in
+        cancelPtrs.withUnsafeMutableBufferPointer { buf in
+          CWinPlatform.pr_win_run_hidden_process(exeC, buf.baseAddress, buf.count, logC, 10000, cancelCb, nil, &exitCode, &winErr)
+        }
+      }
+    }
+    XCTAssertEqual(st2, -2)
+  }
+
+  func testWindowsWICPNGEncodeDecodeAndMonitorColorTransform() throws {
+    let dir = FileManager.default.temporaryDirectory
+      .appendingPathComponent("printroom-wincolor-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+      .deletingLastPathComponent().deletingLastPathComponent()
+    let p3Data = try Data(contentsOf: root.appendingPathComponent("ICC/DCIP3_D65.icc"))
+    let srgbData = try OutputColorProfile.sRGB.profileData(p3: p3Data)
+
+    // 1. WIC 16-bit RGBA PNG round-trip
+    let pixels16: [UInt16] = [
+      65535, 32768, 0, 65535,
+      0, 65535, 16384, 65535,
+      1000, 2000, 3000, 65535,
+      65535, 65535, 65535, 65535,
+    ]
+    var pngOut: UnsafeMutablePointer<UInt8>?
+    var pngLen: Int = 0
+    var winErr: UInt32 = 0
+    let encRc = pixels16.withUnsafeBufferPointer { pxBuf in
+      p3Data.withUnsafeBytes { iccBuf in
+        pr_win_wic_encode_png_rgba16(
+          pxBuf.baseAddress, 2, 2,
+          iccBuf.baseAddress?.assumingMemoryBound(to: UInt8.self), p3Data.count,
+          &pngOut, &pngLen, &winErr)
+      }
+    }
+    XCTAssertEqual(encRc, 0)
+    guard let pngOut else { XCTFail("Missing PNG bytes"); return }
+    let pngData = Data(bytes: pngOut, count: pngLen)
+    pr_win_free_buffer(pngOut)
+
+    let pngURL = dir.appendingPathComponent("thumb.png")
+    try pngData.write(to: pngURL)
+    var decOut: UnsafeMutablePointer<UInt16>?
+    var w: UInt32 = 0, h: UInt32 = 0
+    let decRc = pngURL.withUnsafeFileSystemRepresentation { cpath in
+      pr_win_wic_decode_png_rgba16(cpath, &decOut, &w, &h, &winErr)
+    }
+    XCTAssertEqual(decRc, 0)
+    XCTAssertEqual(w, 2)
+    XCTAssertEqual(h, 2)
+    guard let decOut else { XCTFail("Missing decoded PNG"); return }
+    let decoded = Array(UnsafeBufferPointer(start: decOut, count: 16))
+    pr_win_free_buffer(decOut)
+    XCTAssertEqual(decoded, pixels16)
+
+    // 2. WCS/ICM Color Transform: sRGB -> sRGB (written to temp .icc) verifies BGRA channel order
+    let srgbFile = dir.appendingPathComponent("srgb_monitor.icc")
+    try srgbData.write(to: srgbFile)
+    let xform = srgbData.withUnsafeBytes { srcBuf in
+      srgbFile.withUnsafeFileSystemRepresentation { dstC in
+        pr_win_color_transform_create(
+          srcBuf.baseAddress?.assumingMemoryBound(to: UInt8.self), srgbData.count, dstC, &winErr)
+      }
+    }
+    XCTAssertNotNil(xform, "WCS transform creation failed: 0x\(String(winErr, radix: 16))")
+    if let xform {
+      defer { pr_win_color_transform_destroy(xform) }
+      // Pure red, pure green, pure blue, white
+      let inRGB16: [UInt16] = [
+        65535, 0, 0,
+        0, 65535, 0,
+        0, 0, 65535,
+        65535, 65535, 65535,
+      ]
+      var outBGRA = [UInt8](repeating: 0, count: 16)
+      let xRc = inRGB16.withUnsafeBufferPointer { inBuf in
+        outBGRA.withUnsafeMutableBufferPointer { outBuf in
+          pr_win_color_transform_apply_bgra8(xform, inBuf.baseAddress, outBuf.baseAddress, 4, 1, &winErr)
+        }
+      }
+      XCTAssertEqual(xRc, 0)
+      // Red in BGRA: [B<=2, G<=2, R>=253, A==255]
+      XCTAssertLessThanOrEqual(outBGRA[0], 2)
+      XCTAssertLessThanOrEqual(outBGRA[1], 2)
+      XCTAssertGreaterThanOrEqual(outBGRA[2], 253)
+      XCTAssertEqual(outBGRA[3], 255)
+      // Green in BGRA
+      XCTAssertLessThanOrEqual(outBGRA[4], 2)
+      XCTAssertGreaterThanOrEqual(outBGRA[5], 253)
+      XCTAssertLessThanOrEqual(outBGRA[6], 2)
+      XCTAssertEqual(outBGRA[7], 255)
+      // Blue in BGRA
+      XCTAssertGreaterThanOrEqual(outBGRA[8], 253)
+      XCTAssertLessThanOrEqual(outBGRA[9], 2)
+      XCTAssertLessThanOrEqual(outBGRA[10], 2)
+      XCTAssertEqual(outBGRA[11], 255)
+      // White in BGRA
+      XCTAssertEqual(outBGRA[12], 255)
+      XCTAssertEqual(outBGRA[13], 255)
+      XCTAssertEqual(outBGRA[14], 255)
+      XCTAssertEqual(outBGRA[15], 255)
+    }
+
+    // 3. Primary monitor ICC query should not crash
+    var iccBuf = [CChar](repeating: 0, count: 4096)
+    _ = pr_win_get_monitor_icc_path(0, &iccBuf, iccBuf.count)
   }
   #endif
 }

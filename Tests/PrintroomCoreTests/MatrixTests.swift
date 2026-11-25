@@ -214,8 +214,8 @@ final class MatrixTests: XCTestCase {
     XCTAssertEqual(repaired.calibration.cmosMatrix, repaired.calibration.matrix)
   }
   func testCustomMatricesCPUAndMetalStagesAndCacheInvalidation() throws {
-    #if !canImport(Metal)
-    throw XCTSkip("Windows GPU pipeline is scheduled for Phase 1.")
+    #if !canImport(Metal) && !os(Windows)
+    throw XCTSkip("GPU pipeline unavailable on this platform.")
     #else
     let gpu = try MetalPipeline(), session = gpu.makeSession(), cube = try lut()
     var pixels: [SIMD4<Float>] = []

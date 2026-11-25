@@ -85,7 +85,7 @@ final class ExportDatesTests: XCTestCase, @unchecked Sendable {
     for b in 0...1 { for g in 0...1 { for r in 0...1 { values.append(SIMD4(Float(r), Float(g), Float(b), 1)) } } }
     let lut = try CubeLUT(size: 2, values: values)
     let engine = ExportEngine(useCPUReference: true)
-    #if canImport(ImageIO)
+    #if canImport(ImageIO) || os(Windows)
     let modes = 0..<3
     #else
     let modes = 0..<2
@@ -118,6 +118,13 @@ final class ExportDatesTests: XCTestCase, @unchecked Sendable {
         let roundTripDates = try ExportDates.read(from: target)
         XCTAssertEqual(roundTripDates.exif, withCaptureTime ? exif : [:])
         XCTAssertEqual(roundTripDates.tiffDateTime, withCaptureTime ? "2021:02:03 04:05:06" : nil)
+        #if os(Windows)
+        if mode == 2 {
+          let jpg = try WindowsJPEGTestReader.read(url: target)
+          XCTAssertEqual(jpg.width, 4)
+          XCTAssertEqual(jpg.height, 4)
+        }
+        #endif
         #endif
         #if os(Windows)
         let actualDates = try PlatformFS.getFileDates(target)

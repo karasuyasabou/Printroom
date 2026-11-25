@@ -241,7 +241,7 @@ final class NeutralTimingTests: XCTestCase, @unchecked Sendable {
     let input = patch((0..<11).map { i in transmittance(SIMD3(420 + Double(i), 490 + Double(i), 560 + Double(i))) })
     let result = try assertFinalNeutral(input, lut: lut)
     let cpu = try Pipeline.render(input, calibration: .init(), adjustments: result, lut: lut)
-    #if canImport(Metal)
+    #if canImport(Metal) || os(Windows)
     let rendered = try MetalPipeline().render(input, calibration: .init(), adjustments: result, lut: lut)
     for i in cpu.pixels.indices { for c in 0..<3 {
       XCTAssertEqual(cpu.pixels[i][c], rendered.pixels[i][c], accuracy: 2e-4)

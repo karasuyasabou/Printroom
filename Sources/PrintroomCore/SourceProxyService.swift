@@ -737,21 +737,26 @@ public final class SourceProxyService: @unchecked Sendable {
 
   public static func adobeInstallation() throws -> AdobeRAWInstallation {
     #if os(Windows)
-    let envPath = ProcessInfo.processInfo.environment["PRINTROOM_ADOBE_DNG_CONVERTER"]
-    let candidates = [
-      envPath,
-      #"C:\Program Files\Adobe\Adobe DNG Converter\Adobe DNG Converter.exe"#,
-      #"D:\Program Files\Adobe\Adobe DNG Converter\Adobe DNG Converter.exe"#,
-      #"C:\Program Files (x86)\Adobe\Adobe DNG Converter\Adobe DNG Converter.exe"#,
-    ].compactMap { $0 }.filter { !$0.isEmpty }
-    guard let match = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
+    if let envPath = ProcessInfo.processInfo.environment["PRINTROOM_ADOBE_DNG_CONVERTER"], !envPath.isEmpty {
+      guard FileManager.default.fileExists(atPath: envPath) else {
+        throw invalid("环境变量 PRINTROOM_ADOBE_DNG_CONVERTER 指定的 Adobe DNG Converter 不存在。")
+      }
+      var verBuf = [CChar](repeating: 0, count: 128)
+      let rc = envPath.withCString { ptr in
+        pr_win_get_file_version_string(ptr, &verBuf, verBuf.count)
+      }
+      let version = rc == 0 ? String(cString: &verBuf) : "windows-override"
+      return AdobeRAWInstallation(executable: URL(fileURLWithPath: envPath), version: version)
+    }
+    var pathBuf = [CChar](repeating: 0, count: 4096)
+    var verBuf = [CChar](repeating: 0, count: 128)
+    let found = pr_win_find_adobe_dng_converter(&pathBuf, pathBuf.count, &verBuf, verBuf.count)
+    guard found == 0 else {
       throw invalid("需要安装 Adobe DNG Converter 后重试。RAW 去马赛克仅使用 Adobe。")
     }
-    let url = URL(fileURLWithPath: match)
-    let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
-    let size = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
-    let mtime = Int64(((attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0))
-    return AdobeRAWInstallation(executable: url, version: "windows-\(size)-\(mtime)")
+    let path = String(cString: &pathBuf)
+    let version = String(cString: &verBuf)
+    return AdobeRAWInstallation(executable: URL(fileURLWithPath: path), version: version.isEmpty ? "windows" : version)
     #else
     let bundleURL = URL(fileURLWithPath: "/Applications/Adobe DNG Converter.app", isDirectory: true)
     let executable = bundleURL.appendingPathComponent("Contents/MacOS/Adobe DNG Converter")
@@ -768,18 +773,57 @@ public final class SourceProxyService: @unchecked Sendable {
 
   static func convert(_ installation: AdobeRAWInstallation, source: URL, destination: URL,
                       cancelled: @escaping @Sendable () -> Bool) throws {
+    #if os(Windows)
+    let exePath = installation.executable.withUnsafeFileSystemRepresentation { String(cString: $0!) }
+    let destDir = destination.deletingLastPathComponent().withUnsafeFileSystemRepresentation { String(cString: $0!) }
+    let srcPath = source.withUnsafeFileSystemRepresentation { String(cString: $0!) }
+    let args = ["-u", "-l", "-p0", "-dng1.1", "-d", destDir, "-o", destination.lastPathComponent, srcPath]
+    let log = destination.deletingLastPathComponent().appendingPathComponent("adobe.log")
+    let logPath = log.withUnsafeFileSystemRepresentation { String(cString: $0!) }
+    defer { try? FileManager.default.removeItem(at: log) }
+    if cancelled() { throw CancellationError() }
+    final class CancelBox: @unchecked Sendable {
+      let fn: @Sendable () -> Bool
+      init(_ fn: @escaping @Sendable () -> Bool) { self.fn = fn }
+    }
+    let box = CancelBox(cancelled)
+    let result = withExtendedLifetime(box) { () -> (status: Int32, exitCode: Int32, winErr: UInt32) in
+      let rawCtx = Unmanaged.passUnretained(box).toOpaque()
+      let cb: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { ctx in
+        guard let ctx else { return 0 }
+        let b = Unmanaged<CancelBox>.fromOpaque(ctx).takeUnretainedValue()
+        return b.fn() ? 1 : 0
+      }
+      var exitCode: Int32 = -1
+      var winErr: UInt32 = 0
+      var status: Int32 = -1
+      let cArgs = args.map { _strdup($0) }
+      defer { cArgs.forEach { free($0) } }
+      var cPtrs = cArgs.map { UnsafePointer($0) }
+      exePath.withCString { exeC in
+        logPath.withCString { logC in
+          cPtrs.withUnsafeMutableBufferPointer { buf in
+            status = pr_win_run_hidden_process(exeC, buf.baseAddress, buf.count, logC, 120_000, cb, rawCtx, &exitCode, &winErr)
+          }
+        }
+      }
+      return (status, exitCode, winErr)
+    }
+    if result.status == -2 { throw CancellationError() }
+    if result.status == -3 { throw invalid("Adobe RAW 转换超过 120 秒，请检查原片后重试。") }
+    guard result.status == 0 && result.exitCode == 0 else {
+      let detail = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+      let code = result.status != 0 ? "Win32 0x\(String(result.winErr, radix: 16))" : "\(result.exitCode)"
+      throw invalid("Adobe RAW 转换失败（\(code)）。请检查转换器是否支持该原片后重试。\n\(detail)")
+    }
+    guard FileManager.default.fileExists(atPath: destination.path) else {
+      throw invalid("Adobe 未生成有效 DNG，请检查原片后重试。")
+    }
+    #else
     let process = Process()
-    #if os(macOS)
     process.executableURL = try AdobeShadowBundle.executable(for: installation)
     process.arguments = ["-u", "-l", "-p0", "-dng1.1", "-d", destination.deletingLastPathComponent().path,
                          "-o", destination.lastPathComponent, source.path]
-    #else
-    process.executableURL = installation.executable
-    let destDir = destination.deletingLastPathComponent().withUnsafeFileSystemRepresentation { String(cString: $0!) }
-    let srcPath = source.withUnsafeFileSystemRepresentation { String(cString: $0!) }
-    process.arguments = ["-u", "-l", "-p0", "-dng1.1", "-d", destDir,
-                         "-o", destination.lastPathComponent, srcPath]
-    #endif
     // File-backed diagnostics avoid pipe backpressure deadlocks on verbose failures.
     let log = destination.deletingLastPathComponent().appendingPathComponent("adobe.log")
     FileManager.default.createFile(atPath: log.path, contents: nil)
@@ -795,9 +839,7 @@ public final class SourceProxyService: @unchecked Sendable {
         process.terminate()
         let killDeadline = Date().addingTimeInterval(2)
         while process.isRunning && Date() < killDeadline { Thread.sleep(forTimeInterval: 0.025) }
-        #if os(macOS)
         if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-        #endif
         process.waitUntilExit()
         if cancelled() { throw CancellationError() }
         throw invalid("Adobe RAW 转换超过 120 秒，请检查原片后重试。")
@@ -815,6 +857,7 @@ public final class SourceProxyService: @unchecked Sendable {
     guard FileManager.default.fileExists(atPath: destination.path) else {
       throw invalid("Adobe 未生成有效 DNG，请检查原片后重试。")
     }
+    #endif
   }
   private static func invalid(_ message: String) -> PrintroomError { .invalid(message) }
 }

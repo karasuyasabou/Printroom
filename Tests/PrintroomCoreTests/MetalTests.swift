@@ -4,8 +4,8 @@ import XCTest
 
 final class MetalTests: XCTestCase {
   func testCPUAgreementAcrossStagesAndExtremes() throws {
-    #if !canImport(Metal)
-    throw XCTSkip("Windows GPU pipeline is scheduled for Phase 1.")
+    #if !canImport(Metal) && !os(Windows)
+    throw XCTSkip("GPU pipeline unavailable on this platform.")
     #else
     let gpu = try MetalPipeline()
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()

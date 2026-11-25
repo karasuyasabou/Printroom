@@ -80,8 +80,8 @@ final class SprocketWhiteningTests: XCTestCase, @unchecked Sendable {
     }
   }
   func testCPUAndMetalThresholdChangesReuseDensityWithoutChangingDiagnostics() throws {
-    #if !canImport(Metal)
-    throw XCTSkip("Windows GPU pipeline is scheduled for Phase 1.")
+    #if !canImport(Metal) && !os(Windows)
+    throw XCTSkip("GPU pipeline unavailable.")
     #else
     let gpu = try MetalPipeline().makeSession()
     let input = PixelBuffer(width: 96, height: 72, pixels: (0..<(96 * 72)).map {
@@ -150,8 +150,8 @@ final class SprocketWhiteningTests: XCTestCase, @unchecked Sendable {
     XCTAssertThrowsError(try ProjectStore.decodeSnapshot(JSONEncoder().encode(loaded)))
   }
   func testJPEGWhiteningAcrossOutputProfilesAndBothBackends() async throws {
-    #if !canImport(ImageIO)
-    throw XCTSkip("Windows JPEG encoder is scheduled for Phase 1.")
+    #if !canImport(ImageIO) && !os(Windows)
+    throw XCTSkip("JPEG encoder unavailable.")
     #else
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent("sprocket-jpeg-\(UUID())")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -179,15 +179,26 @@ final class SprocketWhiteningTests: XCTestCase, @unchecked Sendable {
         let result = try await engine.run(request, lut: table, p3Profile: profile)
         XCTAssertEqual(result.completedCount, 1)
         let url = try XCTUnwrap(result.results[0].destination)
+        #if canImport(ImageIO)
         let reader = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
         let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(reader, 0, nil))
         XCTAssertEqual(image.bitsPerComponent, 8)
         let data = try XCTUnwrap(image.dataProvider?.data) as Data
+        let bytesPerRow = image.bytesPerRow
         let stride = image.bitsPerPixel / 8
+        #else
+        let decoded = try WindowsJPEGTestReader.read(url: url)
+        XCTAssertEqual(decoded.width, 128)
+        XCTAssertEqual(decoded.height, 96)
+        XCTAssertEqual(decoded.iccProfile, try color.profileData(p3: profile))
+        let data = decoded.rgb24
+        let bytesPerRow = 128 * 3
+        let stride = 3
+        #endif
         let expected = try OutputColorConverter(p3Profile: profile, output: color).quantized8(native)
         for channel in 0..<3 {
-          XCTAssertLessThanOrEqual(abs(Int(data[48 * image.bytesPerRow + 8 * stride + channel]) - 255), 2)
-          XCTAssertLessThanOrEqual(abs(Int(data[48 * image.bytesPerRow + 64 * stride + channel]) - Int(expected[channel])), 3)
+          XCTAssertLessThanOrEqual(abs(Int(data[48 * bytesPerRow + 8 * stride + channel]) - 255), 2)
+          XCTAssertLessThanOrEqual(abs(Int(data[48 * bytesPerRow + 64 * stride + channel]) - Int(expected[channel])), 3)
         }
       }
     }

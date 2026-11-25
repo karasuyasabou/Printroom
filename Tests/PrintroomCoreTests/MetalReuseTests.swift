@@ -44,8 +44,8 @@ final class MetalReuseTests: XCTestCase {
   }
 
   func testWarmTimingContrastReusesBuffersAndD1WithoutChangingPixels() throws {
-    #if !canImport(Metal)
-    throw XCTSkip("Windows GPU pipeline is scheduled for Phase 1.")
+    #if !canImport(Metal) && !os(Windows)
+    throw XCTSkip("GPU pipeline unavailable on this platform.")
     #else
     let gpu = try MetalPipeline()
     let session = gpu.makeSession()
@@ -76,8 +76,8 @@ final class MetalReuseTests: XCTestCase {
   }
 
   func testStageCalibrationLUTAndSourceInvalidation() throws {
-    #if !canImport(Metal)
-    throw XCTSkip("Windows GPU pipeline is scheduled for Phase 1.")
+    #if !canImport(Metal) && !os(Windows)
+    throw XCTSkip("GPU pipeline unavailable on this platform.")
     #else
     let session = try MetalPipeline().makeSession()
     var source = input(), identity = UUID(), table = try lut()
@@ -116,8 +116,8 @@ final class MetalReuseTests: XCTestCase {
   }
 
   func testNilIdentityNeverReusesSamplesOrD1AndRejectsInvalidInput() throws {
-    #if !canImport(Metal)
-    throw XCTSkip("Windows GPU pipeline is scheduled for Phase 1.")
+    #if !canImport(Metal) && !os(Windows)
+    throw XCTSkip("GPU pipeline unavailable on this platform.")
     #else
     let session = try MetalPipeline().makeSession()
     var source = input()
@@ -139,8 +139,8 @@ final class MetalReuseTests: XCTestCase {
   }
 
   func testActualLUTWarmPathAcrossEveryStageAndAdjustmentExtremes() throws {
-    #if !canImport(Metal)
-    throw XCTSkip("Windows GPU pipeline is scheduled for Phase 1.")
+    #if !canImport(Metal) && !os(Windows)
+    throw XCTSkip("GPU pipeline unavailable on this platform.")
     #else
     let gpu = try MetalPipeline(), session = gpu.makeSession()
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
@@ -176,8 +176,8 @@ final class MetalReuseTests: XCTestCase {
   }
 
   func testLargeRegionBuffersAreReleasedAfterRendering() throws {
-    #if !canImport(Metal)
-    throw XCTSkip("Windows GPU pipeline is scheduled for Phase 1.")
+    #if !canImport(Metal) && !os(Windows)
+    throw XCTSkip("GPU pipeline unavailable on this platform.")
     #else
     let session = try MetalPipeline().makeSession(), table = try lut()
     _ = try session.render(input(), calibration: .init(), adjustments: .init(), lut: table, inputIdentity: UUID())
@@ -197,8 +197,8 @@ final class MetalReuseTests: XCTestCase {
   }
 
   func testConcurrentSessionsAndSharedSessionDoNotCrossContaminate() async throws {
-    #if !canImport(Metal)
-    throw XCTSkip("Windows GPU pipeline is scheduled for Phase 1.")
+    #if !canImport(Metal) && !os(Windows)
+    throw XCTSkip("GPU pipeline unavailable on this platform.")
     #else
     let gpu = try MetalPipeline()
     let sessions = [gpu.makeSession(), gpu.makeSession()]

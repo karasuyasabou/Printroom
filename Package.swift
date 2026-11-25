@@ -42,7 +42,21 @@ var targets: [Target] = [
   .target(
     name: "CWinPlatform",
     path: "Sources/CWinPlatform",
-    publicHeadersPath: "include"),
+    publicHeadersPath: "include",
+    linkerSettings: [
+      .linkedLibrary("d3d11", .when(platforms: [.windows])),
+      .linkedLibrary("dxgi", .when(platforms: [.windows])),
+      .linkedLibrary("d3dcompiler", .when(platforms: [.windows])),
+      .linkedLibrary("windowscodecs", .when(platforms: [.windows])),
+      .linkedLibrary("ole32", .when(platforms: [.windows])),
+      .linkedLibrary("oleaut32", .when(platforms: [.windows])),
+      .linkedLibrary("mscms", .when(platforms: [.windows])),
+      .linkedLibrary("gdi32", .when(platforms: [.windows])),
+      .linkedLibrary("user32", .when(platforms: [.windows])),
+      .linkedLibrary("advapi32", .when(platforms: [.windows])),
+      .linkedLibrary("version", .when(platforms: [.windows])),
+      .linkedLibrary("shell32", .when(platforms: [.windows])),
+    ]),
   .target(
     name: "PrintroomCore",
     dependencies: [
@@ -51,7 +65,12 @@ var targets: [Target] = [
       .target(name: "CWinPlatform", condition: .when(platforms: [.windows])),
     ],
     resources: [.process("Resources")]),
-  .testTarget(name: "PrintroomCoreTests", dependencies: ["PrintroomCore"]),
+  .testTarget(
+    name: "PrintroomCoreTests",
+    dependencies: [
+      "PrintroomCore",
+      .target(name: "CWinPlatform", condition: .when(platforms: [.windows])),
+    ]),
 ]
 
 #if os(macOS)

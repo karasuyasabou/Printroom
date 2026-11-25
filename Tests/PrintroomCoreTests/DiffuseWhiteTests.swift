@@ -6,7 +6,7 @@ final class DiffuseWhiteTests: XCTestCase {
   func testBakedWhiteBrightnessAndContrastFixedPointCPUAndMetal() throws {
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     let color = try FinalColorimetry(p3Profile: Data(contentsOf: root.appendingPathComponent("ICC/DCIP3_D65.icc")))
-    #if canImport(Metal)
+    #if canImport(Metal) || os(Windows)
     let gpu = try MetalPipeline()
     #endif
     for selection in CineonLogLUT.allCases {
@@ -22,13 +22,13 @@ final class DiffuseWhiteTests: XCTestCase {
         let a = FrameAdjustments(contrast: .init(master: contrast, red: 0.8, green: 1.1, blue: 1.4))
         let density = try Pipeline.render(input, calibration: .init(), adjustments: a, stage: .d3)
         let cpu = try Pipeline.render(input, calibration: .init(), adjustments: a, lut: lut)
-        #if canImport(Metal)
+        #if canImport(Metal) || os(Windows)
         let metal = try gpu.render(input, calibration: .init(), adjustments: a, lut: lut)
         #endif
         for c in 0..<3 {
           XCTAssertEqual(density.pixels[0][c], p[c], accuracy: 2e-6)
           XCTAssertEqual(cpu.pixels[0][c], actual[c], accuracy: 2e-6)
-          #if canImport(Metal)
+          #if canImport(Metal) || os(Windows)
           XCTAssertEqual(metal.pixels[0][c], actual[c], accuracy: 2e-6)
           #endif
         }

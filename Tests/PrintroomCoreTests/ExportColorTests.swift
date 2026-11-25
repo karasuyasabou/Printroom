@@ -57,8 +57,8 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
   }
 
   func testJPEGExportProfilesNumberingAndNoOverwrite() async throws {
-    #if !canImport(ImageIO)
-    throw XCTSkip("Windows JPEG encoder is scheduled for Phase 1.")
+    #if !canImport(ImageIO) && !os(Windows)
+    throw XCTSkip("JPEG encoder unavailable.")
     #else
     let folder = try temporary()
     defer { try? FileManager.default.removeItem(at: folder) }
@@ -81,6 +81,7 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
       XCTAssertEqual(summary.completedCount, 1, "\(summary.results)")
       let url = try XCTUnwrap(summary.results[0].destination)
       XCTAssertEqual(url.lastPathComponent, profile.rawValue + "-01.jpg")
+      #if canImport(ImageIO)
       let reader = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
       XCTAssertEqual(CGImageSourceGetType(reader) as String?, "public.jpeg")
       let decoded = try XCTUnwrap(CGImageSourceCreateImageAtIndex(reader, 0, nil))
@@ -88,14 +89,22 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
       XCTAssertEqual(decoded.width, 48)
       XCTAssertEqual(decoded.height, 32)
       let embedded = try XCTUnwrap(decoded.colorSpace?.copyICCData()) as Data
+      let pixelData = try XCTUnwrap(decoded.dataProvider?.data) as Data
+      let stride = decoded.bitsPerPixel / 8
+      #else
+      let decoded = try WindowsJPEGTestReader.read(url: url)
+      XCTAssertEqual(decoded.width, 48)
+      XCTAssertEqual(decoded.height, 32)
+      let embedded = decoded.iccProfile
+      let pixelData = decoded.rgb24
+      let stride = 3
+      #endif
       XCTAssertEqual(embedded, try profile.profileData(p3: p3()))
       let converter = try OutputColorConverter(p3Profile: p3(), output: profile)
       let input = try TIFFCodec.read(url: source).preview(maxDimension: 48)
       let final = try Pipeline.render(input, calibration: project.calibration,
         adjustments: project.frames[0].adjustments, lut: identityLUT())
       let expected = try converter.quantized8(final)
-      let pixelData = try XCTUnwrap(decoded.dataProvider?.data) as Data
-      let stride = decoded.bitsPerPixel / 8
       XCTAssertGreaterThanOrEqual(stride, 3)
       for channel in 0..<3 {
         XCTAssertLessThanOrEqual(abs(Int(pixelData[channel]) - Int(expected[channel])), 3)
@@ -119,7 +128,7 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
     var project = try ProjectStore.open(folder: folder)
     let crop = FrameCrop(width: 0.5, angleDegrees: 4)
     let engine = ExportEngine(useCPUReference: true)
-    #if canImport(ImageIO)
+    #if canImport(ImageIO) || os(Windows)
     let formats = ExportFormat.allCases
     #else
     let formats: [ExportFormat] = [.tiff]
@@ -141,6 +150,15 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
         let reader = try XCTUnwrap(CGImageSourceCreateWithURL(bypassURL as CFURL, nil))
         let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(reader, 0, nil))
         let bypassWidth = image.width, bypassHeight = image.height
+        #elseif os(Windows)
+        let bypassWidth: Int, bypassHeight: Int
+        if format == .jpeg {
+          let jpg = try WindowsJPEGTestReader.read(url: bypassURL)
+          bypassWidth = jpg.width; bypassHeight = jpg.height
+        } else {
+          let m = try TIFFCodec.metadata(url: bypassURL)
+          bypassWidth = m.width; bypassHeight = m.height
+        }
         #else
         let bypassMeta = try TIFFCodec.metadata(url: bypassURL)
         let bypassWidth = bypassMeta.width, bypassHeight = bypassMeta.height
@@ -157,6 +175,15 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
         let croppedReader = try XCTUnwrap(CGImageSourceCreateWithURL(croppedURL as CFURL, nil))
         let croppedImage = try XCTUnwrap(CGImageSourceCreateImageAtIndex(croppedReader, 0, nil))
         let croppedWidth = croppedImage.width, croppedHeight = croppedImage.height
+        #elseif os(Windows)
+        let croppedWidth: Int, croppedHeight: Int
+        if format == .jpeg {
+          let jpg = try WindowsJPEGTestReader.read(url: croppedURL)
+          croppedWidth = jpg.width; croppedHeight = jpg.height
+        } else {
+          let m = try TIFFCodec.metadata(url: croppedURL)
+          croppedWidth = m.width; croppedHeight = m.height
+        }
         #else
         let croppedMeta = try TIFFCodec.metadata(url: croppedURL)
         let croppedWidth = croppedMeta.width, croppedHeight = croppedMeta.height
@@ -175,8 +202,8 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
   }
 
   func testJPEGWriterFailureRemovesTemporaryFiles() throws {
-    #if !canImport(ImageIO)
-    throw XCTSkip("Windows JPEG encoder is scheduled for Phase 1.")
+    #if !canImport(ImageIO) && !os(Windows)
+    throw XCTSkip("JPEG encoder unavailable.")
     #else
     let folder = try temporary()
     defer { try? FileManager.default.removeItem(at: folder) }
@@ -691,7 +718,7 @@ final class ExportColorTests: XCTestCase, @unchecked Sendable {
   }
 
   func testConflictDecisionsPreserveOrReplaceTIFFAndJPEG() async throws {
-    #if canImport(ImageIO)
+    #if canImport(ImageIO) || os(Windows)
     let formats = ExportFormat.allCases
     #else
     let formats: [ExportFormat] = [.tiff]

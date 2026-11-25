@@ -292,7 +292,7 @@ private actor ExportWorker {
         destination: nil, status: .notStarted, error: "取消后未开始")
     }
     let converter = try OutputColorConverter(p3Profile: p3Profile, output: request.settings.profile)
-    #if canImport(Metal)
+    #if canImport(Metal) || os(Windows)
     if !useCPUReference && gpu == nil { gpu = try PerformanceTrace.measure("export.worker_pipeline_init") { try MetalPipeline() } }
     #endif
     progress(0)

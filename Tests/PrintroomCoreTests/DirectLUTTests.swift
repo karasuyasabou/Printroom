@@ -8,7 +8,7 @@ final class DirectLUTTests: XCTestCase {
       .deletingLastPathComponent().deletingLastPathComponent()
   }
   func testCPUAndMetalUseUnmodifiedLUTAfterD3() throws {
-    #if canImport(Metal)
+    #if canImport(Metal) || os(Windows)
     let gpu = try MetalPipeline()
     #endif
     let input = PixelBuffer(width: 4, height: 1, pixels: [
@@ -21,14 +21,14 @@ final class DirectLUTTests: XCTestCase {
           contrast: .init(master: contrast, red: 0.8, green: 1.1, blue: 1.4))
         let d3 = try Pipeline.render(input, calibration: .init(), adjustments: adjustments, stage: .d3)
         let cpu = try Pipeline.render(input, calibration: .init(), adjustments: adjustments, lut: lut)
-        #if canImport(Metal)
+        #if canImport(Metal) || os(Windows)
         let metal = try gpu.render(input, calibration: .init(), adjustments: adjustments, lut: lut)
         #endif
         for i in input.pixels.indices {
           let p = d3.pixels[i], expected = lut.sample(SIMD3(p.x, p.y, p.z))
           for c in 0..<3 {
             XCTAssertEqual(cpu.pixels[i][c], expected[c])
-            #if canImport(Metal)
+            #if canImport(Metal) || os(Windows)
             XCTAssertEqual(metal.pixels[i][c], expected[c], accuracy: 2e-4)
             #endif
           }

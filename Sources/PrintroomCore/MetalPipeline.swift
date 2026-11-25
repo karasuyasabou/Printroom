@@ -332,30 +332,62 @@ public final class MetalPipeline: @unchecked Sendable {
     """
 }
 #else
+import CWinPlatform
 import Foundation
 
-/// Windows Phase 0 placeholder preserving MetalPipeline's public API surface.
+/// Windows Direct3D 11 compute implementation matching MetalPipeline's exact contract.
 public final class MetalPipeline: @unchecked Sendable {
-  public var deviceName: String { "CPU Fallback" }
+  fileprivate final class DeviceHolder: @unchecked Sendable {
+    let raw: OpaquePointer
+    let name: String
+    init() throws {
+      var buffer = [CChar](repeating: 0, count: 256)
+      var winErr: UInt32 = 0
+      guard let ptr = pr_win_gpu_create(&buffer, buffer.count, &winErr) else {
+        throw PrintroomError.invalid("此设备无法创建 Direct3D 11 计算管线（0x\(String(winErr, radix: 16))）")
+      }
+      raw = ptr
+      name = buffer.withUnsafeBufferPointer { buf in
+        String(cString: buf.baseAddress!)
+      }
+    }
+    deinit {
+      pr_win_gpu_destroy(raw)
+    }
+  }
+
+  private let holder: DeviceHolder
+  private let defaultSession: Session
+  public var deviceName: String { holder.name }
 
   public init() throws {
-    throw PrintroomError.invalid("Windows GPU 管线将在阶段 1 接入，当前使用 CPU 参考管线")
+    holder = try DeviceHolder()
+    defaultSession = Session(device: holder)
   }
 
   public func makeSession() -> Session {
-    Session()
+    Session(device: holder)
   }
 
   public func render(
     _ input: PixelBuffer, calibration: FilmCalibration, adjustments: FrameAdjustments, lut: CubeLUT,
     stage: PipelineStage = .final, sprocketWhitening: SprocketWhiteningContext? = nil
   ) throws -> PixelBuffer {
-    try Pipeline.render(
+    try defaultSession.render(
       input, calibration: calibration, adjustments: adjustments, lut: lut, stage: stage,
       sprocketWhitening: sprocketWhitening)
   }
 
   public final class Session: @unchecked Sendable {
+    private let device: DeviceHolder
+    private let sessionPtr: OpaquePointer
+    private let lock = NSLock()
+    private static let retainedPixelByteLimit = 1600 * 1600 * MemoryLayout<SIMD4<Float>>.stride
+    private var cachedSource: SourceKey?
+    private var cachedDensity: DensityKey?
+    private var cachedLUT: CubeLUT?
+    private var densityCacheHits: Int = 0
+
     public struct Statistics: Sendable {
       public fileprivate(set) var bufferAllocations = 0
       public fileprivate(set) var sourceUploads = 0
@@ -364,16 +396,201 @@ public final class MetalPipeline: @unchecked Sendable {
       public fileprivate(set) var densityCacheHits = 0
       public fileprivate(set) var retainedPixelBytes = 0
     }
-    public var statistics: Statistics { Statistics() }
+
+    public var statistics: Statistics {
+      lock.withLock {
+        var native = PRWinGPUSessionStats()
+        pr_win_gpu_session_get_stats(sessionPtr, &native)
+        var s = Statistics()
+        s.bufferAllocations = Int(native.buffer_allocations)
+        s.sourceUploads = Int(native.source_uploads)
+        s.lutUploads = Int(native.lut_uploads)
+        s.densityPasses = Int(native.density_passes)
+        s.densityCacheHits = densityCacheHits
+        s.retainedPixelBytes = Int(native.retained_pixel_bytes)
+        return s
+      }
+    }
+
+    fileprivate init(device: DeviceHolder) {
+      self.device = device
+      self.sessionPtr = pr_win_gpu_session_create(device.raw)!
+    }
+
+    deinit {
+      pr_win_gpu_session_destroy(sessionPtr)
+    }
+
+    private struct SourceKey: Equatable {
+      let identity: UUID
+      let width, height: Int
+    }
+    private struct DensityKey: Equatable {
+      let source: SourceKey
+      let gain: SIMD3<Float>
+      let matrix: PrintDensityMatrix
+      let cmos: MatrixPreset
+    }
 
     public func render(
       _ input: PixelBuffer, calibration: FilmCalibration, adjustments: FrameAdjustments, lut: CubeLUT,
       stage: PipelineStage = .final, inputIdentity: UUID? = nil,
       sprocketWhitening: SprocketWhiteningContext? = nil
     ) throws -> PixelBuffer {
-      try Pipeline.render(
-        input, calibration: calibration, adjustments: adjustments, lut: lut, stage: stage,
-        sprocketWhitening: sprocketWhitening)
+      try lock.withLock {
+        try Pipeline.validate(adjustments)
+        if stage == .final { try sprocketWhitening?.validate(input) }
+        let (count, overflow) = input.width.multipliedReportingOverflow(by: input.height)
+        guard input.width > 0, input.height > 0, !overflow,
+          count == input.pixels.count, count <= Int(UInt32.max)
+        else { throw PrintroomError.invalid("预览像素尺寸不匹配") }
+
+        let key = inputIdentity.map { SourceKey(identity: $0, width: input.width, height: input.height) }
+        let sourceIsCached = key != nil && key == cachedSource
+        guard (sourceIsCached || input.pixels.allSatisfy({ $0.x.isFinite && $0.y.isFinite && $0.z.isFinite })),
+          (0..<3).allSatisfy({
+            calibration.gainRGB[$0].isFinite && calibration.gainRGB[$0] > 0
+              && calibration.filmBaseOffsetCV[$0].isFinite
+          })
+        else { throw PrintroomError.invalid("管线输入包含非法值") }
+
+        let bytes = count * MemoryLayout<SIMD4<Float>>.stride
+        defer {
+          if bytes > Self.retainedPixelByteLimit {
+            pr_win_gpu_session_release_pixel_buffers(sessionPtr)
+            cachedSource = nil
+            cachedDensity = nil
+          }
+        }
+        if !sourceIsCached {
+          cachedSource = nil
+          cachedDensity = nil
+        }
+
+        let needLUTUpload = cachedLUT?.size != lut.size || cachedLUT?.values != lut.values
+        let needD1 = key != nil && stage.rawValue >= PipelineStage.d1.rawValue
+        var winErr: UInt32 = 0
+        let prepRc: Int32 = input.pixels.withUnsafeBytes { srcRaw in
+          lut.values.withUnsafeBytes { lutRaw in
+            let srcPtr = srcRaw.baseAddress!.assumingMemoryBound(to: Float.self)
+            let lutPtr = lutRaw.baseAddress!.assumingMemoryBound(to: Float.self)
+            return pr_win_gpu_session_prepare_buffers(
+              sessionPtr,
+              count,
+              srcPtr, sourceIsCached ? 0 : 1,
+              lut.values.count,
+              lutPtr, needLUTUpload ? 1 : 0,
+              needD1 ? 1 : 0,
+              &winErr)
+          }
+        }
+        guard prepRc == 0 else {
+          cachedSource = nil
+          cachedDensity = nil
+          cachedLUT = nil
+          throw PrintroomError.invalid("GPU 缓冲区准备失败（0x\(String(winErr, radix: 16))）")
+        }
+        if !sourceIsCached { cachedSource = key }
+        if needLUTUpload { cachedLUT = lut }
+
+        let t = adjustments.timing
+        let c = adjustments.contrast
+        let cmosR = calibration.cmosMatrix.coefficients.row(0)
+        let cmosG = calibration.cmosMatrix.coefficients.row(1)
+        let cmosB = calibration.cmosMatrix.coefficients.row(2)
+        let denR = calibration.matrix.coefficients.row(0)
+        let denG = calibration.matrix.coefficients.row(1)
+        let denB = calibration.matrix.coefficients.row(2)
+        let gainV = calibration.gainRGB
+        let offV = (calibration.filmBaseOffsetCV
+          + SIMD3(Float(t.master + t.red), Float(t.master + t.green), Float(t.master + t.blue))) / 1024
+        let conV = SIMD3(c.master * c.red, c.master * c.green, c.master * c.blue)
+
+        var params = PRWinGPUParams(
+          cmosR: (cmosR.x, cmosR.y, cmosR.z, cmosR.w),
+          cmosG: (cmosG.x, cmosG.y, cmosG.z, cmosG.w),
+          cmosB: (cmosB.x, cmosB.y, cmosB.z, cmosB.w),
+          densityR: (denR.x, denR.y, denR.z, denR.w),
+          densityG: (denG.x, denG.y, denG.z, denG.w),
+          densityB: (denB.x, denB.y, denB.z, denB.w),
+          gain: (gainV.x, gainV.y, gainV.z, 0),
+          offset: (offV.x, offV.y, offV.z, 0),
+          contrast: (conV.x, conV.y, conV.z, 0),
+          count: UInt32(count),
+          stage: UInt32(stage.rawValue),
+          lutSize: UInt32(lut.size),
+          matrix: calibration.matrix.coefficients == .identity ? 0 : 1,
+          cmos: calibration.cmosMatrix.coefficients == .identity ? 0 : 1,
+          sourceStage: 0,
+          groupsX: 0,
+          pad0: 0)
+
+        let densityKey = key.flatMap { source in
+          stage.rawValue >= PipelineStage.d1.rawValue
+            ? DensityKey(source: source, gain: calibration.gainRGB, matrix: calibration.matrix, cmos: calibration.cmosMatrix)
+            : nil
+        }
+
+        var outputSlot: Int32 = 1
+        var pendingDensity: DensityKey?
+        if let densityKey {
+          if cachedDensity != densityKey {
+            cachedDensity = nil
+            var prefix = params
+            prefix.stage = UInt32(PipelineStage.d1.rawValue)
+            guard pr_win_gpu_session_dispatch_pipeline(sessionPtr, 0, 2, &prefix, &winErr) == 0 else {
+              throw PrintroomError.invalid("GPU D1 管线执行失败（0x\(String(winErr, radix: 16))）")
+            }
+            pendingDensity = densityKey
+          } else {
+            densityCacheHits += 1
+          }
+          if stage == .d1 {
+            outputSlot = 2
+          } else {
+            params.sourceStage = UInt32(PipelineStage.d1.rawValue)
+            guard pr_win_gpu_session_dispatch_pipeline(sessionPtr, 2, 1, &params, &winErr) == 0 else {
+              cachedDensity = nil
+              throw PrintroomError.invalid("GPU 管线执行失败（0x\(String(winErr, radix: 16))）")
+            }
+          }
+        } else {
+          guard pr_win_gpu_session_dispatch_pipeline(sessionPtr, 0, 1, &params, &winErr) == 0 else {
+            throw PrintroomError.invalid("GPU 管线执行失败（0x\(String(winErr, radix: 16))）")
+          }
+        }
+
+        if stage == .final, calibration.isCalibrated, let whitening = sprocketWhitening, whitening.enabled {
+          var mask = PRWinGPUWhiteningParams(
+            mapX: (whitening.mapX.x, whitening.mapX.y, whitening.mapX.z, whitening.mapX.w),
+            mapY: (whitening.mapY.x, whitening.mapY.y, whitening.mapY.z, whitening.mapY.w),
+            limits: (whitening.threshold, SprocketWhiteningContext.transition, SprocketWhiteningContext.protectionMargin, 0),
+            width: UInt32(input.width),
+            groupsX: 0,
+            pad0: 0,
+            pad1: 0)
+          guard pr_win_gpu_session_dispatch_whitening(sessionPtr, &params, &mask, &winErr) == 0 else {
+            cachedDensity = nil
+            throw PrintroomError.invalid("GPU 齿孔置白执行失败（0x\(String(winErr, radix: 16))）")
+          }
+        }
+
+        var output = [SIMD4<Float>](repeating: .zero, count: count)
+        let rbRc: Int32 = output.withUnsafeMutableBytes { rawOut in
+          let outPtr = rawOut.baseAddress!.assumingMemoryBound(to: Float.self)
+          return pr_win_gpu_session_readback(sessionPtr, outputSlot, outPtr, count, &winErr)
+        }
+        guard rbRc == 0 else {
+          cachedDensity = nil
+          throw PrintroomError.invalid("GPU 回读失败（0x\(String(winErr, radix: 16))）")
+        }
+        guard output.allSatisfy({ $0.x.isFinite && $0.y.isFinite && $0.z.isFinite }) else {
+          cachedDensity = nil
+          throw PrintroomError.invalid("GPU 计算产生非有限数值")
+        }
+        if let pendingDensity { cachedDensity = pendingDensity }
+        return PixelBuffer(width: input.width, height: input.height, pixels: output)
+      }
     }
   }
 }
