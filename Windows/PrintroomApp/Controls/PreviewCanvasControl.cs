@@ -82,15 +82,23 @@ public sealed class PreviewCanvasControl : FrameworkElement
 
     public void UpdateState(WinUIStateSnapshot state, WriteableBitmap? bitmap)
     {
+        bool transitionActive = state.CropTransitionSizeWidth != null;
         bool frameOrViewportChanged = state.ActiveFrameId != _state.ActiveFrameId
             || state.CropViewportToken != _state.CropViewportToken;
         _state = state;
         _bitmap = bitmap;
 
-        if (state.CropViewportToken != _lastCropToken || state.ActiveFrameId == null)
+        if (!state.Sampling)
+            _selectionRect = null;
+
+        if (transitionActive)
+        {
+            CancelGesture();
+        }
+        else if (frameOrViewportChanged || state.ActiveFrameId == null)
         {
             _lastCropToken = state.CropViewportToken;
-            if (frameOrViewportChanged) CancelGesture();
+            CancelGesture();
             _zoom = 1.0;
             _panX = 0;
             _panY = 0;
@@ -326,6 +334,15 @@ public sealed class PreviewCanvasControl : FrameworkElement
         Focus();
 
         if ((_state.Sampling || _state.IsCropping) && !_state.HasImage) return;
+
+        if (!_state.Sampling && !_state.NeutralPicking && !_state.IsCropping && e.ClickCount == 2)
+        {
+            if (IsFitZoom) SetActualPixelsZoom();
+            else SetFitZoom();
+            e.Handled = true;
+            return;
+        }
+
         if ((_state.Sampling || _state.NeutralPicking) && !ImageRect.Contains(p)) return;
 
         _startPoint = p;
@@ -486,24 +503,61 @@ public sealed class PreviewCanvasControl : FrameworkElement
         CancelGesture();
 
         var mods = Keyboard.Modifiers;
-        if (mods.HasFlag(ModifierKeys.Control) || mods.HasFlag(ModifierKeys.Alt))
+        if (mods.HasFlag(ModifierKeys.Shift))
         {
-            double factor = Math.Exp(e.Delta * 0.0012);
-            _zoom = Math.Clamp(_zoom * factor, 0.25, 16.0);
-        }
-        else if (mods.HasFlag(ModifierKeys.Shift))
-        {
-            _panX += e.Delta * 0.35;
+            _panX += e.Delta * 0.5;
         }
         else
         {
-            _panY += e.Delta * 0.35;
+            double oldScale = FitScale * _zoom;
+            double factor = Math.Exp(e.Delta * 0.0014);
+            double nextZoom = Math.Clamp(_zoom * factor, 0.25, 16.0);
+            double newScale = FitScale * nextZoom;
+            if (oldScale > 1e-6 && newScale > 1e-6)
+            {
+                double ratio = newScale / oldScale;
+                double relX = p.X - (ActualWidth / 2.0 + _panX);
+                double relY = p.Y - (ActualHeight / 2.0 + _panY);
+                _panX = p.X - ActualWidth / 2.0 - relX * ratio;
+                _panY = p.Y - ActualHeight / 2.0 - relY * ratio;
+            }
+            _zoom = nextZoom;
         }
         ConstrainPan();
         UpdateHistogramProbe(p);
         InvalidateVisual();
         ViewportZoomChanged?.Invoke();
         e.Handled = true;
+    }
+
+    protected override void OnMouseDown(MouseButtonEventArgs e)
+    {
+        base.OnMouseDown(e);
+        if (e.ChangedButton == MouseButton.Middle)
+        {
+            var p = e.GetPosition(this);
+            var bounds = new Rect(0, 0, ActualWidth, ActualHeight);
+            if (!bounds.Contains(p) || _bitmap == null || _state.CropTransitionSizeWidth != null || _state.Sampling || _state.NeutralPicking)
+                return;
+            CancelGesture();
+            _startPoint = p;
+            _previousPoint = p;
+            _isPanning = true;
+            CaptureMouse();
+            RefreshCursor(p);
+            e.Handled = true;
+        }
+    }
+
+    protected override void OnMouseUp(MouseButtonEventArgs e)
+    {
+        base.OnMouseUp(e);
+        if (e.ChangedButton == MouseButton.Middle && _isPanning)
+        {
+            CancelGesture();
+            UpdateHistogramProbe(e.GetPosition(this));
+            e.Handled = true;
+        }
     }
 
     protected override void OnMouseLeave(System.Windows.Input.MouseEventArgs e)
@@ -558,7 +612,7 @@ public sealed class PreviewCanvasControl : FrameworkElement
                 if (found.X != 0 && found.Y != 0) { Cursor = MediaCursors.Cross; return; }
                 if (found.X != 0) { Cursor = MediaCursors.SizeWE; return; }
                 if (found.Y != 0) { Cursor = MediaCursors.SizeNS; return; }
-                Cursor = MediaCursors.SizeAll;
+                Cursor = MediaCursors.Arrow;
                 return;
             }
             Cursor = GetRotationCursor(p);

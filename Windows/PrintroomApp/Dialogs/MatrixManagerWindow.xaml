@@ -106,6 +106,7 @@
                 <Grid Grid.Row="0" Margin="0,0,0,14">
                     <TextBox x:Name="NameBox"
                              Style="{StaticResource ThemedTextBoxStyle}"
+                             InputMethod.IsInputMethodEnabled="True"
                              Height="28" VerticalContentAlignment="Center"
                              FontSize="12.5" MaxLength="80"
                              TextChanged="NameBox_TextChanged"/>

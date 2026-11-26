@@ -55,6 +55,7 @@
                        Margin="0,0,12,10"/>
             <TextBox x:Name="PrefixBox" Grid.Row="1" Grid.Column="1"
                      Style="{StaticResource ThemedTextBoxStyle}"
+                     InputMethod.IsInputMethodEnabled="True"
                      Height="28" VerticalContentAlignment="Center"
                      Margin="0,0,0,10"
                      TextChanged="PrefixBox_TextChanged"/>
@@ -76,17 +77,19 @@
                        Margin="0,0,12,10"/>
             <ComboBox x:Name="ProfileCombo" Grid.Row="3" Grid.Column="1"
                       Style="{StaticResource ThemedComboBoxStyle}"
-                      Margin="0,0,0,10"/>
+                      Margin="0,0,0,10"
+                      SelectionChanged="OptionControl_Changed"/>
 
             <!-- ZIP Compression (TIFF only) -->
             <CheckBox x:Name="CompressionCheckBox" Grid.Row="4" Grid.Column="1"
                       Content="ZIP 压缩"
-                      Margin="0,2,0,10"/>
+                      Margin="0,2,0,10"
+                      Click="OptionControl_Changed"/>
 
             <!-- Apply Crop & Overwrite -->
             <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,2,0,0">
-                <CheckBox x:Name="ApplyCropCheckBox" Content="应用裁剪" Margin="0,0,18,0"/>
-                <CheckBox x:Name="OverwriteCheckBox" Content="覆盖重名"/>
+                <CheckBox x:Name="ApplyCropCheckBox" Content="应用裁剪" Margin="0,0,18,0" Click="OptionControl_Changed"/>
+                <CheckBox x:Name="OverwriteCheckBox" Content="覆盖重名" Click="OptionControl_Changed"/>
             </StackPanel>
         </Grid>
 

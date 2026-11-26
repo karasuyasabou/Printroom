@@ -70,7 +70,6 @@ public partial class MainWindow : Window
     private bool _updatingUi;
     private bool _modalDialogOpen;
     private bool _rollTimingModalOpen;
-    private bool _draggingCropAngle;
     private bool _draggingSprocket;
     private string? _lastErrorPrompted;
     private bool _syncTiming = true;
@@ -78,6 +77,12 @@ public partial class MainWindow : Window
     private bool _syncLut = true;
     private bool _syncCrop = true;
     private string? _pendingActiveScrollId;
+    private long _sprocketClosedTick;
+    private long _syncClosedTick;
+    private string? _lastSyncFrameId;
+    private int _lastSyncSelCount;
+    private bool _lastSyncCropping;
+    private bool _lastSyncFilmBase;
 
     public MainWindow(string? initialOpenPath = null, string? screenshotPath = null)
     {
@@ -88,10 +93,15 @@ public partial class MainWindow : Window
         _vm = new EditorViewModel();
         FilmstripItems.ItemsSource = _vm.Frames;
 
-        _shortcuts = new ShortcutController(this, _vm, () => !_modalDialogOpen && !_rollTimingModalOpen);
+        _shortcuts = new ShortcutController(this, _vm, () => !_modalDialogOpen && !_rollTimingModalOpen && !SprocketPopup.IsOpen && !SyncPopup.IsOpen);
         _shortcuts.OpenRollRequested += () => OpenRoll_Click(this, new RoutedEventArgs());
         _shortcuts.ExportCurrentRequested += () => ExportCurrent_Click(this, new RoutedEventArgs());
         _shortcuts.ShowShortcutsRequested += () => OpenShortcuts_Click(this, new RoutedEventArgs());
+
+        PreviewMouseDown += OnWindowPreviewMouseDown;
+        Deactivated += (_, _) => _vm.Dispatch(new { action = "clearHistogramProbe" });
+        SprocketPopup.Closed += (_, _) => _sprocketClosedTick = Environment.TickCount64;
+        SyncPopup.Closed += (_, _) => _syncClosedTick = Environment.TickCount64;
 
         _loadingHintTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
         _loadingHintTimer.Tick += (_, _) =>
@@ -196,42 +206,97 @@ public partial class MainWindow : Window
         WireContrastRow(ContrastGreenRow, "green");
         WireContrastRow(ContrastBlueRow, "blue");
 
-        CropAngleSlider.PreviewMouseLeftButtonUp += (_, _) =>
+        SprocketThresholdSlider.LostMouseCapture += (_, _) =>
         {
-            if (_draggingCropAngle)
+            if (_draggingSprocket)
             {
-                _draggingCropAngle = false;
-                _vm.Dispatch(new { action = "endAdjustment" });
-            }
-        };
-        CropAngleSlider.LostMouseCapture += (_, _) =>
-        {
-            if (_draggingCropAngle)
-            {
-                _draggingCropAngle = false;
+                _draggingSprocket = false;
                 _vm.Dispatch(new { action = "endAdjustment" });
             }
         };
     }
 
+    private void OnWindowPreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase tb)
+        {
+            if (e.OriginalSource is DependencyObject src && IsDescendantOf(src, tb))
+                return;
+            Keyboard.ClearFocus();
+            FocusManager.SetFocusedElement(this, CanvasControl);
+        }
+    }
+
+    private static bool IsDescendantOf(DependencyObject node, DependencyObject ancestor)
+    {
+        DependencyObject? cur = node;
+        while (cur != null)
+        {
+            if (ReferenceEquals(cur, ancestor)) return true;
+            if (cur is System.Windows.Media.Visual or System.Windows.Media.Media3D.Visual3D)
+                cur = VisualTreeHelper.GetParent(cur);
+            else
+                cur = LogicalTreeHelper.GetParent(cur);
+        }
+        return false;
+    }
+
     private void WireSimpleTimingRow(AdjustmentRowControl row, string axis)
     {
         row.EditingStarted += () => _vm.Dispatch(new { action = "beginAdjustment" });
-        row.ValueCommitted += v => _vm.Dispatch(new { action = "setSimpleTiming", axis, doubleValue = v });
+        row.ValueCommitted += v =>
+        {
+            _vm.Dispatch(new { action = "setSimpleTiming", axis, doubleValue = v });
+            var st = _vm.State;
+            double clamped = axis switch
+            {
+                "exposure" => st.SimpleExposure,
+                "temperature" => st.SimpleTemperature,
+                "tint" => st.SimpleTint,
+                _ => v
+            };
+            row.ForceSyncValue(clamped);
+        };
         row.EditingEnded += () => _vm.Dispatch(new { action = "endAdjustment" });
     }
 
     private void WireRgbTimingRow(AdjustmentRowControl row, string channel)
     {
         row.EditingStarted += () => _vm.Dispatch(new { action = "beginAdjustment" });
-        row.ValueCommitted += v => _vm.Dispatch(new { action = "setRGBTiming", channel, intValue = (int)Math.Round(v) });
+        row.ValueCommitted += v =>
+        {
+            _vm.Dispatch(new { action = "setRGBTiming", channel, intValue = (int)Math.Round(v) });
+            var st = _vm.State;
+            double clamped = channel switch
+            {
+                "master" => st.TimingMaster,
+                "red" => st.TimingRed,
+                "green" => st.TimingGreen,
+                "blue" => st.TimingBlue,
+                _ => v
+            };
+            row.ForceSyncValue(clamped);
+        };
         row.EditingEnded += () => _vm.Dispatch(new { action = "endAdjustment" });
     }
 
     private void WireContrastRow(AdjustmentRowControl row, string channel)
     {
         row.EditingStarted += () => _vm.Dispatch(new { action = "beginAdjustment" });
-        row.ValueCommitted += v => _vm.Dispatch(new { action = "setContrast", channel, floatValue = (float)v });
+        row.ValueCommitted += v =>
+        {
+            _vm.Dispatch(new { action = "setContrast", channel, floatValue = (float)v });
+            var st = _vm.State;
+            double clamped = channel switch
+            {
+                "master" => st.ContrastMaster,
+                "red" => st.ContrastRed,
+                "green" => st.ContrastGreen,
+                "blue" => st.ContrastBlue,
+                _ => v
+            };
+            row.ForceSyncValue(clamped);
+        };
         row.EditingEnded += () => _vm.Dispatch(new { action = "endAdjustment" });
     }
 
@@ -251,8 +316,14 @@ public partial class MainWindow : Window
         const int WM_MOVE = 0x0003;
         const int WM_SIZE = 0x0005;
         const int WM_DISPLAYCHANGE = 0x007E;
+        const int WM_MENUCHAR = 0x0120;
         const int WM_DPICHANGED = 0x02E0;
 
+        if (msg == WM_MENUCHAR)
+        {
+            handled = true;
+            return (nint)(1 << 16); // MNC_CLOSE: suppress Windows Alt+key beep
+        }
         if (msg is WM_MOVE or WM_SIZE or WM_DISPLAYCHANGE or WM_DPICHANGED)
         {
             _vm.SetWindowHandle(hwnd);
@@ -311,9 +382,24 @@ public partial class MainWindow : Window
             UpdateLoadingHint(s);
 
             if (SprocketPopup.IsOpen)
-                SyncSprocketPopup(s);
+            {
+                if (!s.HasProject || s.IsImporting || s.IsCropping) SprocketPopup.IsOpen = false;
+                else SyncSprocketPopup(s);
+            }
             if (SyncPopup.IsOpen)
-                SyncSyncPopup(s);
+            {
+                bool syncInvalidated = _lastSyncFrameId != s.ActiveFrameId
+                    || _lastSyncSelCount != s.SelectedFrameIds.Count
+                    || _lastSyncCropping != s.IsCropping
+                    || _lastSyncFilmBase != s.HasFilmBase
+                    || !s.CanSync;
+                if (syncInvalidated) SyncPopup.IsOpen = false;
+                else SyncSyncPopup(s);
+            }
+            _lastSyncFrameId = s.ActiveFrameId;
+            _lastSyncSelCount = s.SelectedFrameIds.Count;
+            _lastSyncCropping = s.IsCropping;
+            _lastSyncFilmBase = s.HasFilmBase;
 
             CanvasControl.UpdateState(s, _vm.PreviewBitmap);
             HistogramControl.Update(s);
@@ -414,7 +500,7 @@ public partial class MainWindow : Window
             ? (string.IsNullOrWhiteSpace(s.AutoCropProgressText) ? "裁剪分析中…" : s.AutoCropProgressText)
             : "自动裁剪";
 
-        RollTimingBtn.IsEnabled = s.CanStartRollTiming;
+        RollTimingBtn.IsEnabled = s.HasFilmBase ? s.CanStartRollTiming : s.CanOpenRollTiming;
         RollTimingBtnLabel.Text = s.IsAnalyzingRollTiming ? "色罩分析中…" : "色罩分析";
 
         ResetBtn.IsEnabled = s.CanAdjustColors;
@@ -546,7 +632,7 @@ public partial class MainWindow : Window
             FlipVBtn.IsEnabled = hasActive;
             CropPreviewCheckBox.IsEnabled = hasActive;
             CropPreviewCheckBox.IsChecked = s.CropPreviewEnabled;
-            StageMenuBtn.IsEnabled = hasActive;
+            StageMenuBtn.IsEnabled = hasActive && s.HasFilmBase;
 
             string stageName = !s.HasFilmBase ? "原图" : s.Stage switch
             {
@@ -991,8 +1077,15 @@ public partial class MainWindow : Window
 
     private void SprocketBtn_Click(object sender, RoutedEventArgs e)
     {
+        if (SprocketPopup.IsOpen)
+        {
+            SprocketPopup.IsOpen = false;
+            return;
+        }
+        if (Environment.TickCount64 - _sprocketClosedTick < 220)
+            return;
         SyncSprocketPopup(_vm.State);
-        SprocketPopup.IsOpen = !SprocketPopup.IsOpen;
+        SprocketPopup.IsOpen = true;
     }
 
     private void AutoCropBtn_Click(object sender, RoutedEventArgs e)
@@ -1115,15 +1208,7 @@ public partial class MainWindow : Window
         if (e.ClickCount == 2)
         {
             e.Handled = true;
-            _vm.Dispatch(new { action = "beginAdjustment" });
             CommitCropAngle(0.0);
-            _vm.Dispatch(new { action = "endAdjustment" });
-            return;
-        }
-        if (!_draggingCropAngle)
-        {
-            _draggingCropAngle = true;
-            _vm.Dispatch(new { action = "beginAdjustment" });
         }
     }
 
@@ -1261,6 +1346,7 @@ public partial class MainWindow : Window
 
     private void OpenMatrixManager(string kind)
     {
+        _vm.Dispatch(new { action = "reloadMatrixLibrary" });
         _modalDialogOpen = true;
         try
         {
@@ -1362,7 +1448,7 @@ public partial class MainWindow : Window
     {
         if (sender is FrameworkElement { Tag: FrameThumbnailItem item })
         {
-            if (!item.IsSelected)
+            if (!item.IsMissing && !item.IsSelected)
                 _vm.Dispatch(new { action = "selectFrame", frameID = item.Id, ctrl = false, shift = false });
         }
     }
@@ -1373,6 +1459,8 @@ public partial class MainWindow : Window
         var item = (cm.PlacementTarget as FrameworkElement)?.Tag as FrameThumbnailItem;
         var s = _vm.State;
         bool missing = item?.IsMissing == true;
+        int selCount = s.SelectedFrameIds.Count;
+        string countSuffix = selCount > 0 ? $" {selCount} 张底片" : "";
 
         foreach (object entry in cm.Items)
         {
@@ -1393,9 +1481,22 @@ public partial class MainWindow : Window
                         mi.IsEnabled = s.CanApply;
                         break;
                     case "CtxFlipH":
+                        mi.Header = $"水平翻转{countSuffix}";
+                        mi.Visibility = missing ? Visibility.Collapsed : Visibility.Visible;
+                        mi.IsEnabled = s.CanChangeSelectedOrientations;
+                        break;
                     case "CtxFlipV":
+                        mi.Header = $"垂直翻转{countSuffix}";
+                        mi.Visibility = missing ? Visibility.Collapsed : Visibility.Visible;
+                        mi.IsEnabled = s.CanChangeSelectedOrientations;
+                        break;
                     case "CtxRotCW":
+                        mi.Header = $"顺时针旋转{countSuffix}";
+                        mi.Visibility = missing ? Visibility.Collapsed : Visibility.Visible;
+                        mi.IsEnabled = s.CanChangeSelectedOrientations;
+                        break;
                     case "CtxRotCCW":
+                        mi.Header = $"逆时针旋转{countSuffix}";
                         mi.Visibility = missing ? Visibility.Collapsed : Visibility.Visible;
                         mi.IsEnabled = s.CanChangeSelectedOrientations;
                         break;
@@ -1463,7 +1564,7 @@ public partial class MainWindow : Window
         bool enabled = SprocketEnableCheck.IsChecked == true;
         double th = Math.Round(SprocketThresholdSlider.Value);
         _vm.Dispatch(new { action = "setSprocketWhitening", boolValue = enabled, doubleValue = th });
-        SprocketThresholdSlider.IsEnabled = enabled;
+        SprocketThresholdSlider.IsEnabled = enabled && _vm.State.CanAdjustSprocketWhitening;
     }
 
     private void SprocketSlider_MouseDown(object sender, MouseButtonEventArgs e)
@@ -1501,8 +1602,15 @@ public partial class MainWindow : Window
     private void SyncButton_Click(object sender, RoutedEventArgs e)
     {
         if (!_vm.State.CanSync) return;
+        if (SyncPopup.IsOpen)
+        {
+            SyncPopup.IsOpen = false;
+            return;
+        }
+        if (Environment.TickCount64 - _syncClosedTick < 220)
+            return;
         SyncSyncPopup(_vm.State);
-        SyncPopup.IsOpen = !SyncPopup.IsOpen;
+        SyncPopup.IsOpen = true;
     }
 
     private void SyncSyncPopup(WinUIStateSnapshot s)
@@ -1510,23 +1618,32 @@ public partial class MainWindow : Window
         int totalTargets = Math.Max(0, s.SelectedFrameIds.Count - 1);
         string srcName = s.ActiveFilename ?? "当前照片";
         SyncSourceLabel.Text = $"将“{srcName}”的所选设置同步到其余 {totalTargets} 张已选照片：";
-        SyncTimingCheck.IsChecked = _syncTiming;
-        SyncContrastCheck.IsChecked = _syncContrast;
-        SyncLutCheck.IsChecked = _syncLut;
+        bool hasBase = s.HasFilmBase;
+        SyncTimingCheck.IsEnabled = hasBase;
+        SyncContrastCheck.IsEnabled = hasBase;
+        SyncLutCheck.IsEnabled = hasBase;
+        SyncTimingCheck.IsChecked = hasBase && _syncTiming;
+        SyncContrastCheck.IsChecked = hasBase && _syncContrast;
+        SyncLutCheck.IsChecked = hasBase && _syncLut;
         SyncCropCheck.IsChecked = _syncCrop;
-        bool any = _syncTiming || _syncContrast || _syncLut || _syncCrop;
+        bool any = (hasBase && (_syncTiming || _syncContrast || _syncLut)) || _syncCrop;
         SyncApplyBtn.Content = $"应用到 {totalTargets} 张";
         SyncApplyBtn.IsEnabled = any && totalTargets > 0;
     }
 
     private void SyncOptionCheck_Click(object sender, RoutedEventArgs e)
     {
-        _syncTiming = SyncTimingCheck.IsChecked == true;
-        _syncContrast = SyncContrastCheck.IsChecked == true;
-        _syncLut = SyncLutCheck.IsChecked == true;
+        bool hasBase = _vm.State.HasFilmBase;
+        if (hasBase)
+        {
+            _syncTiming = SyncTimingCheck.IsChecked == true;
+            _syncContrast = SyncContrastCheck.IsChecked == true;
+            _syncLut = SyncLutCheck.IsChecked == true;
+        }
         _syncCrop = SyncCropCheck.IsChecked == true;
         int totalTargets = Math.Max(0, _vm.State.SelectedFrameIds.Count - 1);
-        SyncApplyBtn.IsEnabled = (_syncTiming || _syncContrast || _syncLut || _syncCrop) && totalTargets > 0;
+        bool any = (hasBase && (_syncTiming || _syncContrast || _syncLut)) || _syncCrop;
+        SyncApplyBtn.IsEnabled = any && totalTargets > 0;
     }
 
     private void SyncCancel_Click(object sender, RoutedEventArgs e) => SyncPopup.IsOpen = false;
@@ -1534,12 +1651,13 @@ public partial class MainWindow : Window
     private void SyncApply_Click(object sender, RoutedEventArgs e)
     {
         SyncPopup.IsOpen = false;
+        bool hasBase = _vm.State.HasFilmBase;
         _vm.Dispatch(new
         {
             action = "syncSettings",
-            timing = _syncTiming,
-            contrast = _syncContrast,
-            lut = _syncLut,
+            timing = hasBase && _syncTiming,
+            contrast = hasBase && _syncContrast,
+            lut = hasBase && _syncLut,
             crop = _syncCrop
         });
     }

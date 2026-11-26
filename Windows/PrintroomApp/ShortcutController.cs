@@ -1,7 +1,6 @@
 using System;
 using System.Diagnostics;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
 using PrintroomApp.ViewModels;
@@ -52,6 +51,13 @@ public sealed class ShortcutController : IDisposable
         _vm.Dispatch(new { action = "endAdjustment" });
     }
 
+    private static Key ResolveKey(KeyEventArgs e)
+    {
+        if (e.Key == Key.System) return e.SystemKey;
+        if (e.Key == Key.ImeProcessed) return e.ImeProcessedKey;
+        return e.Key;
+    }
+
     private static string? MapAdjustmentKey(Key key)
     {
         return key switch
@@ -77,19 +83,43 @@ public sealed class ShortcutController : IDisposable
 
     private void OnPreviewKeyUp(object sender, KeyEventArgs e)
     {
-        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        var key = ResolveKey(e);
+        if (key is Key.LeftAlt or Key.RightAlt)
+        {
+            if (_heldKey != null) StopHeldAdjustment();
+            if (!_window.IsActive || !IsTextInputFocused())
+                e.Handled = true;
+            return;
+        }
+        if (key is Key.LeftShift or Key.RightShift or Key.LeftCtrl or Key.RightCtrl)
+        {
+            if (_heldKey != null) StopHeldAdjustment();
+            return;
+        }
         if (MapAdjustmentKey(key) is { } adj)
+        {
+            bool wasContrast = _heldContrast;
             StopHeldAdjustment(adj);
+            if (wasContrast || e.Key == Key.System)
+                e.Handled = true;
+        }
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        var key = ResolveKey(e);
         var mods = Keyboard.Modifiers;
 
         if (!_window.IsActive || !_canRouteKeys() || IsTextInputFocused())
         {
             StopHeldAdjustment();
+            return;
+        }
+
+        // Prevent bare Left/Right Alt from activating invisible/menu focus mode
+        if (key is Key.LeftAlt or Key.RightAlt)
+        {
+            e.Handled = true;
             return;
         }
 

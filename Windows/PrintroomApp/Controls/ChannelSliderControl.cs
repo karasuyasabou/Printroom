@@ -159,6 +159,8 @@ public sealed class ChannelSliderControl : FrameworkElement
         base.OnMouseLeftButtonDown(e);
         if (!IsEnabled) return;
         e.Handled = true;
+        if (Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase)
+            Keyboard.ClearFocus();
 
         if (e.ClickCount == 2 && ResetValue.HasValue)
         {

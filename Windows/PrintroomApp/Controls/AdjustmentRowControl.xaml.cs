@@ -63,7 +63,15 @@ public partial class AdjustmentRowControl : System.Windows.Controls.UserControl
         ValueSlider.QuantizesValue = QuantizesValue;
         ValueSlider.FillBrush = TrackColorBrush;
 
-        ValueSlider.EditingStarted += () => EditingStarted?.Invoke();
+        ValueSlider.EditingStarted += () =>
+        {
+            if (ValueBox.IsKeyboardFocusWithin)
+            {
+                Keyboard.ClearFocus();
+                FocusManager.SetFocusedElement(FocusManager.GetFocusScope(this), null);
+            }
+            EditingStarted?.Invoke();
+        };
         ValueSlider.ValueCommitted += v =>
         {
             if (_suppressSlider) return;
@@ -142,6 +150,14 @@ public partial class AdjustmentRowControl : System.Windows.Controls.UserControl
             Value = value;
             SyncControlsFromValue();
         }
+    }
+
+    public void ForceSyncValue(double value)
+    {
+        Value = value;
+        SyncControlsFromValue();
+        string fmt = FractionDigits > 0 ? $"F{FractionDigits}" : "F0";
+        ValueBox.Text = Value.ToString(fmt, CultureInfo.InvariantCulture);
     }
 
     private void SyncControlsFromValue()

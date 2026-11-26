@@ -21,6 +21,7 @@ public sealed class FrameThumbnailItem : INotifyPropertyChanged
     private bool _isSelected;
     private ulong _thumbnailRevision;
     private WriteableBitmap? _thumbnailBitmap;
+    private bool _isVisibleInFilmstrip = true;
 
     public string Id { get; init; } = "";
     public int Index { get; set; }
@@ -71,6 +72,12 @@ public sealed class FrameThumbnailItem : INotifyPropertyChanged
     }
 
     public bool HasBitmap => ThumbnailBitmap != null;
+
+    public bool IsVisibleInFilmstrip
+    {
+        get => _isVisibleInFilmstrip;
+        set { if (_isVisibleInFilmstrip != value) { _isVisibleInFilmstrip = value; OnPropertyChanged(); } }
+    }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>
@@ -190,6 +197,7 @@ public sealed class EditorViewModel : INotifyPropertyChanged, IDisposable
                 item.NeedsReview = dto.NeedsReview;
                 item.IsActive = dto.Id == s.ActiveFrameId;
                 item.IsSelected = selectedSet.Contains(dto.Id);
+                item.IsVisibleInFilmstrip = !s.IsCropping || !s.ReviewOnlyPendingCrops || dto.NeedsReview || dto.Id == s.ActiveFrameId;
                 UpdateThumbnailIfNeeded(item, dto.ThumbnailRevision);
                 nextMap[dto.Id] = item;
                 Frames.Add(item);
@@ -209,6 +217,7 @@ public sealed class EditorViewModel : INotifyPropertyChanged, IDisposable
                 item.NeedsReview = dto.NeedsReview;
                 item.IsActive = dto.Id == s.ActiveFrameId;
                 item.IsSelected = selectedSet.Contains(dto.Id);
+                item.IsVisibleInFilmstrip = !s.IsCropping || !s.ReviewOnlyPendingCrops || dto.NeedsReview || dto.Id == s.ActiveFrameId;
                 UpdateThumbnailIfNeeded(item, dto.ThumbnailRevision);
             }
         }

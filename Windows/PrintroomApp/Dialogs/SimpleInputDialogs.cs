@@ -66,6 +66,7 @@ public sealed class RenameRollDialog : Window
             VerticalContentAlignment = VerticalAlignment.Center,
             FontSize = 12.5
         };
+        System.Windows.Input.InputMethod.SetIsInputMethodEnabled(_nameBox, true);
         _nameBox.SetResourceReference(StyleProperty, "ThemedTextBoxStyle");
 
         _placeholderText = new TextBlock

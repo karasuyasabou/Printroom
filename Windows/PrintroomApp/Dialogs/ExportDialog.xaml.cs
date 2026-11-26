@@ -211,21 +211,36 @@ public partial class ExportDialog : Window
         }
     }
 
+    private void PersistSettings()
+    {
+        if (!IsLoaded) return;
+        _vm.Dispatch(new
+        {
+            action = "updateExportSettings",
+            path = _destinationPath,
+            filenamePrefix = TrimmedPrefix,
+            format = SelectedFormat,
+            profile = SelectedProfile,
+            compression = CompressionCheckBox.IsChecked == true ? "deflate" : "none",
+            applyCrop = ApplyCropCheckBox.IsChecked == true,
+            overwriteExisting = OverwriteCheckBox.IsChecked == true
+        });
+    }
+
     private void ChooseDestBtn_Click(object sender, RoutedEventArgs e)
     {
-        using var dlg = new System.Windows.Forms.FolderBrowserDialog
+        var dlg = new Microsoft.Win32.OpenFolderDialog
         {
-            Description = "选择导出目标文件夹",
-            UseDescriptionForTitle = true,
-            ShowNewFolderButton = true
+            Title = "选择导出目标文件夹"
         };
         if (!string.IsNullOrEmpty(_destinationPath) && Directory.Exists(_destinationPath))
-            dlg.SelectedPath = _destinationPath;
+            dlg.InitialDirectory = _destinationPath;
 
-        if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK && !string.IsNullOrWhiteSpace(dlg.SelectedPath))
+        if (dlg.ShowDialog(this) == true && !string.IsNullOrWhiteSpace(dlg.FolderName))
         {
-            _destinationPath = dlg.SelectedPath;
+            _destinationPath = dlg.FolderName;
             UpdateDestinationLabel();
+            PersistSettings();
             RefreshUI(_vm.State);
         }
     }
@@ -240,6 +255,14 @@ public partial class ExportDialog : Window
     {
         if (!IsLoaded) return;
         UpdateFormatVisibility();
+        PersistSettings();
+        RefreshUI(_vm.State);
+    }
+
+    private void OptionControl_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        PersistSettings();
         RefreshUI(_vm.State);
     }
 

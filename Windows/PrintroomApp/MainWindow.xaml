@@ -13,6 +13,7 @@
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
         TextOptions.TextFormattingMode="Ideal"
+        InputMethod.IsInputMethodEnabled="False"
         AllowDrop="True"
         Drop="Window_Drop"
         DragOver="Window_DragOver"
@@ -326,9 +327,9 @@
                                     </StackPanel>
                                     <Button.ContextMenu>
                                         <ContextMenu x:Name="StageContextMenu">
-                                            <MenuItem x:Name="StageL2Item" Header="线性" IsCheckable="True" Click="StageL2_Click"/>
-                                            <MenuItem x:Name="StageD3Item" Header="密度" IsCheckable="True" Click="StageD3_Click"/>
-                                            <MenuItem x:Name="StageFinalItem" Header="输出" IsCheckable="True" Click="StageFinal_Click"/>
+                                            <MenuItem x:Name="StageL2Item" Header="线性" Click="StageL2_Click"/>
+                                            <MenuItem x:Name="StageD3Item" Header="密度" Click="StageD3_Click"/>
+                                            <MenuItem x:Name="StageFinalItem" Header="输出" Click="StageFinal_Click"/>
                                         </ContextMenu>
                                     </Button.ContextMenu>
                                 </Button>
@@ -661,7 +662,17 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Button Click="Thumbnail_Click" Tag="{Binding}" Padding="0" Background="Transparent" BorderThickness="0" Margin="0,0,8,0"
-                                        Cursor="Hand" PreviewMouseRightButtonDown="Thumbnail_PreviewMouseRightButtonDown">
+                                        Focusable="False" Cursor="Hand" PreviewMouseRightButtonDown="Thumbnail_PreviewMouseRightButtonDown">
+                                    <Button.Style>
+                                        <Style TargetType="Button">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsVisibleInFilmstrip}" Value="False">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
                                     <Button.ContextMenu>
                                         <ContextMenu Opened="ThumbnailContextMenu_Opened">
                                             <MenuItem x:Name="CtxRelocate" Header="重新定位此照片…" Tag="{Binding}" Click="RelocateFrame_Click"/>

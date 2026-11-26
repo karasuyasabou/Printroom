@@ -2288,6 +2288,7 @@ public final class WinEditorController: @unchecked Sendable {
     cancelSamplingLocked()
     previewBitmap = nil
     cropPreviewTransition = nil
+    cropViewportToken += 1
     project = next
     dirty = true
     renderLocked()
@@ -2325,6 +2326,9 @@ public final class WinEditorController: @unchecked Sendable {
       cancelSamplingLocked()
       previewBitmap = nil
       cropPreviewTransition = nil
+      if let active = selection.activeFrameID, targets.contains(active) {
+        cropViewportToken += 1
+      }
       project = next
       dirty = true
       renderLocked()

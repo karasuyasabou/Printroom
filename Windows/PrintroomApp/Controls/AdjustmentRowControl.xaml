@@ -21,6 +21,7 @@
                  TextAlignment="Right"
                  VerticalContentAlignment="Center"
                  Style="{StaticResource ThemedTextBoxStyle}"
+                 InputMethod.IsInputMethodEnabled="False"
                  Height="22"
                  KeyDown="ValueBox_KeyDown"
                  LostKeyboardFocus="ValueBox_LostKeyboardFocus"/>
