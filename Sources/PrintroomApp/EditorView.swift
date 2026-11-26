@@ -498,7 +498,7 @@ struct EditorView: View {
   }
   private func simpleTimingRow(_ axis: SimpleTimingAxis, color: Color) -> some View {
     AdjustmentRow(title: axis.help,
-        value: Binding(get: { axis.value(in: model.adjustments.timing) },
+        value: Binding(get: { axis.displayedValue(in: model.adjustments.timing) },
           set: { model.setSimpleTiming(axis, value: $0) }),
         range: axis.range, step: 1, fractionDigits: 0, color: color,
         onEditingChanged: { if $0 { model.beginAdjustment() } else { model.endAdjustment() } },

@@ -26,10 +26,16 @@ public enum SimpleTimingAxis: CaseIterable, Sendable {
     case .tint: return (r + b - 2 * g) / 6
     }
   }
+  public func displayedValue(in timing: TimingParameters) -> Double {
+    // Resolve all half steps in the same direction so integer moves stay
+    // visible across zero, including when the inherited offset is half a step.
+    floor(value(in: timing) + 0.5)
+  }
   public func setting(_ value: Double, in timing: TimingParameters) -> TimingParameters {
     guard value.isFinite else { return timing }
     let requested = min(range.upperBound, max(range.lowerBound, value))
-    return moving(Int((requested - self.value(in: timing)).rounded()), in: timing)
+    // Match displayedValue by selecting the lower reachable coordinate at a tie.
+    return moving(Int(ceil(requested - self.value(in: timing) - 0.5)), in: timing)
   }
   public func moving(_ steps: Int, in timing: TimingParameters) -> TimingParameters {
     let effective = [timing.red, timing.green, timing.blue].map { $0 + timing.master }

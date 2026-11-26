@@ -104,8 +104,10 @@ struct AdjustmentSlider: NSViewRepresentable {
     if event.clickCount == 2, let resetValue {
       doubleValue = resetValue
       sendAction(action, to: target)
-      // This path bypasses NSSlider's native tracking loop, which normally redraws the knob.
+      // Double-click bypasses native tracking. Display the value read back by
+      // the action now, even if a no-op reset leaves SwiftUI with no update.
       needsDisplay = true
+      displayIfNeeded()
     } else {
       super.mouseDown(with: event)
     }

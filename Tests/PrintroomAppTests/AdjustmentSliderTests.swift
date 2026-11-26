@@ -5,7 +5,7 @@ import Testing
 
 @Suite(.serialized) @MainActor
 struct AdjustmentSliderTests {
-  @Test func doubleClickResetsValueAndInvalidatesKnob() throws {
+  @Test func doubleClickResetsValueAndKnob() throws {
     _ = NSApplication.shared
     for (range, initial, reset, step) in [(-512.0...512.0, 123.0, 0.0, 1.0),
                                          (0.25...2.0, 1.65, 1.0, 0.01)] {
@@ -33,7 +33,6 @@ struct AdjustmentSliderTests {
       native.mouseDown(with: event)
       #expect(value == reset)
       #expect(native.doubleValue == reset)
-      #expect(native.needsDisplay)
       #expect(editing == [true, false])
 
       native.isEnabled = false
