@@ -26,9 +26,8 @@ public partial class HistogramOverlayControl : System.Windows.Controls.UserContr
     public HistogramOverlayControl()
     {
         InitializeComponent();
-        PreviewMouseDown += (_, e) => e.Handled = true;
-        PreviewMouseMove += (_, e) => e.Handled = false;
-        PreviewMouseWheel += (_, e) => e.Handled = true;
+        MouseDown += (_, e) => e.Handled = true;
+        MouseWheel += (_, e) => e.Handled = true;
         ApplyExpandedUI();
     }
 

@@ -144,7 +144,10 @@ public sealed class EditorViewModel : INotifyPropertyChanged, IDisposable
 
         SyncFrames(snapshot);
 
-        if (snapshot.PreviewBitmapRevision == 0)
+        if (!snapshot.HasProject
+            || snapshot.PreviewBitmapRevision == 0
+            || snapshot.PreviewWidth <= 0
+            || snapshot.PreviewHeight <= 0)
         {
             if (_previewBitmap != null)
             {
@@ -160,6 +163,12 @@ public sealed class EditorViewModel : INotifyPropertyChanged, IDisposable
             {
                 PreviewBitmap = UpdateOrCreateWriteableBitmap(_previewBitmap, w, h, bgra);
                 _lastPreviewBitmapRevision = rev;
+                PreviewBitmapUpdated?.Invoke();
+            }
+            else if (_previewBitmap != null)
+            {
+                PreviewBitmap = null;
+                _lastPreviewBitmapRevision = 0;
                 PreviewBitmapUpdated?.Invoke();
             }
         }

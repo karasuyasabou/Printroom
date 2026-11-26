@@ -51,7 +51,7 @@ public sealed class PreviewCanvasControl : FrameworkElement
 
     public void SetFitZoom()
     {
-        if (_bitmap == null) return;
+        if (!_state.HasProject || _bitmap == null) return;
         CancelGesture();
         _zoom = 1.0;
         _panX = 0;
@@ -63,7 +63,7 @@ public sealed class PreviewCanvasControl : FrameworkElement
 
     public void SetActualPixelsZoom()
     {
-        if (_bitmap == null) return;
+        if (!_state.HasProject || _bitmap == null) return;
         double fit = FitScale;
         if (fit <= 1e-6) return;
         CancelGesture();
@@ -240,7 +240,7 @@ public sealed class PreviewCanvasControl : FrameworkElement
         var backdrop = TryFindResource(backdropKey) as System.Windows.Media.Brush ?? MediaBrushes.DimGray;
         dc.DrawRectangle(backdrop, null, bounds);
 
-        if (_bitmap == null) return;
+        if (!_state.HasProject || _bitmap == null) return;
         var rect = ImageRect;
         if (rect.IsEmpty) return;
 

@@ -175,6 +175,16 @@ public class BridgeIntegrationTests
             bridge.Dispatch(new { action = "renameRoll", name = "My Win Roll" });
             Assert.True(WaitUntil(bridge, ref rev, ref state, s => s.RollName == "My Win Roll"));
             Assert.True(File.Exists(Path.Combine(root, ".printroom.json")));
+
+            // Return home & verify preview bitmap and revision are cleared
+            bridge.Dispatch(new { action = "returnHome" });
+            Assert.True(WaitUntil(bridge, ref rev, ref state,
+                s => !s.HasProject && !s.HasImage && s.PreviewBitmapRevision == 0 && s.PreviewWidth == 0 && s.PreviewHeight == 0));
+            var clearedBgra = bridge.CopyPreviewBgra(out int clearedW, out int clearedH, out ulong clearedRev);
+            Assert.Null(clearedBgra);
+            Assert.Equal(0, clearedW);
+            Assert.Equal(0, clearedH);
+            Assert.Equal(0UL, clearedRev);
         }
         finally
         {

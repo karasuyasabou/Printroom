@@ -285,7 +285,7 @@ public partial class MainWindow : Window
         row.EditingStarted += () => _vm.Dispatch(new { action = "beginAdjustment" });
         row.ValueCommitted += v =>
         {
-            _vm.Dispatch(new { action = "setContrast", channel, floatValue = (float)v });
+            _vm.Dispatch(new { action = "setContrast", channel, doubleValue = v });
             var st = _vm.State;
             double clamped = channel switch
             {

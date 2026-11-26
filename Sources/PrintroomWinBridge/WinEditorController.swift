@@ -504,7 +504,7 @@ public final class WinEditorController: @unchecked Sendable {
       guard let bmp = previewBitmap else {
         outWidth.pointee = 0
         outHeight.pointee = 0
-        outRevision.pointee = previewBitmapRevision
+        outRevision.pointee = 0
         return 0
       }
       outWidth.pointee = Int32(bmp.width)
@@ -3712,7 +3712,7 @@ public final class WinEditorController: @unchecked Sendable {
       cropReviewAvailable: cropReviewAvailableLocked,
       reviewOnlyPendingCrops: reviewOnlyPendingCrops,
       pendingAutoCropFrameIDs: pendingAutoCropFrameIDsLocked.map(\.uuidString),
-      previewBitmapRevision: previewBitmapRevision,
+      previewBitmapRevision: previewBitmap == nil ? 0 : previewBitmapRevision,
       previewWidth: previewBitmap?.width ?? 0,
       previewHeight: previewBitmap?.height ?? 0,
       histogram: histDTO,
