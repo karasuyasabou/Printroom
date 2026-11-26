@@ -238,7 +238,7 @@ public struct WinCommand: Decodable, Sendable {
 
 // MARK: - Controller
 public final class WinEditorController: @unchecked Sendable {
-  public static let appVersion = "1.0.4"
+  public static let appVersion = "1.1.0"
 
   private struct UndoEntry {
     let snapshot: RollProject

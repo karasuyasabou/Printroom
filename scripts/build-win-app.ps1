@@ -57,7 +57,7 @@ try {
 
     $OutputRoot = Join-Path $RepoRoot 'output'
     $StageDir = Join-Path $OutputRoot 'Printroom-Windows-x64'
-    $ZipPath = Join-Path $OutputRoot 'Printroom-v1.0.4-Windows-x64.zip'
+    $ZipPath = Join-Path $OutputRoot 'Printroom-v1.1.0-Windows-x64.zip'
 
     if (Test-Path $StageDir) { Remove-Item -Recurse -Force $StageDir }
     if (Test-Path $ZipPath) { Remove-Item -Force $ZipPath }

@@ -96,7 +96,7 @@
                            FontFamily="{StaticResource AppMonoFont}"
                            FontSize="12.5" FontWeight="SemiBold"
                            VerticalAlignment="Center" Margin="0,0,7,0"/>
-                <TextBlock x:Name="VersionLabel" Text="v1.0.4" FontSize="10.5"
+                <TextBlock x:Name="VersionLabel" Text="v1.1.0" FontSize="10.5"
                            Foreground="{DynamicResource TertiaryTextBrush}"
                            VerticalAlignment="Center" Margin="0,0,10,0"/>
 

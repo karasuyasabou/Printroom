@@ -4,11 +4,9 @@
 
 <h1 align="center">Printroom</h1>
 
-<p align="center">macOS 原生负片调色工具，从整卷片基校准、逐帧调色到批量导出。</p>
+<p align="center">负片调色工具，从整卷片基校准、逐帧调色到批量导出。</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/macOS-14%2B-242424?style=flat-square&amp;logo=apple&amp;logoColor=white" alt="macOS 14 或更新版本">
-  <img src="https://img.shields.io/badge/macOS-arm64%20%7C%20x86__64-C4A462?style=flat-square" alt="Apple Silicon 与 Intel">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0--only-C4A462?style=flat-square" alt="许可证 GPL-3.0-only"></a>
 </p>
 
@@ -24,14 +22,14 @@
 
 ## 下载与安装
 
-要求 **macOS 14 或更新版本**。
+[下载 Printroom v1.1.0](https://github.com/karasuyasabou/Printroom/releases/tag/v1.1.0)
 
-[下载 Printroom v1.0.4](https://github.com/karasuyasabou/Printroom/releases/tag/v1.0.4)
-
-- **Apple Silicon（M 系列）**：下载 `Printroom-v1.0.4-macOS-arm64.zip`。
-- **Intel**：下载 `Printroom-v1.0.4-macOS-x86_64.zip`。
-
-解压后将 `Printroom.app` 拖入“应用程序”。应用未使用 Developer ID 签名或 Apple 公证；首次打开若被 macOS 拦截，请在尝试打开后前往“系统设置 → 隐私与安全性”，找到 Printroom 并选择“仍要打开”。
+- **macOS（要求 macOS 14 或更新版本）**：
+  - Apple Silicon（M 系列）：下载 `Printroom-v1.1.0-macOS-arm64.zip`。
+  - Intel：下载 `Printroom-v1.1.0-macOS-x86_64.zip`。
+  - 解压后将 `Printroom.app` 拖入“应用程序”。应用未使用 Developer ID 签名或 Apple 公证；首次打开若被拦截，请在尝试打开后前往“系统设置 → 隐私与安全性”，找到 Printroom 并选择“仍要打开”。
+- **Windows（64 位）**：
+  - 下载 `Printroom-v1.1.0-Windows-x64.zip`，解压后直接运行 `Printroom.exe`（便携免安装）。首次运行若出现 SmartScreen 提示，可点击“更多信息 → 仍要运行”。
 
 RAW 输入需要另行安装 [Adobe DNG Converter](https://helpx.adobe.com/camera-raw/using/adobe-dng-converter.html)；TIFF 不依赖 Adobe。
 
@@ -92,15 +90,13 @@ RAW 输入需要另行安装 [Adobe DNG Converter](https://helpx.adobe.com/camer
 
 ## 从源码构建
 
-安装 Xcode 和命令行工具，使用 Swift 6 工具链：
-
 ```sh
 git clone https://github.com/karasuyasabou/Printroom.git
 cd Printroom
-scripts/build-app.sh
 ```
 
-构建结果为 `output/Printroom.app`，也可在 Xcode 中打开 `Package.swift`。
+- **macOS**（需要 Xcode 命令行工具与 Swift 6 工具链）：运行 `scripts/build-app.sh`，构建结果为 `output/Printroom.app`，也可在 Xcode 中打开 `Package.swift`。
+- **Windows**（需要 Swift 6 工具链、MSVC 与 .NET 8 SDK）：运行 `pwsh -File scripts/build-win-app.ps1`，构建结果为 `output/Printroom-Windows-x64/` 与 `output/Printroom-v1.1.0-Windows-x64.zip`。
 
 开发与验证说明见 [参与开发](CONTRIBUTING.md)。如遇问题，欢迎提交 [Issue](https://github.com/karasuyasabou/Printroom/issues)，附上系统版本、输入格式与复现步骤。
 

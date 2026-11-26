@@ -27,6 +27,10 @@ Copyright 2016 Eric Biggers；Copyright 2024 Google LLC。采用 MIT 许可，�
 
 Adobe DNG Converter 是用户另行安装的外部应用，不包含在 Printroom 仓库或应用包中，使用受 Adobe 自身条款约束。
 
-## 系统组件
+## 字体（Windows 便携包）
 
-Printroom 使用 macOS 提供的系统框架和 zlib，不复制分发这些系统组件。其他附带文件中的既有来源及版权声明保持有效。
+Windows 桌面端随包内嵌 **Inter** 与 **JetBrains Mono** 字体，均采用 **SIL Open Font License 1.1** 许可。相关许可文件随 Windows 分发包一同提供。
+
+## 系统与运行时组件
+
+Printroom 使用各平台提供的系统框架与组件（macOS 系统框架与 zlib；Windows D3D11 / WIC / WCS 等系统接口）。Windows 便携包另随附运行所需的 .NET 8、Swift 及 MSVC 运行时库。其他附带文件中的既有来源及版权声明保持有效。
