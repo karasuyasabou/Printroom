@@ -1,5 +1,11 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
+#if canImport(Darwin)
 import Darwin
+#elseif os(Windows)
+import CWinPlatform
+#endif
 import Foundation
 
 /// Separate from the density algorithm: identifies the reproducible RAW input samples.
@@ -465,7 +471,7 @@ public final class SourceProxyService: @unchecked Sendable {
           // Serialize every operation for the same source path before taking a
           // slot, so queued metadata/preview/full reads cannot occupy all four slots.
           let entryName = ".entry-" + Self.hash(Data(url.standardizedFileURL.path.utf8)) + ".lock"
-          let entryFD = try self.acquireNamedLock(entryName, mode: LOCK_EX, cancelled: cancelled)
+          let entryFD = try self.acquireNamedLock(entryName, mode: .exclusive, cancelled: cancelled)
           defer { Self.release(entryFD) }
           let slotFD = try self.acquirePreparationSlot(cancelled: cancelled)
           defer { Self.release(slotFD) }
@@ -527,18 +533,26 @@ public final class SourceProxyService: @unchecked Sendable {
 
   private struct FileRevision: Equatable {
     let size: Int64
-    let mtime: timespec
+    let mtimeSec: Int64
+    let mtimeNsec: Int64
     let inode: UInt64
     init(_ url: URL) throws {
+      #if os(Windows)
+      guard let s = try PlatformFS.lstat(url), s.isRegular else {
+        throw SourceProxyService.invalid("无法读取原片或缓存文件：\(url.lastPathComponent)")
+      }
+      size = s.size; mtimeSec = s.mtimeSec; mtimeNsec = s.mtimeNsec; inode = s.fileID
+      #else
       var s = stat()
       guard url.withUnsafeFileSystemRepresentation({ Darwin.lstat($0!, &s) }) == 0,
             s.st_mode & S_IFMT == S_IFREG else { throw SourceProxyService.invalid("无法读取原片或缓存文件：\(url.lastPathComponent)") }
-      size = s.st_size; mtime = s.st_mtimespec; inode = UInt64(s.st_ino)
+      size = s.st_size; mtimeSec = Int64(s.st_mtimespec.tv_sec); mtimeNsec = Int64(s.st_mtimespec.tv_nsec); inode = UInt64(s.st_ino)
+      #endif
     }
-    var key: String { "\(size):\(mtime.tv_sec):\(mtime.tv_nsec)" }
+    var key: String { "\(size):\(mtimeSec):\(mtimeNsec)" }
     var tiffKey: String { "\(key):\(inode)" }
     static func == (a: Self, b: Self) -> Bool {
-      a.size == b.size && a.mtime.tv_sec == b.mtime.tv_sec && a.mtime.tv_nsec == b.mtime.tv_nsec
+      a.size == b.size && a.mtimeSec == b.mtimeSec && a.mtimeNsec == b.mtimeNsec
     }
   }
   private func digest(_ url: URL, cancelled: @Sendable () -> Bool) throws -> String {
@@ -611,23 +625,51 @@ public final class SourceProxyService: @unchecked Sendable {
     try fm.createDirectory(at: root, withIntermediateDirectories: true)
   }
 
-  private static func release(_ fd: Int32) { flock(fd, LOCK_UN); Darwin.close(fd) }
+  private enum LockMode { case shared, exclusive }
+  #if os(Windows)
+  private typealias LockHandle = Int
+  #else
+  private typealias LockHandle = Int32
+  #endif
 
-  private func openLockFile(_ name: String) throws -> Int32 {
+  private static func release(_ fd: LockHandle) {
+    #if os(Windows)
+    PlatformFS.closeLock(handle: fd)
+    #else
+    flock(fd, LOCK_UN); Darwin.close(fd)
+    #endif
+  }
+
+  private func openLockFile(_ name: String) throws -> LockHandle {
     let path = root.appendingPathComponent(name)
+    #if os(Windows)
+    return try PlatformFS.openLock(path)
+    #else
     let fd = path.withUnsafeFileSystemRepresentation {
       Darwin.open($0!, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0o600)
     }
     guard fd >= 0 else { throw Self.invalid("无法锁定 代理缓存目录。") }
     return fd
+    #endif
   }
 
-  private func acquireNamedLock(_ name: String, mode: Int32,
-                                cancelled: @escaping @Sendable () -> Bool) throws -> Int32 {
-    let trace = PerformanceTrace.begin(); defer { PerformanceTrace.end(name == ".lock" ? (mode == LOCK_SH ? "proxy.cache_read_lock_wait" : "proxy.cache_maintenance_lock_wait") : "proxy.source_lock_wait", trace) }
+  private func acquireNamedLock(_ name: String, mode: LockMode,
+                                cancelled: @escaping @Sendable () -> Bool) throws -> LockHandle {
+    let trace = PerformanceTrace.begin(); defer { PerformanceTrace.end(name == ".lock" ? (mode == .shared ? "proxy.cache_read_lock_wait" : "proxy.cache_maintenance_lock_wait") : "proxy.source_lock_wait", trace) }
     let fd = try openLockFile(name)
+    #if os(Windows)
     do {
-      while flock(fd, mode | LOCK_NB) != 0 {
+      while !(try PlatformFS.tryLock(handle: fd, exclusive: mode == .exclusive)) {
+        try check(cancelled)
+        Thread.sleep(forTimeInterval: 0.025)
+      }
+      try check(cancelled)
+      return fd
+    } catch { PlatformFS.closeLock(handle: fd); throw error }
+    #else
+    let flockMode = mode == .shared ? LOCK_SH : LOCK_EX
+    do {
+      while flock(fd, flockMode | LOCK_NB) != 0 {
         guard errno == EWOULDBLOCK || errno == EAGAIN else { throw Self.invalid("代理缓存锁定失败。") }
         try check(cancelled)
         Thread.sleep(forTimeInterval: 0.025)
@@ -635,11 +677,27 @@ public final class SourceProxyService: @unchecked Sendable {
       try check(cancelled)
       return fd
     } catch { Darwin.close(fd); throw error }
+    #endif
   }
 
-  private func acquirePreparationSlot(cancelled: @escaping @Sendable () -> Bool) throws -> Int32 {
+  private func acquirePreparationSlot(cancelled: @escaping @Sendable () -> Bool) throws -> LockHandle {
     let trace = PerformanceTrace.begin(); defer { PerformanceTrace.end("proxy.slot_wait", trace) }
-    var descriptors: [Int32] = []
+    var descriptors: [LockHandle] = []
+    #if os(Windows)
+    do {
+      for slot in 0..<Self.preparationConcurrency { descriptors.append(try openLockFile(".slot-\(slot).lock")) }
+      while true {
+        try check(cancelled)
+        for (index, fd) in descriptors.enumerated() {
+          if try PlatformFS.tryLock(handle: fd, exclusive: true) {
+            for (other, descriptor) in descriptors.enumerated() where other != index { PlatformFS.closeLock(handle: descriptor) }
+            return fd
+          }
+        }
+        Thread.sleep(forTimeInterval: 0.025)
+      }
+    } catch { for fd in descriptors { PlatformFS.closeLock(handle: fd) }; throw error }
+    #else
     do {
       for slot in 0..<Self.preparationConcurrency { descriptors.append(try openLockFile(".slot-\(slot).lock")) }
       while true {
@@ -654,11 +712,12 @@ public final class SourceProxyService: @unchecked Sendable {
         Thread.sleep(forTimeInterval: 0.025)
       }
     } catch { for fd in descriptors { Darwin.close(fd) }; throw error }
+    #endif
   }
 
-  private func acquireCacheLock(shared: Bool, cancelled: @escaping @Sendable () -> Bool) throws -> Int32 {
+  private func acquireCacheLock(shared: Bool, cancelled: @escaping @Sendable () -> Bool) throws -> LockHandle {
     try ensureCacheRoot()
-    let fd = try acquireNamedLock(".lock", mode: shared ? LOCK_SH : LOCK_EX, cancelled: cancelled)
+    let fd = try acquireNamedLock(".lock", mode: shared ? .shared : .exclusive, cancelled: cancelled)
     do {
       if !shared {
         // Exclusive maintenance excludes every source reader/converter across all
@@ -677,6 +736,28 @@ public final class SourceProxyService: @unchecked Sendable {
   }
 
   public static func adobeInstallation() throws -> AdobeRAWInstallation {
+    #if os(Windows)
+    if let envPath = ProcessInfo.processInfo.environment["PRINTROOM_ADOBE_DNG_CONVERTER"], !envPath.isEmpty {
+      guard FileManager.default.fileExists(atPath: envPath) else {
+        throw invalid("环境变量 PRINTROOM_ADOBE_DNG_CONVERTER 指定的 Adobe DNG Converter 不存在。")
+      }
+      var verBuf = [CChar](repeating: 0, count: 128)
+      let rc = envPath.withCString { ptr in
+        pr_win_get_file_version_string(ptr, &verBuf, verBuf.count)
+      }
+      let version = rc == 0 ? String(cString: &verBuf) : "windows-override"
+      return AdobeRAWInstallation(executable: URL(fileURLWithPath: envPath), version: version)
+    }
+    var pathBuf = [CChar](repeating: 0, count: 4096)
+    var verBuf = [CChar](repeating: 0, count: 128)
+    let found = pr_win_find_adobe_dng_converter(&pathBuf, pathBuf.count, &verBuf, verBuf.count)
+    guard found == 0 else {
+      throw invalid("需要安装 Adobe DNG Converter 后重试。RAW 去马赛克仅使用 Adobe。")
+    }
+    let path = String(cString: &pathBuf)
+    let version = String(cString: &verBuf)
+    return AdobeRAWInstallation(executable: URL(fileURLWithPath: path), version: version.isEmpty ? "windows" : version)
+    #else
     let bundleURL = URL(fileURLWithPath: "/Applications/Adobe DNG Converter.app", isDirectory: true)
     let executable = bundleURL.appendingPathComponent("Contents/MacOS/Adobe DNG Converter")
     guard FileManager.default.isExecutableFile(atPath: executable.path),
@@ -687,10 +768,58 @@ public final class SourceProxyService: @unchecked Sendable {
       throw invalid("需要安装 Adobe DNG Converter 到“应用程序”后重试。RAW 去马赛克仅使用 Adobe。")
     }
     return AdobeRAWInstallation(executable: executable, version: "\(version) (\(build))")
+    #endif
   }
 
   static func convert(_ installation: AdobeRAWInstallation, source: URL, destination: URL,
                       cancelled: @escaping @Sendable () -> Bool) throws {
+    #if os(Windows)
+    let exePath = installation.executable.withUnsafeFileSystemRepresentation { String(cString: $0!) }
+    let destDir = destination.deletingLastPathComponent().withUnsafeFileSystemRepresentation { String(cString: $0!) }
+    let srcPath = source.withUnsafeFileSystemRepresentation { String(cString: $0!) }
+    let args = ["-u", "-l", "-p0", "-dng1.1", "-d", destDir, "-o", destination.lastPathComponent, srcPath]
+    let log = destination.deletingLastPathComponent().appendingPathComponent("adobe.log")
+    let logPath = log.withUnsafeFileSystemRepresentation { String(cString: $0!) }
+    defer { try? FileManager.default.removeItem(at: log) }
+    if cancelled() { throw CancellationError() }
+    final class CancelBox: @unchecked Sendable {
+      let fn: @Sendable () -> Bool
+      init(_ fn: @escaping @Sendable () -> Bool) { self.fn = fn }
+    }
+    let box = CancelBox(cancelled)
+    let result = withExtendedLifetime(box) { () -> (status: Int32, exitCode: Int32, winErr: UInt32) in
+      let rawCtx = Unmanaged.passUnretained(box).toOpaque()
+      let cb: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { ctx in
+        guard let ctx else { return 0 }
+        let b = Unmanaged<CancelBox>.fromOpaque(ctx).takeUnretainedValue()
+        return b.fn() ? 1 : 0
+      }
+      var exitCode: Int32 = -1
+      var winErr: UInt32 = 0
+      var status: Int32 = -1
+      let cArgs = args.map { _strdup($0) }
+      defer { cArgs.forEach { free($0) } }
+      var cPtrs = cArgs.map { UnsafePointer($0) }
+      exePath.withCString { exeC in
+        logPath.withCString { logC in
+          cPtrs.withUnsafeMutableBufferPointer { buf in
+            status = pr_win_run_hidden_process(exeC, buf.baseAddress, buf.count, logC, 120_000, cb, rawCtx, &exitCode, &winErr)
+          }
+        }
+      }
+      return (status, exitCode, winErr)
+    }
+    if result.status == -2 { throw CancellationError() }
+    if result.status == -3 { throw invalid("Adobe RAW 转换超过 120 秒，请检查原片后重试。") }
+    guard result.status == 0 && result.exitCode == 0 else {
+      let detail = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+      let code = result.status != 0 ? "Win32 0x\(String(result.winErr, radix: 16))" : "\(result.exitCode)"
+      throw invalid("Adobe RAW 转换失败（\(code)）。请检查转换器是否支持该原片后重试。\n\(detail)")
+    }
+    guard FileManager.default.fileExists(atPath: destination.path) else {
+      throw invalid("Adobe 未生成有效 DNG，请检查原片后重试。")
+    }
+    #else
     let process = Process()
     process.executableURL = try AdobeShadowBundle.executable(for: installation)
     process.arguments = ["-u", "-l", "-p0", "-dng1.1", "-d", destination.deletingLastPathComponent().path,
@@ -728,6 +857,7 @@ public final class SourceProxyService: @unchecked Sendable {
     guard FileManager.default.fileExists(atPath: destination.path) else {
       throw invalid("Adobe 未生成有效 DNG，请检查原片后重试。")
     }
+    #endif
   }
   private static func invalid(_ message: String) -> PrintroomError { .invalid(message) }
 }

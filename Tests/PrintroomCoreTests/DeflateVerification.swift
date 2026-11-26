@@ -1,12 +1,19 @@
+#if canImport(Darwin)
 import Darwin
+#endif
 import Foundation
+#if canImport(ImageIO)
 import ImageIO
+#endif
 import XCTest
 @testable import PrintroomCore
 
 /// Opt-in full-pixel verification on retained four-photo benchmark outputs.
 final class DeflateVerification: XCTestCase {
   func testRealPhotosAgainstZlibBaselineAndImageIO() throws {
+    #if !canImport(ImageIO)
+    throw XCTSkip("Requires ImageIO on macOS.")
+    #else
     let env = ProcessInfo.processInfo.environment
     guard let oldPath = env["PRINTROOM_DEFLATE_ORACLE"],
       let newPath = env["PRINTROOM_DEFLATE_OUTPUT"] else { throw XCTSkip("Requires retained benchmark outputs") }
@@ -53,5 +60,6 @@ final class DeflateVerification: XCTestCase {
         print("Deflate RGB exact, Core + ImageIO: \(url.lastPathComponent), \(reference.samples.count) samples")
       }
     }
+    #endif
   }
 }

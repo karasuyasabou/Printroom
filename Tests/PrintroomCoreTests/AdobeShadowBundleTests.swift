@@ -4,6 +4,9 @@ import XCTest
 
 final class AdobeShadowBundleTests: XCTestCase, @unchecked Sendable {
   func testShadowLinksOriginalAssetsAndChangesOnlyCopiedLaunchPolicy() throws {
+    #if !os(macOS)
+    throw XCTSkip("AdobeShadowBundle is macOS-only.")
+    #else
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("printroom-shadow-fixture-\(UUID())")
     defer { try? FileManager.default.removeItem(at: root) }
     let contents = root.appendingPathComponent("Adobe.app/Contents")
@@ -30,8 +33,13 @@ final class AdobeShadowBundleTests: XCTestCase, @unchecked Sendable {
     XCTAssertEqual(copied["CFBundleIdentifier"] as? String, info["CFBundleIdentifier"] as? String)
     XCTAssertEqual(try Data(contentsOf: executable), originalProgram)
     XCTAssertEqual(try Data(contentsOf: infoURL), originalInfo)
+    #endif
   }
-  func testInvalidApplicationDoesNotFallBackToVisibleExecutable() {
+  func testInvalidApplicationDoesNotFallBackToVisibleExecutable() throws {
+    #if !os(macOS)
+    throw XCTSkip("AdobeShadowBundle is macOS-only.")
+    #else
     XCTAssertThrowsError(try AdobeShadowBundle.executable(for: .init(executable: URL(fileURLWithPath: "/bin/sh"), version: "invalid")))
+    #endif
   }
 }

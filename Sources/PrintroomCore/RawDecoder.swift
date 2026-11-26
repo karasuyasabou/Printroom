@@ -22,7 +22,7 @@ public enum RawDecoder {
     guard url.isFileURL else { throw PrintroomError.invalid("RAW 中间文件必须是本地文件。") }
     var info = PRRawMetadata()
     var error = [CChar](repeating: 0, count: 1024)
-    let status = url.path.withCString { pr_raw_metadata($0, &info, &error, error.count) }
+    let status = url.withUnsafeFileSystemRepresentation { pr_raw_metadata($0, &info, &error, error.count) }
     try requireSuccess(status, error: error)
     return RawDecodedMetadata(width: Int(info.width), height: Int(info.height), sourceOrientation: Int(info.source_orientation))
   }
@@ -39,7 +39,7 @@ public enum RawDecoder {
     var samples = [UInt16](repeating: 0, count: metadata.width * metadata.height * 3)
     let status = withExtendedLifetime(context) {
       samples.withUnsafeMutableBufferPointer { buffer in
-        url.path.withCString { path in
+        url.withUnsafeFileSystemRepresentation { path in
           pr_raw_decode(path, buffer.baseAddress, buffer.count, &info, { opaque in
             guard let opaque else { return 0 }
             return Unmanaged<RawCancellationContext>.fromOpaque(opaque).takeUnretainedValue().cancelled() ? 1 : 0

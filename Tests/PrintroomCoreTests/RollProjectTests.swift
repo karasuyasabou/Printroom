@@ -47,7 +47,12 @@ final class RollProjectTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: XCTUnwrap(backups.first)), original)
   }
   private func folder() throws -> URL {
-    let url = URL(fileURLWithPath: "/tmp", isDirectory: true)
+    #if os(Windows)
+    let base = FileManager.default.temporaryDirectory
+    #else
+    let base = URL(fileURLWithPath: "/tmp", isDirectory: true)
+    #endif
+    let url = base
       .appendingPathComponent("printroom-store-tests-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     addTeardownBlock { try? FileManager.default.removeItem(at: url) }
@@ -250,11 +255,19 @@ final class RollProjectTests: XCTestCase {
     let root = try folder()
     let outside = try folder()
     let external = try source("outside.tiff", in: outside)
-    try FileManager.default.createSymbolicLink(
-      at: root.appendingPathComponent("link.tiff"), withDestinationURL: external)
     let local = try source("local.tif", in: root)
-    try FileManager.default.createSymbolicLink(
-      at: root.appendingPathComponent("inside.tif"), withDestinationURL: local)
+    do {
+      try FileManager.default.createSymbolicLink(
+        at: root.appendingPathComponent("link.tiff"), withDestinationURL: external)
+      try FileManager.default.createSymbolicLink(
+        at: root.appendingPathComponent("inside.tif"), withDestinationURL: local)
+    } catch {
+      #if os(Windows)
+      throw XCTSkip("Windows symlink creation requires Developer Mode or elevation.")
+      #else
+      throw error
+      #endif
+    }
     let project = try ProjectStore.open(folder: root)
     XCTAssertTrue(
       try XCTUnwrap(project.frames.first(where: { $0.filename == "link.tiff" })).isMissing)
@@ -295,6 +308,9 @@ final class RollProjectTests: XCTestCase {
   }
 
   func testReadOnlySaveFailurePreservesOriginalAndInMemoryEdits() throws {
+    #if os(Windows)
+    throw XCTSkip("POSIX directory permission 0500 does not block writes on Windows NTFS.")
+    #else
     let root = try folder()
     var project = RollProject()
     try ProjectStore.save(project, folder: root)
@@ -309,6 +325,7 @@ final class RollProjectTests: XCTestCase {
     XCTAssertEqual(project.calibration.matrix, .ledLightSource)
     XCTAssertEqual(
       try FileManager.default.contentsOfDirectory(atPath: root.path), [ProjectStore.filename])
+    #endif
   }
 
   func testConcurrentSavesPublishWholeProjectsWithLastWriterWinning() throws {
@@ -352,12 +369,18 @@ final class RollProjectTests: XCTestCase {
     let target = outside.appendingPathComponent("protected.json")
     let bytes = Data("protected".utf8)
     try bytes.write(to: target)
-    try FileManager.default.createSymbolicLink(at: jsonURL(root), withDestinationURL: target)
-    XCTAssertThrowsError(try ProjectStore.open(folder: root))
-    XCTAssertThrowsError(
-      try ProjectStore.save(RollProject(), folder: root))
-    XCTAssertEqual(try Data(contentsOf: target), bytes)
-    try FileManager.default.removeItem(at: jsonURL(root))
+    do {
+      try FileManager.default.createSymbolicLink(at: jsonURL(root), withDestinationURL: target)
+      XCTAssertThrowsError(try ProjectStore.open(folder: root))
+      XCTAssertThrowsError(
+        try ProjectStore.save(RollProject(), folder: root))
+      XCTAssertEqual(try Data(contentsOf: target), bytes)
+      try FileManager.default.removeItem(at: jsonURL(root))
+    } catch {
+      #if !os(Windows)
+      throw error
+      #endif
+    }
     try FileManager.default.createDirectory(at: jsonURL(root), withIntermediateDirectories: true)
     XCTAssertThrowsError(
       try ProjectStore.save(RollProject(), folder: root))

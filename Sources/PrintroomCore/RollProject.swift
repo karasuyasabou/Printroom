@@ -1,3 +1,6 @@
+#if os(Windows)
+import CWinPlatform
+#endif
 import Foundation
 
 private let projectAlgorithmVersion = algorithmVersion
@@ -265,10 +268,21 @@ public enum ProjectStore {
     defer { lock.unlock() }
     let folder = try validatedFolder(folder)
     var result: Result<RollProject, Error>?
+    #if os(macOS)
     var coordinationError: NSError?
     NSFileCoordinator().coordinate(readingItemAt: folder, options: [], error: &coordinationError) {
       coordinated in
-      result = Result {
+      result = Result { try openCoordinated(folder: folder, coordinated: coordinated, preferredFile: preferredFile) }
+    }
+    if let coordinationError { throw coordinationError }
+    #else
+    result = Result { try openCoordinated(folder: folder, coordinated: folder, preferredFile: preferredFile) }
+    #endif
+    guard let result else { throw ProjectStoreError.invalidProject("无法协调项目读取") }
+    return try result.get()
+  }
+
+  private static func openCoordinated(folder: URL, coordinated: URL, preferredFile: URL?) throws -> RollProject {
         let projectURL = coordinated.appendingPathComponent(filename)
         var project: RollProject
         let loadedModificationDate = try fileDate(projectURL)
@@ -315,9 +329,13 @@ public enum ProjectStore {
         // Keep decoding the legacy field for existing projects, but retire review state.
         project.calibrationNeedsReview = false
         if let preferredFile {
+          #if os(Windows)
+          let inFolder = PlatformFS.sameDirectory(preferredFile.deletingLastPathComponent(), folder)
+          #else
+          let inFolder = preferredFile.standardizedFileURL.deletingLastPathComponent().resolvingSymlinksInPath() == folder
+          #endif
           guard preferredFile.isFileURL,
-            preferredFile.standardizedFileURL.deletingLastPathComponent().resolvingSymlinksInPath()
-              == folder,
+            inFolder,
             let preferred = project.frames.first(where: {
               $0.filename == preferredFile.lastPathComponent
             }),
@@ -332,11 +350,6 @@ public enum ProjectStore {
           project.lastActiveFrameID = project.frames.first(where: { !$0.isMissing })?.id
         }
         return project
-      }
-    }
-    if let coordinationError { throw coordinationError }
-    guard let result else { throw ProjectStoreError.invalidProject("无法协调项目读取") }
-    return try result.get()
   }
 
   /// Saves the current in-memory settings without checking external revisions.
@@ -357,11 +370,22 @@ public enum ProjectStore {
     defer { lock.unlock() }
     let destination = folder.appendingPathComponent(filename)
     var result: Result<Date, Error>?
+    #if os(macOS)
     var coordinationError: NSError?
     NSFileCoordinator().coordinate(
       writingItemAt: destination, options: .forReplacing, error: &coordinationError
     ) { coordinated in
-      result = Result {
+      result = Result { try saveCoordinated(project: project, data: data, coordinated: coordinated) }
+    }
+    if let coordinationError { throw coordinationError }
+    #else
+    result = Result { try saveCoordinated(project: project, data: data, coordinated: destination) }
+    #endif
+    guard let result else { throw ProjectStoreError.invalidProject("无法协调项目保存") }
+    return try result.get()
+  }
+
+  private static func saveCoordinated(project: RollProject, data: Data, coordinated: URL) throws -> Date {
         let current = try fileDate(coordinated)
         if current != nil {
           // Direct overwrite still preserves damaged and unsupported project files.
@@ -402,16 +426,15 @@ public enum ProjectStore {
             try original.write(to: backup, options: .withoutOverwriting)
           }
         }
+        #if os(Windows)
+        try PlatformFS.atomicWrite(data, to: coordinated)
+        #else
         try data.write(to: coordinated, options: .atomic)
+        #endif
         guard let date = try fileDate(coordinated) else {
           throw ProjectStoreError.invalidProject("保存后无法读取修改时间")
         }
         return date
-      }
-    }
-    if let coordinationError { throw coordinationError }
-    guard let result else { throw ProjectStoreError.invalidProject("无法协调项目保存") }
-    return try result.get()
   }
 
   public static func modificationDate(folder: URL) -> Date? {
@@ -429,11 +452,18 @@ public enum ProjectStore {
   ) throws -> RollProject {
     try validate(project)
     let folder = try validatedFolder(folder)
-    guard project.sourceFolderURL == nil || project.sourceFolderURL == folder else {
+    #if os(Windows)
+    let sameFolder = project.sourceFolderURL == nil || PlatformFS.sameDirectory(project.sourceFolderURL!, folder)
+    let sourceInFolder = sourceURL.isFileURL && PlatformFS.sameDirectory(sourceURL.deletingLastPathComponent(), folder)
+    #else
+    let sameFolder = project.sourceFolderURL == nil || project.sourceFolderURL == folder
+    let sourceInFolder = sourceURL.isFileURL
+      && sourceURL.standardizedFileURL.deletingLastPathComponent().resolvingSymlinksInPath() == folder
+    #endif
+    guard sameFolder else {
       throw ProjectStoreError.invalidProject("重新定位必须在当前卷内进行")
     }
-    guard sourceURL.isFileURL,
-      sourceURL.standardizedFileURL.deletingLastPathComponent().resolvingSymlinksInPath() == folder,
+    guard sourceInFolder,
       let index = project.frames.firstIndex(where: { $0.id == frameID })
     else { throw ProjectStoreError.invalidProject("重新定位目标必须是当前卷内的 TIFF 或受支持的 RAW") }
     try validateFilename(sourceURL.lastPathComponent)
@@ -637,6 +667,13 @@ public enum ProjectStore {
   }
 
   private static func fileDate(_ url: URL) throws -> Date? {
+    #if os(Windows)
+    guard let st = try PlatformFS.lstat(url) else { return nil }
+    guard st.isRegular else {
+      throw ProjectStoreError.invalidProject("项目文件必须是普通文件，不能是符号链接或目录")
+    }
+    return Date(timeIntervalSince1970: Double(st.mtimeSec) + Double(st.mtimeNsec) / 1_000_000_000)
+    #else
     do {
       let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
       guard attributes[.type] as? FileAttributeType == .typeRegular,
@@ -650,6 +687,7 @@ public enum ProjectStore {
     {
       return nil
     }
+    #endif
   }
 
   private static func isSupportedSource(_ name: String) -> Bool {
@@ -676,6 +714,17 @@ public enum ProjectStore {
   fileprivate static func sourceRecord(url: URL, folder: URL) -> FrameRecord? {
     let resolved = url.resolvingSymlinksInPath().standardizedFileURL
     // A link resolving outside the roll, or to a nested path, is never followed.
+    #if os(Windows)
+    guard
+      PlatformFS.sameDirectory(resolved.deletingLastPathComponent(), folder),
+      FileManager.default.isReadableFile(atPath: resolved.path),
+      let st = try? PlatformFS.lstat(resolved), st.isRegular
+    else { return nil }
+    let modified = Double(st.mtimeSec) + Double(st.mtimeNsec) / 1_000_000_000.0
+    return FrameRecord(
+      filename: url.lastPathComponent, sourceSize: st.size,
+      sourceModified: modified)
+    #else
     guard
       resolved.deletingLastPathComponent() == folder.resolvingSymlinksInPath().standardizedFileURL,
       FileManager.default.isReadableFile(atPath: resolved.path),
@@ -688,6 +737,7 @@ public enum ProjectStore {
     return FrameRecord(
       filename: url.lastPathComponent, sourceSize: Int64(size),
       sourceModified: modified.timeIntervalSince1970)
+    #endif
   }
 }
 

@@ -1,6 +1,10 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
 import Foundation
+#if canImport(Darwin)
 import Darwin
+#endif
 import XCTest
 @testable import PrintroomCore
 
@@ -37,7 +41,12 @@ final class RawIntegrationTests: XCTestCase, @unchecked Sendable {
     let profile = try Data(contentsOf: root.appendingPathComponent("ICC/DCIP3_D65.icc"))
     let request = try ExportRequest(project: project, targetIDs: Set(project.frames.map(\.id)), destinationDirectory: output)
     let result = try await ExportEngine(useCPUReference: true).run(request, lut: lut, p3Profile: profile)
+    #if canImport(Darwin)
     var usage = rusage(); getrusage(RUSAGE_SELF, &usage)
+    let rssBytes = usage.ru_maxrss
+    #else
+    let rssBytes = 0
+    #endif
     XCTAssertEqual(result.completedCount, 8); XCTAssertEqual(result.failedCount, 0)
     var outputs: [[String: Any]] = []
     for frame in result.results {
@@ -57,7 +66,7 @@ final class RawIntegrationTests: XCTestCase, @unchecked Sendable {
       if values.isRegularFile == true { cacheBytes += Int64(values.fileSize ?? 0) }
     }
     let report: [String: Any] = ["frames": outputs, "fullRollExportSeconds": result.elapsedSeconds,
-                                "peakTestProcessRSSBeforeVerificationBytes": usage.ru_maxrss,
+                                "peakTestProcessRSSBeforeVerificationBytes": rssBytes,
                                 "cacheBytes": cacheBytes, "cacheLimitBytes": SourceProxyService.defaultCacheLimit,
                                 "cacheState": "proxy cache only; each export decodes transient full-size pixels",
                                 "concurrency": 1, "renderer": "CPU reference", "compression": "none", "output": output.path]
@@ -166,10 +175,15 @@ final class RawIntegrationTests: XCTestCase, @unchecked Sendable {
     XCTAssertEqual(fullResult.completedCount, 1)
     let dimensions = try TIFFCodec.metadata(url: fullOutput)
     XCTAssertEqual(dimensions.width, 7008); XCTAssertEqual(dimensions.height, 4672)
+    #if canImport(Darwin)
     var usage = rusage()
     getrusage(RUSAGE_SELF, &usage)
+    let rssBytes = usage.ru_maxrss
+    #else
+    let rssBytes = 0
+    #endif
     XCTAssertNotNil(try Data(contentsOf: fullOutput, options: .mappedIfSafe).range(of: profile), "Output embeds exact P3 ICC bytes")
-    let report: [String: Any] = ["peakTestProcessRSSBytes": usage.ru_maxrss, "frames": metrics, "batchCroppedExportSeconds": summary.elapsedSeconds,
+    let report: [String: Any] = ["peakTestProcessRSSBytes": rssBytes, "frames": metrics, "batchCroppedExportSeconds": summary.elapsedSeconds,
                                 "fullSizeExportSeconds": fullResult.elapsedSeconds,
                                 "libRawVersion": RawDecoder.version, "output": work.path]
     try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])

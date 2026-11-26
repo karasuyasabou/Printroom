@@ -1,5 +1,9 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
+#if canImport(ImageIO)
 import ImageIO
+#endif
 import Foundation
 import XCTest
 @testable import PrintroomCore
@@ -76,6 +80,9 @@ final class SprocketWhiteningTests: XCTestCase, @unchecked Sendable {
     }
   }
   func testCPUAndMetalThresholdChangesReuseDensityWithoutChangingDiagnostics() throws {
+    #if !canImport(Metal) && !os(Windows)
+    throw XCTSkip("GPU pipeline unavailable.")
+    #else
     let gpu = try MetalPipeline().makeSession()
     let input = PixelBuffer(width: 96, height: 72, pixels: (0..<(96 * 72)).map {
       let v = Float($0 % 257) / 256 * 0.5 + 0.05
@@ -114,6 +121,7 @@ final class SprocketWhiteningTests: XCTestCase, @unchecked Sendable {
     }
     XCTAssertEqual(gpu.statistics.densityPasses, 1)
     XCTAssertGreaterThan(gpu.statistics.densityCacheHits, 0)
+    #endif
   }
   func testSchemaEightDefaultsBacksUpOriginalAndValidatesSettings() throws {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent("sprocket-schema-\(UUID())")
@@ -142,6 +150,9 @@ final class SprocketWhiteningTests: XCTestCase, @unchecked Sendable {
     XCTAssertThrowsError(try ProjectStore.decodeSnapshot(JSONEncoder().encode(loaded)))
   }
   func testJPEGWhiteningAcrossOutputProfilesAndBothBackends() async throws {
+    #if !canImport(ImageIO) && !os(Windows)
+    throw XCTSkip("JPEG encoder unavailable.")
+    #else
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent("sprocket-jpeg-\(UUID())")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: folder) }
@@ -168,18 +179,30 @@ final class SprocketWhiteningTests: XCTestCase, @unchecked Sendable {
         let result = try await engine.run(request, lut: table, p3Profile: profile)
         XCTAssertEqual(result.completedCount, 1)
         let url = try XCTUnwrap(result.results[0].destination)
+        #if canImport(ImageIO)
         let reader = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
         let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(reader, 0, nil))
         XCTAssertEqual(image.bitsPerComponent, 8)
         let data = try XCTUnwrap(image.dataProvider?.data) as Data
+        let bytesPerRow = image.bytesPerRow
         let stride = image.bitsPerPixel / 8
+        #else
+        let decoded = try WindowsJPEGTestReader.read(url: url)
+        XCTAssertEqual(decoded.width, 128)
+        XCTAssertEqual(decoded.height, 96)
+        XCTAssertEqual(decoded.iccProfile, try color.profileData(p3: profile))
+        let data = decoded.rgb24
+        let bytesPerRow = 128 * 3
+        let stride = 3
+        #endif
         let expected = try OutputColorConverter(p3Profile: profile, output: color).quantized8(native)
         for channel in 0..<3 {
-          XCTAssertLessThanOrEqual(abs(Int(data[48 * image.bytesPerRow + 8 * stride + channel]) - 255), 2)
-          XCTAssertLessThanOrEqual(abs(Int(data[48 * image.bytesPerRow + 64 * stride + channel]) - Int(expected[channel])), 3)
+          XCTAssertLessThanOrEqual(abs(Int(data[48 * bytesPerRow + 8 * stride + channel]) - 255), 2)
+          XCTAssertLessThanOrEqual(abs(Int(data[48 * bytesPerRow + 64 * stride + channel]) - Int(expected[channel])), 3)
         }
       }
     }
+    #endif
   }
   func testTIFFExportAllDirectionsProfilesAndBackendsProtectCropAndWriteExactWhite() async throws {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent("sprocket-export-\(UUID())")
@@ -216,10 +239,12 @@ final class SprocketWhiteningTests: XCTestCase, @unchecked Sendable {
             let summary = try await engine.run(request, lut: table, p3Profile: profile)
             XCTAssertEqual(summary.completedCount, 1, "\(summary.results)")
             let destination = try XCTUnwrap(summary.results[0].destination)
+            #if canImport(ImageIO)
             let reader = try XCTUnwrap(CGImageSourceCreateWithURL(destination as CFURL, nil))
             let decoded = try XCTUnwrap(CGImageSourceCreateImageAtIndex(reader, 0, nil))
             let embedded = try XCTUnwrap(decoded.colorSpace?.copyICCData()) as Data
             XCTAssertEqual(embedded, try color.profileData(p3: profile))
+            #endif
             results.append(try TIFFCodec.read(url: destination))
           }
           let before = results[0], after = results[1]

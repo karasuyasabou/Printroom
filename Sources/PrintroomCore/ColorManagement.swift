@@ -1,6 +1,10 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
 import Foundation
+#if canImport(simd)
 import simd
+#endif
 
 /// These profiles are fixed application resources, never a display profile or an
 /// OS-dependent substitute. The native LUT ICC is separate from export choices.
@@ -41,6 +45,7 @@ public enum OutputColorProfile: String, Codable, CaseIterable, Sendable {
       case .displayP3: name = "DisplayP3"
       case .rec2020: name = "Rec2020"
       }
+      #if os(macOS)
       let packagedBundle = Bundle.main.resourceURL?
         .appendingPathComponent("Printroom_PrintroomCore.bundle")
       let bundle: Bundle
@@ -54,6 +59,28 @@ public enum OutputColorProfile: String, Codable, CaseIterable, Sendable {
       guard let url = bundle.url(forResource: name, withExtension: "icc") else {
         throw PrintroomError.invalid("缺少输出 ICC：\(label)")
       }
+      #else
+      let exeDir = (Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments.first ?? ""))
+        .deletingLastPathComponent()
+      let dllDir = Bundle(for: OutputColorConverter.self).bundleURL.deletingLastPathComponent()
+      let candidates = [
+        Bundle.main.bundleURL.appendingPathComponent("Printroom_PrintroomCore.resources/\(name).icc"),
+        exeDir.appendingPathComponent("Printroom_PrintroomCore.resources/\(name).icc"),
+        exeDir.appendingPathComponent("Assets/OutputProfiles/\(name).icc"),
+        dllDir.appendingPathComponent("Printroom_PrintroomCore.resources/\(name).icc"),
+        URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+          .appendingPathComponent("Sources/PrintroomCore/Resources/OutputProfiles/\(name).icc"),
+      ]
+      let url: URL
+      if let found = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+        url = found
+      } else if let moduleURL = Bundle.module.url(forResource: name, withExtension: "icc")
+        ?? Bundle.module.url(forResource: name, withExtension: "icc", subdirectory: "OutputProfiles") {
+        url = moduleURL
+      } else {
+        throw PrintroomError.invalid("缺少输出 ICC：\(label)")
+      }
+      #endif
       data = try Data(contentsOf: url)
     }
     guard SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == profileSHA256

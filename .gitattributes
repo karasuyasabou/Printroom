@@ -1,6 +1,16 @@
-# Normalize documentation only. Preserve original asset bytes.
+# Normalize documentation and source files. Preserve original asset bytes.
 *.md text eol=lf
 *.json text eol=lf
+*.swift text eol=lf
+*.c text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+ThirdParty/** -text
 *.icc -text -diff
 *.icm -text -diff
 *.cube -text

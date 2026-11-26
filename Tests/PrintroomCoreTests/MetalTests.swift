@@ -4,6 +4,9 @@ import XCTest
 
 final class MetalTests: XCTestCase {
   func testCPUAgreementAcrossStagesAndExtremes() throws {
+    #if !canImport(Metal) && !os(Windows)
+    throw XCTSkip("GPU pipeline unavailable on this platform.")
+    #else
     let gpu = try MetalPipeline()
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
       .deletingLastPathComponent().deletingLastPathComponent()
@@ -64,5 +67,6 @@ final class MetalTests: XCTestCase {
     print(
       "Metal agreement: \(gpu.deviceName), \(pixels.count) pixels × 2 matrices × 3 adjustments × \(PipelineStage.allCases.count) stages; max error \(maximum)"
     )
+    #endif
   }
 }

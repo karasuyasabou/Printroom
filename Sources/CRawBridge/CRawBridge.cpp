@@ -8,15 +8,42 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <string>
+#endif
 
 namespace {
+#ifdef _WIN32
+std::wstring utf8ToWide(const char *path) {
+  if (!path || path[0] == '\0') throw std::runtime_error("Empty RAW path");
+  int len = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, nullptr, 0);
+  if (len <= 0) throw std::runtime_error("Invalid UTF-8 RAW path");
+  std::wstring wide(size_t(len), L'\0');
+  if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, wide.data(), len) <= 0) {
+    throw std::runtime_error("Invalid UTF-8 RAW path");
+  }
+  wide.pop_back();
+  for (wchar_t &ch : wide) {
+    if (ch == L'/') ch = L'\\';
+  }
+  return wide;
+}
+#endif
 // Inspect real image IFDs, never the embedded thumbnail. Deliberately narrow to
 // the uncompressed integer Linear DNG contract emitted by our Adobe arguments.
 struct DNGInspector {
   std::ifstream file;
   uint64_t length;
   bool little;
+#ifdef _WIN32
+  explicit DNGInspector(const char *path):file(utf8ToWide(path).c_str(),std::ios::binary) {
+#else
   explicit DNGInspector(const char *path):file(path,std::ios::binary) {
+#endif
     if(!file) throw std::runtime_error("Cannot open Linear DNG");
     file.seekg(0,std::ios::end); length=file.tellg();
     if(length<8) throw std::runtime_error("Truncated DNG");
@@ -83,7 +110,12 @@ void configure(LibRaw &raw) {
   p.adjust_maximum_thr=0;p.use_camera_matrix=0;
 }
 PRRawMetadata open(LibRaw &raw,const char *path) {
-  auto m=DNGInspector(path).inspect(); configure(raw); check(raw.open_file(path));
+  auto m=DNGInspector(path).inspect(); configure(raw);
+#ifdef _WIN32
+  check(raw.open_file(utf8ToWide(path).c_str()));
+#else
+  check(raw.open_file(path));
+#endif
   auto &id=raw.imgdata.idata; auto &s=raw.imgdata.sizes;
   auto internal=raw.get_internal_data_pointer();
   if(!id.dng_version || id.filters || id.colors!=3 || s.raw_width!=m.width || s.raw_height!=m.height ||

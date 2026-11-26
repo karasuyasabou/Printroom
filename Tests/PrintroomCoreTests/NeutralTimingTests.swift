@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(simd)
 import simd
+#endif
 import XCTest
 @testable import PrintroomCore
 
@@ -239,16 +241,20 @@ final class NeutralTimingTests: XCTestCase, @unchecked Sendable {
     let input = patch((0..<11).map { i in transmittance(SIMD3(420 + Double(i), 490 + Double(i), 560 + Double(i))) })
     let result = try assertFinalNeutral(input, lut: lut)
     let cpu = try Pipeline.render(input, calibration: .init(), adjustments: result, lut: lut)
-    let gpu = try MetalPipeline().render(input, calibration: .init(), adjustments: result, lut: lut)
+    #if canImport(Metal) || os(Windows)
+    let rendered = try MetalPipeline().render(input, calibration: .init(), adjustments: result, lut: lut)
     for i in cpu.pixels.indices { for c in 0..<3 {
-      XCTAssertEqual(cpu.pixels[i][c], gpu.pixels[i][c], accuracy: 2e-4)
+      XCTAssertEqual(cpu.pixels[i][c], rendered.pixels[i][c], accuracy: 2e-4)
     } }
+    #else
+    let rendered = cpu
+    #endif
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent("FinalNeutral-\(UUID())")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: folder) }
     for outputProfile in OutputColorProfile.allCases {
       let converter = try OutputColorConverter(p3Profile: profile, output: outputProfile)
-      let samples = try converter.quantized(gpu)
+      let samples = try converter.quantized(rendered)
       for compression in [TIFFCompression.none, .deflate] {
         let url = folder.appendingPathComponent("\(outputProfile.rawValue)-\(compression.rawValue).tif")
         try TIFFCodec.write(url: url, width: input.width, height: 1, profile: converter.outputProfile,

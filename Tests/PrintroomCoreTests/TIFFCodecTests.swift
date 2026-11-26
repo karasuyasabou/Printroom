@@ -1,8 +1,15 @@
+import CLibDeflate
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
 import Foundation
+#if canImport(ImageIO)
 import ImageIO
+#endif
 import XCTest
+#if canImport(zlib)
 import zlib
+#endif
 
 @testable import PrintroomCore
 
@@ -215,6 +222,9 @@ final class TIFFCodecTests: XCTestCase {
   }
 
   func testLZWFromIndependentSystemEncoder() throws {
+    #if !canImport(ImageIO)
+    throw XCTSkip("Requires ImageIO on macOS.")
+    #else
     try inTemporaryDirectory { directory in
       let width = 257, height = 73
       // Noise fills and resets the dictionary; repeated runs exercise entries.
@@ -257,6 +267,7 @@ final class TIFFCodecTests: XCTestCase {
       }
       proxies.waitForMaintenance()
     }
+    #endif
   }
 
   func testBigTIFFAddressesBeyondFourGiB() throws {
@@ -398,6 +409,7 @@ final class TIFFCodecTests: XCTestCase {
       XCTAssertEqual(reread.embeddedProfileName, "P3 D65 Gamma 2.6")
       // A separate system decoder verifies interoperability. This path is
       // verification only; production import never depends on ImageIO.
+      #if canImport(ImageIO)
       let source = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
       XCTAssertEqual(CGImageSourceGetCount(source), 1)
       let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
@@ -415,6 +427,7 @@ final class TIFFCodecTests: XCTestCase {
           XCTAssertEqual(imageLittleEndian ? raw : raw.byteSwapped, known[y * 9 + sample])
         }
       }
+      #endif
     }
   }
 
@@ -434,6 +447,7 @@ final class TIFFCodecTests: XCTestCase {
       XCTAssertEqual(tags[274]?.values, [1])
       XCTAssertEqual(tags[273]?.values.count, 3)
       XCTAssertEqual(tags[279]?.values.count, 3)
+      #if canImport(ImageIO)
       let source = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
       let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
       XCTAssertEqual(image.width, width)
@@ -449,6 +463,7 @@ final class TIFFCodecTests: XCTestCase {
           XCTAssertEqual(little ? raw : raw.byteSwapped, samples[y * width * 3 + x])
         }
       }
+      #endif
     }
   }
 
@@ -479,11 +494,19 @@ final class TIFFCodecTests: XCTestCase {
       let sourceBytes = try fixture()
       try sourceBytes.write(to: original)
       let symlink = directory.appendingPathComponent("alias.tiff")
-      try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: original)
       let dangling = directory.appendingPathComponent("dangling.tiff")
-      try FileManager.default.createSymbolicLink(
-        at: dangling, withDestinationURL: directory.appendingPathComponent("missing"))
-      for url in [original, symlink, dangling, directory] {
+      var targets = [original, directory]
+      do {
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: original)
+        try FileManager.default.createSymbolicLink(
+          at: dangling, withDestinationURL: directory.appendingPathComponent("missing"))
+        targets.insert(contentsOf: [symlink, dangling], at: 1)
+      } catch {
+        #if !os(Windows)
+        throw error
+        #endif
+      }
+      for url in targets {
         XCTAssertThrowsError(
           try TIFFCodec.write(url: url, width: 3, height: 2, profile: Data([1])) { _ in
             XCTFail("Existing destination must be rejected before requesting rows")
@@ -694,6 +717,7 @@ final class TIFFCodecTests: XCTestCase {
       if compression == 5 {
         raw = lzwStrips?[y] ?? packLZW([256] + raw.map(Int.init) + [257])
       } else if compression != 1 {
+        #if canImport(zlib)
         var length = compressBound(uLong(raw.count))
         var packed = Data(count: Int(length))
         let code = packed.withUnsafeMutableBytes { destination in
@@ -706,6 +730,20 @@ final class TIFFCodecTests: XCTestCase {
         XCTAssertEqual(code, Z_OK)
         packed.count = Int(length)
         raw = packed
+        #else
+        let compressor = try XCTUnwrap(libdeflate_alloc_compressor(1))
+        defer { libdeflate_free_compressor(compressor) }
+        let bound = libdeflate_zlib_compress_bound(compressor, raw.count)
+        var packed = Data(count: bound)
+        let written = packed.withUnsafeMutableBytes { destination in
+          raw.withUnsafeBytes { source in
+            libdeflate_zlib_compress(compressor, source.baseAddress!, raw.count, destination.baseAddress!, bound)
+          }
+        }
+        XCTAssertGreaterThan(written, 0)
+        packed.count = written
+        raw = packed
+        #endif
       }
       offsets.append(UInt64(file.count) + addressShift)
       counts.append(UInt64(raw.count))
