@@ -29,6 +29,11 @@ struct PreviewCanvasTests {
   @Test func arrowChangesOnlyDuringPanAndRestoresOnRelease() throws {
     _ = NSApplication.shared
     let model = EditorModel()
+    let frame = FrameRecord(filename: "cursor.tiff")
+    var project = RollProject()
+    project.frames = [frame]
+    model.project = project
+    model.selection.click(frame.id, ordered: [frame.id])
     model.previewImage = try image()
     let view = CanvasView(frame: CGRect(x: 0, y: 0, width: 600, height: 400))
     view.model = model
@@ -193,6 +198,11 @@ struct PreviewCanvasTests {
 
   @Test func outsideMouseEventsDoNotStartOrContinuePanningAndSelectionStaysVisible() throws {
     let model = EditorModel()
+    let frame = FrameRecord(filename: "selection.tiff")
+    var project = RollProject()
+    project.frames = [frame]
+    model.project = project
+    model.selection.click(frame.id, ordered: [frame.id])
     model.previewImage = try image()
     let canvas = CanvasView(frame: CGRect(x: 0, y: 0, width: 200, height: 160))
     canvas.model = model
@@ -393,10 +403,16 @@ struct PreviewCanvasTests {
       profile: assets.profile
     ) { rows in
       // A coloured midtone in Final, outside the already-neutral dark tolerance.
-      (0..<(rows.count * 120)).flatMap { _ in [UInt16(10387), 7524, 5206] }
+      rows.flatMap { y in
+        (0..<120).flatMap { x -> [UInt16] in
+          // A separate film-base patch leaves the centre coloured after calibration.
+          x < 4 && y < 4 ? [65535, 65535, 65535] : [10387, 7524, 5206]
+        }
+      }
     }
     model.open(folder)
     try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     for _ in 0..<1000 where !model.canPickNeutral {
       try await Task.sleep(for: .milliseconds(10))
     }

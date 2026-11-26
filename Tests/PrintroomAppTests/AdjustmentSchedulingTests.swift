@@ -210,7 +210,8 @@ struct AdjustmentSchedulingTests {
     let frameCount = 41
     for index in 1..<frameCount { try FileManager.default.copyItem(at: original, to: folder.appendingPathComponent("\(index).tiff")) }
     model.open(folder)
-    try await waitForProxyImport(model)
+    // This cache-eviction regression prepares 41 full-size proxies; it is not a throughput benchmark.
+    try await waitForProxyImport(model, timeout: .seconds(30))
     try await prepareCalibratedPreview(model)
     try await settled(model, thumbnails: frameCount)
     let frames = try #require(model.project?.frames)

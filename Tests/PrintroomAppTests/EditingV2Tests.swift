@@ -205,6 +205,7 @@ struct EditingV2Tests {
     model.changeOrientation(.rotateClockwise)
     model.changeOrientation(.flipVertical)
     #expect(model.orientation == .transverse)
+    try await until("oriented sampling preview", { model.hasImage && !model.isRendering })
     let displayed = PixelRect(x: 1, y: 3, width: 4, height: 4)
     let original = try FrameOrientation.transverse.inverseRect(displayed, sourceWidth: width, sourceHeight: height)
     model.sampleDisplayedBase(displayed)

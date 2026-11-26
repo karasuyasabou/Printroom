@@ -173,6 +173,8 @@ struct CropEditingTests {
     let sourceBytes = try Data(contentsOf: url)
     model.open(folder)
     try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
+    model.undoManager.removeAllActions()
     try await until("initial full-frame preview", { model.histogram != nil })
     let original = try #require(model.project)
     let token = model.cropViewportToken
@@ -229,6 +231,7 @@ struct CropEditingTests {
     }
     model.open(folder)
     try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     let frames = try #require(model.project?.frames)
     for index in frames.indices {
       model.select(frames[index].id)
@@ -308,6 +311,8 @@ struct CropEditingTests {
     _ = try write("A.tif", folder: folder, width: 120, height: 80, profile: assets.profile)
     model.open(folder)
     try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
+    model.undoManager.removeAllActions()
     try await until("backup source loaded", { model.histogram != nil })
     model.beginCrop()
     model.updateCropDraft(FrameCrop(aspect: .square, width: 0.5, angleDegrees: 3.25))
@@ -361,6 +366,8 @@ struct CropEditingTests {
     }
     model.open(folder)
     try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
+    model.undoManager.removeAllActions()
     try await until("failure fixture loaded", { model.histogram != nil })
     model.selectAll()
     model.beginCrop()
@@ -446,7 +453,7 @@ struct CropEditingTests {
     #expect(try Data(contentsOf: url) == originalBytes)
   }
 
-  @Test func cropHistogramRemainsCroppedWhileBaseSamplingTemporarilyShowsFullSource() async throws {
+  @Test func cropHistogramReturnsToCropAfterBaseSamplingTemporarilyShowsFullSource() async throws {
     let model = EditorModel()
     let assets = try #require(model.assets)
     let folder = try fixture()
@@ -454,6 +461,7 @@ struct CropEditingTests {
     let url = try write("A.tif", folder: folder, width: 60, height: 48, profile: assets.profile)
     model.open(folder)
     try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     model.stage = .l0
     try await until("base sampling fixture", { model.histogram != nil })
     model.beginCrop()
@@ -461,16 +469,17 @@ struct CropEditingTests {
     model.commitCrop()
     let savedCrop = try #require(model.activeFrame?.crop)
     try await until("cropped histogram", { model.histogram?.pixelCount == 900 })
-    let histogram = try #require(model.histogram)
-    #expect(model.histogram == histogram)
+    let previousCalibration = try #require(model.project).calibration
     model.sampling = true
     #expect(model.displayWidth == 60 && model.displayHeight == 48)
     #expect(model.activeFrame?.crop == savedCrop)
-    try await until("uncropped sampling preview", { model.histogram?.pixelCount == 60 * 48 })
+    try await until("uncropped sampling preview", {
+      model.hasImage && !model.isRendering && model.histogram?.pixelCount == 60 * 48
+    })
     // This strip lies wholly outside the cropped square and remains available as film base.
-    let baseRect = PixelRect(x: 0, y: 0, width: 4, height: 4)
+    let baseRect = PixelRect(x: 4, y: 0, width: 4, height: 4)
     model.sampleDisplayedBase(baseRect)
-    try await until("full-source base calibration", { model.project?.calibration.isCalibrated == true })
+    try await until("full-source base calibration", { model.project?.calibration.selection == baseRect })
     let expected = try Pipeline.calibrate(image: TIFFCodec.read(url: url), rect: baseRect,
       matrix: model.matrix, sourceFrameID: model.activeFrame?.id,
       cmosMatrix: try #require(model.project).calibration.cmosMatrix)
@@ -480,7 +489,7 @@ struct CropEditingTests {
     #expect(model.displayWidth == 30 && model.displayHeight == 30)
     try await until("cropped preview restored after sampling", { model.histogram?.pixelCount == 900 })
     model.undo()
-    #expect(model.project?.calibration.isCalibrated == false)
+    #expect(model.project?.calibration == previousCalibration)
     #expect(model.activeFrame?.crop == savedCrop)
     try await until("cropped preview after calibration undo", { model.histogram?.pixelCount == 900 })
     #expect(model.errorMessage == nil)
@@ -497,6 +506,7 @@ struct CropEditingTests {
                   profile: assets.profile, value: 49152)
     model.open(folder)
     try await waitForProxyImport(model)
+    try await prepareCalibratedPreview(model)
     model.stage = .l0
     let frames = try #require(model.project?.frames)
     try await until("race source A loaded", { model.histogram != nil })

@@ -4,8 +4,8 @@ import Testing
 @testable import PrintroomApp
 
 /// TIFF and RAW now publish the editor only after the shared proxy barrier.
-@MainActor func waitForProxyImport(_ model: EditorModel) async throws {
-  let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+@MainActor func waitForProxyImport(_ model: EditorModel, timeout: Duration = .seconds(10)) async throws {
+  let deadline = ContinuousClock.now.advanced(by: timeout)
   while model.isImporting, model.importFailure == nil, ContinuousClock.now < deadline {
     try await Task.sleep(for: .milliseconds(2))
   }
